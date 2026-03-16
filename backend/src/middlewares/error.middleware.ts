@@ -1,5 +1,4 @@
 import { Request, Response, NextFunction } from 'express';
-import { ZodError } from 'zod';
 import logger from '../utils/logger';
 import { AppError, ValidationError } from '../utils/errors';
 
@@ -15,27 +14,28 @@ export function errorMiddleware(
     stack: err.stack,
   });
 
-  if (err instanceof ZodError) {
-    const zodErr = err as ZodError;
-    res.status(400).json({
-      status: 'error',
-      message: 'Validation failed',
-      errors: zodErr.issues.map((e) => ({ field: e.path.join('.'), message: e.message })),
-    });
-    return;
-  }
-
   if (err instanceof AppError) {
+    const code = err.name
+      .replace(/([A-Z])/g, '_$1')
+      .toUpperCase()
+      .replace(/^_/, '');
+
     res.status(err.statusCode).json({
-      status: 'error',
-      message: err.message,
+      success: false,
+      error: {
+        code,
+        message: err.message,
+      },
     });
     return;
   }
 
   res.status(500).json({
-    status: 'error',
-    message: 'Internal server error',
+    success: false,
+    error: {
+      code: 'INTERNAL_SERVER_ERROR',
+      message: 'Internal server error',
+    },
   });
 }
 

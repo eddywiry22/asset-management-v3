@@ -7,8 +7,8 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Stage 2: Core auth foundation — User, Location, UserLocationRole only.
-// Stock, Goods, and workflow tables will be added in later stages.
+// Stage 2: Core auth foundation — User, Location, UserLocationRole.
+// Stage 3: Master data — Category, Vendor, Uom, Goods, AuditLog.
 
 model User {
   id           String   @id @default(uuid())
@@ -16,10 +16,12 @@ model User {
   phone        String?  @unique
   passwordHash String
   isActive     Boolean  @default(true)
+  isAdmin      Boolean  @default(false)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   locationRoles UserLocationRole[]
+  auditLogs     AuditLog[]
 }
 
 model Location {
@@ -49,4 +51,62 @@ model UserLocationRole {
 enum Role {
   OPERATOR
   MANAGER
+}
+
+model Category {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products Product[]
+}
+
+model Vendor {
+  id          String   @id @default(uuid())
+  name        String
+  contactInfo String
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  products Product[]
+}
+
+model Uom {
+  id   String @id @default(uuid())
+  code String @unique
+  name String
+
+  products Product[]
+}
+
+model Product {
+  id         String   @id @default(uuid())
+  sku        String   @unique
+  name       String
+  categoryId String
+  vendorId   String
+  uomId      String
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  category Category @relation(fields: [categoryId], references: [id])
+  vendor   Vendor   @relation(fields: [vendorId], references: [id])
+  uom      Uom      @relation(fields: [uomId], references: [id])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  entityType  String
+  entityId    String
+  action      String
+  beforeValue Json?
+  afterValue  Json?
+  performedBy String
+  timestamp   DateTime @default(now())
+
+  user User @relation(fields: [performedBy], references: [id])
 }

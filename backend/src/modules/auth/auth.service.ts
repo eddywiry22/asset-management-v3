@@ -27,6 +27,7 @@ export class AuthService {
       email: user.email,
       phone: user.phone,
       isActive: user.isActive,
+      isAdmin: (user as any).isAdmin ?? false,
     };
 
     const access_token = this.generateAccessToken(authUser);
@@ -40,12 +41,18 @@ export class AuthService {
       sub: user.id,
       email: user.email,
       phone: user.phone,
+      isAdmin: user.isAdmin,
     };
     return jwt.sign(payload, env.jwtSecret, { expiresIn: env.jwtExpiresIn } as jwt.SignOptions);
   }
 
   generateRefreshToken(user: AuthUser): string {
-    const payload: TokenPayload = { sub: user.id, email: user.email, phone: user.phone };
+    const payload: TokenPayload = {
+      sub: user.id,
+      email: user.email,
+      phone: user.phone,
+      isAdmin: user.isAdmin,
+    };
     return jwt.sign(payload, env.jwtRefreshSecret, { expiresIn: env.jwtRefreshExpiresIn } as jwt.SignOptions);
   }
 

@@ -3,6 +3,7 @@ export interface AuthUser {
   email: string | null;
   phone: string | null;
   isActive: boolean;
+  isAdmin: boolean;
 }
 
 export interface LoginResponse {

@@ -19,6 +19,7 @@ export function authMiddleware(req: Request, _res: Response, next: NextFunction)
       email: payload.email,
       phone: payload.phone,
       isActive: true,
+      isAdmin: payload.isAdmin ?? false,
     };
     next();
   } catch (err) {

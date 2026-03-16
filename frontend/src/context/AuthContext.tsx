@@ -5,6 +5,7 @@ interface AuthContextValue {
   user: AuthUser | null;
   token: string | null;
   isAuthenticated: boolean;
+  isAdmin: boolean;
   login: (token: string, refreshToken: string, user: AuthUser) => void;
   logout: () => void;
 }
@@ -50,7 +51,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, token, isAuthenticated: !!token, login, logout }}
+      value={{
+        user,
+        token,
+        isAuthenticated: !!token,
+        isAdmin: user?.isAdmin ?? false,
+        login,
+        logout,
+      }}
     >
       {children}
     </AuthContext.Provider>
