@@ -16,12 +16,14 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-// Response interceptor: centralized error handling
+// Response interceptor: auto logout on 401
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem('access_token');
+      localStorage.removeItem('refresh_token');
+      localStorage.removeItem('auth_user');
       window.location.href = '/login';
     }
     return Promise.reject(error);

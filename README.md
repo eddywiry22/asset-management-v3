@@ -30,6 +30,12 @@ This starts:
 - **Backend** on port `3000`
 - **Frontend** on port `5173`
 
+Migration runs automatically on backend startup. To seed demo data:
+
+```bash
+docker compose exec backend npm run prisma:seed
+```
+
 ---
 
 ## Health Check
@@ -47,6 +53,42 @@ Expected response:
 ```
 
 Frontend is accessible at: [http://localhost:5173](http://localhost:5173)
+
+---
+
+## Test Credentials
+
+All accounts use password: **`password123`**
+
+### Admin
+
+| Email | Password | Notes |
+|---|---|---|
+| `admin@example.com` | `password123` | Global admin (no location role) |
+
+### Managers
+
+| Email | Password | Location |
+|---|---|---|
+| `manager1@example.com` | `password123` | MANAGER at WH-001 |
+| `manager2@example.com` | `password123` | MANAGER at WH-002 |
+| `manager3@example.com` | `password123` | MANAGER at WH-003 |
+
+### Operators
+
+| Email | Password | Location |
+|---|---|---|
+| `operator1@example.com` | `password123` | OPERATOR at WH-001 |
+| `operator2@example.com` | `password123` | OPERATOR at WH-002 |
+| `operator3@example.com` | `password123` | OPERATOR at WH-003 |
+
+### Demo Locations
+
+| Code | Name |
+|---|---|
+| WH-001 | Main Warehouse (Jakarta) |
+| WH-002 | Secondary Warehouse (Surabaya) |
+| WH-003 | Northern Warehouse (Medan) |
 
 ---
 
@@ -81,14 +123,19 @@ Frontend is accessible at: [http://localhost:5173](http://localhost:5173)
 ├── backend/
 │   ├── prisma/
 │   │   ├── schema.prisma       # Prisma schema (source of truth)
-│   │   └── seed.ts             # Seed script
+│   │   ├── seed.ts             # Seed script (idempotent)
+│   │   └── migrations/         # Applied migrations
 │   ├── src/
 │   │   ├── app.ts              # Express app setup
 │   │   ├── server.ts           # Server entry point
 │   │   ├── config/             # env, database config
-│   │   ├── middlewares/        # auth, error middleware
-│   │   ├── modules/            # Feature modules (auth, goods, stock, ...)
-│   │   └── utils/              # Logger and helpers
+│   │   ├── middlewares/        # auth, error, request-logger middleware
+│   │   ├── modules/            # Feature modules (auth, users, locations, ...)
+│   │   │   ├── auth/           # controller, service, routes, validator
+│   │   │   ├── users/          # service, repository
+│   │   │   └── locations/      # service, repository
+│   │   ├── types/              # Shared TypeScript types
+│   │   └── utils/              # logger, errors, validation helpers
 │   ├── tests/                  # Jest tests
 │   ├── Dockerfile
 │   └── package.json
@@ -96,11 +143,13 @@ Frontend is accessible at: [http://localhost:5173](http://localhost:5173)
 │   ├── src/
 │   │   ├── main.tsx            # React entry point
 │   │   ├── App.tsx             # Root app with providers
-│   │   ├── api/client.ts       # Axios API client
-│   │   ├── routes/router.tsx   # React Router config
+│   │   ├── api/client.ts       # Axios API client (auto-logout on 401)
+│   │   ├── context/            # AuthContext
+│   │   ├── routes/router.tsx   # React Router config with ProtectedRoute
 │   │   ├── theme/theme.ts      # MUI theme
-│   │   ├── modules/            # Domain UI modules
-│   │   └── components/         # Shared components
+│   │   ├── components/layout/  # AppLayout, Sidebar, Topbar, ProtectedRoute
+│   │   ├── modules/auth/       # LoginPage
+│   │   └── services/           # auth.service.ts
 │   ├── Dockerfile
 │   └── package.json
 ├── doc/                        # Project documentation
@@ -110,51 +159,40 @@ Frontend is accessible at: [http://localhost:5173](http://localhost:5173)
 
 ---
 
-## Development Workflow
-
-Follow the implementation phases defined in `/doc/product_spec.md`:
-
-1. **Phase 1** — Database schema + Prisma models
-2. **Phase 2** — Authentication, Users, Locations, Roles
-3. **Phase 3** — Master data (Goods, Vendors, Categories, UOM)
-4. **Phase 4** — Stock balances + Ledger + Dashboard
-5. **Phase 5** — Stock Adjustment module
-6. **Phase 6** — Stock Movement module + Reservations
-7. **Phase 7** — Audit log + Admin panels
-
-> Always follow the migration rules in `/doc/database_migration_rules.md` before modifying the database schema.
-
-### Running migrations and seed (Phase 1+)
-
-Migrations and seeds must **not** be run until Prisma models are added to `schema.prisma` (Phase 1). Once models exist:
+## Running Migrations and Seed (Local Development)
 
 ```bash
-# Generate a migration after updating schema.prisma
+cd backend
+
+# Apply migrations (after schema.prisma changes)
+npx prisma migrate dev --name <description>
+
+# Or in Docker:
 docker compose exec backend npx prisma migrate dev --name <description>
 
-# Regenerate the Prisma client
-docker compose exec backend npx prisma generate
+# Regenerate Prisma client
+npx prisma generate
 
-# Run seed script
-docker compose exec backend npm run prisma:seed
+# Run seed (idempotent — safe to run multiple times)
+npm run prisma:seed
+
+# Reset database (drops + re-applies migrations + seeds)
+npx prisma migrate reset
 ```
 
 ---
 
 ## Environment Variables
 
-Copy `.env.example` to `.env` in the `/backend` folder and update values as needed:
-
-```bash
-cp backend/.env.example backend/.env
-```
-
-| Variable       | Description                        | Default (Docker)                                  |
-|----------------|------------------------------------|---------------------------------------------------|
-| `DATABASE_URL` | MySQL connection string            | `mysql://asset_user:asset_password@mysql:3306/asset_db` |
-| `JWT_SECRET`   | JWT signing secret                 | `dev_secret_change_in_production`                 |
-| `PORT`         | Backend server port                | `3000`                                            |
-| `NODE_ENV`     | Environment mode                   | `development`                                     |
+| Variable                | Description                        | Default (Docker)                                  |
+|-------------------------|------------------------------------|---------------------------------------------------|
+| `DATABASE_URL`          | MySQL connection string            | `mysql://asset_user:asset_password@mysql:3306/asset_db` |
+| `JWT_SECRET`            | JWT access token signing secret    | `dev_secret_change_in_production`                 |
+| `JWT_REFRESH_SECRET`    | JWT refresh token signing secret   | `dev_refresh_secret_change_in_production`         |
+| `JWT_EXPIRES_IN`        | Access token TTL                   | `15m`                                             |
+| `JWT_REFRESH_EXPIRES_IN`| Refresh token TTL                  | `7d`                                              |
+| `PORT`                  | Backend server port                | `3000`                                            |
+| `NODE_ENV`              | Environment mode                   | `development`                                     |
 
 ---
 
@@ -163,4 +201,21 @@ cp backend/.env.example backend/.env
 - **Stock integrity is the highest priority.** Stock may only change during FINALIZATION of requests.
 - All stock operations must run inside database transactions.
 - Ledger entries are immutable — never updated or deleted.
+- Dependency flow: Controller → Service → Repository → Database (no skipping layers).
 - See `/doc/ai_system_architecture.md` for full architectural guardrails.
+
+---
+
+## Development Phases
+
+| Phase | Scope |
+|---|---|
+| 1 | Database schema + Prisma models |
+| **2 (current)** | **Authentication, Users, Locations, Roles** |
+| 3 | Master data (Goods, Vendors, Categories, UOM) |
+| 4 | Stock balances + Ledger + Dashboard |
+| 5 | Stock Adjustment module |
+| 6 | Stock Movement module + Reservations |
+| 7 | Audit log + Admin panels |
+
+> Always follow the migration rules in `/doc/database_migration_rules.md` before modifying the database schema.

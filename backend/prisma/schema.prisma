@@ -7,5 +7,46 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Models will be added in Phase 1 of implementation.
-// See /doc/prisma_schema.txt for the full planned schema.
+// Stage 2: Core auth foundation — User, Location, UserLocationRole only.
+// Stock, Goods, and workflow tables will be added in later stages.
+
+model User {
+  id           String   @id @default(uuid())
+  email        String?  @unique
+  phone        String?  @unique
+  passwordHash String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  locationRoles UserLocationRole[]
+}
+
+model Location {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  name      String
+  address   String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userRoles UserLocationRole[]
+}
+
+model UserLocationRole {
+  id         String @id @default(uuid())
+  userId     String
+  locationId String
+  role       Role
+
+  user     User     @relation(fields: [userId], references: [id])
+  location Location @relation(fields: [locationId], references: [id])
+
+  @@unique([userId, locationId])
+}
+
+enum Role {
+  OPERATOR
+  MANAGER
+}
