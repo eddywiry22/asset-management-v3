@@ -1,27 +1,44 @@
-import { createBrowserRouter } from 'react-router-dom';
-
-// TODO: Import and register page components as they are implemented.
-// Routes will follow the structure defined in /doc/frontend_architecture.md:
-//   /login
-//   /dashboard
-//   /stock
-//   /adjustments
-//   /movements
-//   /admin/products
-//   /admin/vendors
-//   /admin/categories
-//   /admin/locations
-//   /admin/users
-//   /audit-logs
+import { createBrowserRouter, Navigate } from 'react-router-dom';
+import ProtectedRoute from '../components/layout/ProtectedRoute';
+import AppLayout from '../components/layout/AppLayout';
+import LoginPage from '../modules/auth/pages/LoginPage';
 
 const router = createBrowserRouter([
   {
-    path: '/',
-    element: <div style={{ padding: 24 }}><h2>Asset Management System</h2><p>Application skeleton ready. Module pages will be added in upcoming phases.</p></div>,
+    path: '/login',
+    element: <LoginPage />,
   },
   {
-    path: '/health',
-    element: <div style={{ padding: 24 }}><h3>Frontend OK</h3></div>,
+    path: '/',
+    element: <ProtectedRoute />,
+    children: [
+      {
+        element: <AppLayout />,
+        children: [
+          {
+            index: true,
+            element: <Navigate to="/dashboard" replace />,
+          },
+          {
+            path: 'dashboard',
+            element: (
+              <div>
+                <h2>Dashboard</h2>
+                <p>Welcome. Domain modules will be added in upcoming stages.</p>
+              </div>
+            ),
+          },
+          {
+            path: 'health',
+            element: <div><h3>Frontend OK</h3></div>,
+          },
+        ],
+      },
+    ],
+  },
+  {
+    path: '*',
+    element: <Navigate to="/login" replace />,
   },
 ]);
 

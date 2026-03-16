@@ -1,15 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
+import { ZodError } from 'zod';
 import logger from '../utils/logger';
-
-export class AppError extends Error {
-  constructor(
-    public statusCode: number,
-    public message: string
-  ) {
-    super(message);
-    this.name = 'AppError';
-  }
-}
+import { AppError, ValidationError } from '../utils/errors';
 
 export function errorMiddleware(
   err: Error,
@@ -17,7 +9,21 @@ export function errorMiddleware(
   res: Response,
   _next: NextFunction
 ): void {
-  logger.error(`${err.name}: ${err.message}`, { stack: err.stack });
+  logger.error(`${err.name}: ${err.message}`, {
+    path: req.path,
+    method: req.method,
+    stack: err.stack,
+  });
+
+  if (err instanceof ZodError) {
+    const zodErr = err as ZodError;
+    res.status(400).json({
+      status: 'error',
+      message: 'Validation failed',
+      errors: zodErr.issues.map((e) => ({ field: e.path.join('.'), message: e.message })),
+    });
+    return;
+  }
 
   if (err instanceof AppError) {
     res.status(err.statusCode).json({
@@ -32,3 +38,6 @@ export function errorMiddleware(
     message: 'Internal server error',
   });
 }
+
+// Re-export error classes for convenience
+export { AppError, ValidationError } from '../utils/errors';

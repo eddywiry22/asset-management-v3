@@ -30,6 +30,9 @@ services:
     environment:
       DATABASE_URL: "mysql://asset_user:asset_password@mysql:3306/asset_db"
       JWT_SECRET: "dev_secret_change_in_production"
+      JWT_REFRESH_SECRET: "dev_refresh_secret_change_in_production"
+      JWT_EXPIRES_IN: "15m"
+      JWT_REFRESH_EXPIRES_IN: "7d"
       PORT: 3000
       NODE_ENV: development
     ports:

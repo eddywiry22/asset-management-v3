@@ -1,15 +1,27 @@
 import { Request, Response, NextFunction } from 'express';
-import { AppError } from './error.middleware';
+import { authService } from '../modules/auth/auth.service';
+import { AuthError } from '../utils/errors';
+import { AuthenticatedRequest } from '../types/request.types';
 
-// Placeholder: JWT authentication middleware.
-// Full implementation will be added in Phase 2 (Authentication module).
 export function authMiddleware(req: Request, _res: Response, next: NextFunction): void {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return next(new AppError(401, 'Unauthorized: missing or invalid token'));
+    return next(new AuthError('Missing or invalid authorization header'));
   }
 
-  // TODO: Verify JWT token and attach user context to request.
-  next();
+  const token = authHeader.slice(7);
+
+  try {
+    const payload = authService.verifyAccessToken(token);
+    (req as AuthenticatedRequest).user = {
+      id: payload.sub,
+      email: payload.email,
+      phone: payload.phone,
+      isActive: true,
+    };
+    next();
+  } catch (err) {
+    next(err);
+  }
 }
