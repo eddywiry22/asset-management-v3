@@ -3,6 +3,10 @@ import cors from 'cors';
 import { errorMiddleware } from './middlewares/error.middleware';
 import { requestLoggerMiddleware } from './middlewares/request-logger.middleware';
 import authRoutes from './modules/auth/auth.routes';
+import categoriesRoutes from './modules/categories/categories.routes';
+import vendorsRoutes from './modules/vendors/vendors.routes';
+import uomsRoutes from './modules/uoms/uoms.routes';
+import goodsRoutes from './modules/goods/goods.routes';
 
 const app: Application = express();
 
@@ -21,6 +25,10 @@ app.get('/health', (_req: Request, res: Response) => {
 
 // Module routes
 app.use('/auth', authRoutes);
+app.use('/categories', categoriesRoutes);
+app.use('/vendors', vendorsRoutes);
+app.use('/uoms', uomsRoutes);
+app.use('/goods', goodsRoutes);
 
 // Centralized error handling (must be last)
 app.use(errorMiddleware);

@@ -4,7 +4,7 @@ import bcrypt from 'bcrypt';
 const prisma = new PrismaClient();
 
 // ---------------------------------------------------------------------------
-// Data definitions
+// Stage 2: Auth foundation data
 // ---------------------------------------------------------------------------
 
 const LOCATIONS = [
@@ -14,23 +14,66 @@ const LOCATIONS = [
 ];
 
 const USERS = [
-  // Per-location managers
   { email: 'manager1@example.com', phone: '+62811000001' },
   { email: 'manager2@example.com', phone: '+62811000002' },
   { email: 'manager3@example.com', phone: '+62811000003' },
-  // Per-location operators
   { email: 'operator1@example.com', phone: '+62822000001' },
   { email: 'operator2@example.com', phone: '+62822000002' },
   { email: 'operator3@example.com', phone: '+62822000003' },
-  // System admin (global — no location role needed for Stage 2)
   { email: 'admin@example.com', phone: '+62800000000' },
 ];
 
-// Maps location index → [manager email, operator email]
 const ROLE_MAP: Array<{ locationCode: string; managerEmail: string; operatorEmail: string }> = [
   { locationCode: 'WH-001', managerEmail: 'manager1@example.com', operatorEmail: 'operator1@example.com' },
   { locationCode: 'WH-002', managerEmail: 'manager2@example.com', operatorEmail: 'operator2@example.com' },
   { locationCode: 'WH-003', managerEmail: 'manager3@example.com', operatorEmail: 'operator3@example.com' },
+];
+
+// ---------------------------------------------------------------------------
+// Stage 3: Master data
+// ---------------------------------------------------------------------------
+
+const CATEGORIES = [
+  { name: 'Electronics' },
+  { name: 'Office Supplies' },
+  { name: 'Furniture' },
+];
+
+const VENDORS = [
+  { name: 'Tech Supplier Ltd',  contactInfo: 'contact@techsupplier.com' },
+  { name: 'OfficeMart',         contactInfo: 'sales@officemart.com' },
+  { name: 'FurnitureWorld',     contactInfo: 'info@furnitureworld.com' },
+];
+
+const UOMS = [
+  { code: 'PCS', name: 'Pieces' },
+  { code: 'BOX', name: 'Box' },
+  { code: 'KG',  name: 'Kilogram' },
+  { code: 'L',   name: 'Liter' },
+];
+
+// Goods seeded after categories/vendors/uoms are created
+type GoodsInput = {
+  sku: string;
+  name: string;
+  categoryName: string;
+  vendorName: string;
+  uomCode: string;
+};
+
+const GOODS: GoodsInput[] = [
+  // Electronics — Tech Supplier Ltd
+  { sku: 'ELEC-001', name: 'Laptop',    categoryName: 'Electronics',    vendorName: 'Tech Supplier Ltd', uomCode: 'PCS' },
+  { sku: 'ELEC-002', name: 'Keyboard',  categoryName: 'Electronics',    vendorName: 'Tech Supplier Ltd', uomCode: 'PCS' },
+  { sku: 'ELEC-003', name: 'Mouse',     categoryName: 'Electronics',    vendorName: 'Tech Supplier Ltd', uomCode: 'PCS' },
+  // Office Supplies — OfficeMart
+  { sku: 'OFF-001',  name: 'Printer Paper', categoryName: 'Office Supplies', vendorName: 'OfficeMart', uomCode: 'BOX' },
+  { sku: 'OFF-002',  name: 'Stapler',       categoryName: 'Office Supplies', vendorName: 'OfficeMart', uomCode: 'PCS' },
+  { sku: 'OFF-003',  name: 'Whiteboard Marker', categoryName: 'Office Supplies', vendorName: 'OfficeMart', uomCode: 'BOX' },
+  // Furniture — FurnitureWorld
+  { sku: 'FURN-001', name: 'Office Chair',    categoryName: 'Furniture', vendorName: 'FurnitureWorld', uomCode: 'PCS' },
+  { sku: 'FURN-002', name: 'Desk',            categoryName: 'Furniture', vendorName: 'FurnitureWorld', uomCode: 'PCS' },
+  { sku: 'FURN-003', name: 'Filing Cabinet',  categoryName: 'Furniture', vendorName: 'FurnitureWorld', uomCode: 'PCS' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -42,7 +85,9 @@ async function main() {
 
   const passwordHash = await bcrypt.hash('password123', 10);
 
-  // 1. Locations (upsert — safe to run multiple times)
+  // ------------------------------------------------------------------
+  // Stage 2: Locations
+  // ------------------------------------------------------------------
   const locationMap = new Map<string, string>(); // code → id
 
   for (const loc of LOCATIONS) {
@@ -55,7 +100,9 @@ async function main() {
     console.log(`  Location: ${record.code} — ${record.name}`);
   }
 
-  // 2. Users (upsert by email — safe to run multiple times)
+  // ------------------------------------------------------------------
+  // Stage 2: Users
+  // ------------------------------------------------------------------
   const userMap = new Map<string, string>(); // email → id
 
   for (const u of USERS) {
@@ -68,7 +115,9 @@ async function main() {
     console.log(`  User: ${record.email}`);
   }
 
-  // 3. User-location roles (upsert on composite unique key)
+  // ------------------------------------------------------------------
+  // Stage 2: User-location roles
+  // ------------------------------------------------------------------
   for (const mapping of ROLE_MAP) {
     const locationId = locationMap.get(mapping.locationCode)!;
     const managerId  = userMap.get(mapping.managerEmail)!;
@@ -89,6 +138,74 @@ async function main() {
     console.log(`  Roles for ${mapping.locationCode}: MANAGER=${mapping.managerEmail}, OPERATOR=${mapping.operatorEmail}`);
   }
 
+  // ------------------------------------------------------------------
+  // Stage 3: Categories
+  // ------------------------------------------------------------------
+  const categoryMap = new Map<string, string>(); // name → id
+
+  for (const cat of CATEGORIES) {
+    const record = await prisma.category.upsert({
+      where:  { name: cat.name },
+      update: { isActive: true },
+      create: { name: cat.name, isActive: true },
+    });
+    categoryMap.set(record.name, record.id);
+    console.log(`  Category: ${record.name}`);
+  }
+
+  // ------------------------------------------------------------------
+  // Stage 3: Vendors
+  // ------------------------------------------------------------------
+  const vendorMap = new Map<string, string>(); // name → id
+
+  for (const v of VENDORS) {
+    const existing = await prisma.vendor.findFirst({ where: { name: v.name } });
+    let record;
+    if (existing) {
+      record = await prisma.vendor.update({
+        where: { id: existing.id },
+        data:  { contactInfo: v.contactInfo, isActive: true },
+      });
+    } else {
+      record = await prisma.vendor.create({
+        data: { name: v.name, contactInfo: v.contactInfo, isActive: true },
+      });
+    }
+    vendorMap.set(record.name, record.id);
+    console.log(`  Vendor: ${record.name}`);
+  }
+
+  // ------------------------------------------------------------------
+  // Stage 3: UOMs
+  // ------------------------------------------------------------------
+  const uomMap = new Map<string, string>(); // code → id
+
+  for (const uom of UOMS) {
+    const record = await prisma.uom.upsert({
+      where:  { code: uom.code },
+      update: { name: uom.name },
+      create: { code: uom.code, name: uom.name },
+    });
+    uomMap.set(record.code, record.id);
+    console.log(`  UOM: ${record.code} — ${record.name}`);
+  }
+
+  // ------------------------------------------------------------------
+  // Stage 3: Goods
+  // ------------------------------------------------------------------
+  for (const g of GOODS) {
+    const categoryId = categoryMap.get(g.categoryName)!;
+    const vendorId   = vendorMap.get(g.vendorName)!;
+    const uomId      = uomMap.get(g.uomCode)!;
+
+    const record = await prisma.goods.upsert({
+      where:  { sku: g.sku },
+      update: { name: g.name, categoryId, vendorId, uomId, isActive: true },
+      create: { sku: g.sku, name: g.name, categoryId, vendorId, uomId, isActive: true },
+    });
+    console.log(`  Goods: ${record.sku} — ${record.name}`);
+  }
+
   console.log('');
   console.log('=== Seed completed ===');
   console.log('');
@@ -106,6 +223,13 @@ async function main() {
   console.log('    operator1@example.com  / password123  (OPERATOR at WH-001)');
   console.log('    operator2@example.com  / password123  (OPERATOR at WH-002)');
   console.log('    operator3@example.com  / password123  (OPERATOR at WH-003)');
+  console.log('');
+  console.log('  Master data seeded:');
+  console.log('    Categories: Electronics, Office Supplies, Furniture');
+  console.log('    Vendors: Tech Supplier Ltd, OfficeMart, FurnitureWorld');
+  console.log('    UOMs: PCS, BOX, KG, L');
+  console.log('    Goods: 9 products (Laptop, Keyboard, Mouse, Printer Paper, Stapler,');
+  console.log('           Whiteboard Marker, Office Chair, Desk, Filing Cabinet)');
 }
 
 main()
