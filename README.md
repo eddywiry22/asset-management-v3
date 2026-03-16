@@ -30,26 +30,6 @@ This starts:
 - **Backend** on port `3000`
 - **Frontend** on port `5173`
 
-### 2. Run database migrations
-
-Once the containers are running, open a new terminal and execute:
-
-```bash
-docker compose exec backend npx prisma migrate dev --name init
-```
-
-### 3. Generate Prisma client
-
-```bash
-docker compose exec backend npx prisma generate
-```
-
-### 4. Run seed script
-
-```bash
-docker compose exec backend npm run prisma:seed
-```
-
 ---
 
 ## Health Check
@@ -143,6 +123,21 @@ Follow the implementation phases defined in `/doc/product_spec.md`:
 7. **Phase 7** — Audit log + Admin panels
 
 > Always follow the migration rules in `/doc/database_migration_rules.md` before modifying the database schema.
+
+### Running migrations and seed (Phase 1+)
+
+Migrations and seeds must **not** be run until Prisma models are added to `schema.prisma` (Phase 1). Once models exist:
+
+```bash
+# Generate a migration after updating schema.prisma
+docker compose exec backend npx prisma migrate dev --name <description>
+
+# Regenerate the Prisma client
+docker compose exec backend npx prisma generate
+
+# Run seed script
+docker compose exec backend npm run prisma:seed
+```
 
 ---
 
