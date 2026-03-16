@@ -14,13 +14,13 @@ const LOCATIONS = [
 ];
 
 const USERS = [
-  { email: 'manager1@example.com', phone: '+62811000001' },
-  { email: 'manager2@example.com', phone: '+62811000002' },
-  { email: 'manager3@example.com', phone: '+62811000003' },
-  { email: 'operator1@example.com', phone: '+62822000001' },
-  { email: 'operator2@example.com', phone: '+62822000002' },
-  { email: 'operator3@example.com', phone: '+62822000003' },
-  { email: 'admin@example.com', phone: '+62800000000' },
+  { email: 'manager1@example.com',  phone: '+62811000001', isAdmin: false },
+  { email: 'manager2@example.com',  phone: '+62811000002', isAdmin: false },
+  { email: 'manager3@example.com',  phone: '+62811000003', isAdmin: false },
+  { email: 'operator1@example.com', phone: '+62822000001', isAdmin: false },
+  { email: 'operator2@example.com', phone: '+62822000002', isAdmin: false },
+  { email: 'operator3@example.com', phone: '+62822000003', isAdmin: false },
+  { email: 'admin@example.com',     phone: '+62800000000', isAdmin: true  },
 ];
 
 const ROLE_MAP: Array<{ locationCode: string; managerEmail: string; operatorEmail: string }> = [
@@ -52,8 +52,7 @@ const UOMS = [
   { code: 'L',   name: 'Liter' },
 ];
 
-// Goods seeded after categories/vendors/uoms are created
-type GoodsInput = {
+type ProductInput = {
   sku: string;
   name: string;
   categoryName: string;
@@ -61,19 +60,19 @@ type GoodsInput = {
   uomCode: string;
 };
 
-const GOODS: GoodsInput[] = [
+const PRODUCTS: ProductInput[] = [
   // Electronics — Tech Supplier Ltd
   { sku: 'ELEC-001', name: 'Laptop',    categoryName: 'Electronics',    vendorName: 'Tech Supplier Ltd', uomCode: 'PCS' },
   { sku: 'ELEC-002', name: 'Keyboard',  categoryName: 'Electronics',    vendorName: 'Tech Supplier Ltd', uomCode: 'PCS' },
   { sku: 'ELEC-003', name: 'Mouse',     categoryName: 'Electronics',    vendorName: 'Tech Supplier Ltd', uomCode: 'PCS' },
   // Office Supplies — OfficeMart
-  { sku: 'OFF-001',  name: 'Printer Paper', categoryName: 'Office Supplies', vendorName: 'OfficeMart', uomCode: 'BOX' },
-  { sku: 'OFF-002',  name: 'Stapler',       categoryName: 'Office Supplies', vendorName: 'OfficeMart', uomCode: 'PCS' },
-  { sku: 'OFF-003',  name: 'Whiteboard Marker', categoryName: 'Office Supplies', vendorName: 'OfficeMart', uomCode: 'BOX' },
+  { sku: 'OFF-001',  name: 'Printer Paper',      categoryName: 'Office Supplies', vendorName: 'OfficeMart', uomCode: 'BOX' },
+  { sku: 'OFF-002',  name: 'Stapler',            categoryName: 'Office Supplies', vendorName: 'OfficeMart', uomCode: 'PCS' },
+  { sku: 'OFF-003',  name: 'Whiteboard Marker',  categoryName: 'Office Supplies', vendorName: 'OfficeMart', uomCode: 'BOX' },
   // Furniture — FurnitureWorld
-  { sku: 'FURN-001', name: 'Office Chair',    categoryName: 'Furniture', vendorName: 'FurnitureWorld', uomCode: 'PCS' },
-  { sku: 'FURN-002', name: 'Desk',            categoryName: 'Furniture', vendorName: 'FurnitureWorld', uomCode: 'PCS' },
-  { sku: 'FURN-003', name: 'Filing Cabinet',  categoryName: 'Furniture', vendorName: 'FurnitureWorld', uomCode: 'PCS' },
+  { sku: 'FURN-001', name: 'Office Chair',   categoryName: 'Furniture', vendorName: 'FurnitureWorld', uomCode: 'PCS' },
+  { sku: 'FURN-002', name: 'Desk',           categoryName: 'Furniture', vendorName: 'FurnitureWorld', uomCode: 'PCS' },
+  { sku: 'FURN-003', name: 'Filing Cabinet', categoryName: 'Furniture', vendorName: 'FurnitureWorld', uomCode: 'PCS' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -106,13 +105,13 @@ async function main() {
   const userMap = new Map<string, string>(); // email → id
 
   for (const u of USERS) {
-    const record = await prisma.user.upsert({
+    const record = await (prisma.user as any).upsert({
       where:  { email: u.email },
-      update: { phone: u.phone, isActive: true },
-      create: { email: u.email, phone: u.phone, passwordHash, isActive: true },
+      update: { phone: u.phone, isActive: true, isAdmin: u.isAdmin },
+      create: { email: u.email, phone: u.phone, passwordHash, isActive: true, isAdmin: u.isAdmin },
     });
     userMap.set(record.email!, record.id);
-    console.log(`  User: ${record.email}`);
+    console.log(`  User: ${record.email}${u.isAdmin ? ' [ADMIN]' : ''}`);
   }
 
   // ------------------------------------------------------------------
@@ -176,14 +175,14 @@ async function main() {
   }
 
   // ------------------------------------------------------------------
-  // Stage 3: UOMs
+  // Stage 3: UOMs — immutable after creation, never overwrite name
   // ------------------------------------------------------------------
   const uomMap = new Map<string, string>(); // code → id
 
   for (const uom of UOMS) {
     const record = await prisma.uom.upsert({
       where:  { code: uom.code },
-      update: { name: uom.name },
+      update: {},  // immutable — never overwrite existing name
       create: { code: uom.code, name: uom.name },
     });
     uomMap.set(record.code, record.id);
@@ -191,19 +190,19 @@ async function main() {
   }
 
   // ------------------------------------------------------------------
-  // Stage 3: Goods
+  // Stage 3: Products
   // ------------------------------------------------------------------
-  for (const g of GOODS) {
-    const categoryId = categoryMap.get(g.categoryName)!;
-    const vendorId   = vendorMap.get(g.vendorName)!;
-    const uomId      = uomMap.get(g.uomCode)!;
+  for (const p of PRODUCTS) {
+    const categoryId = categoryMap.get(p.categoryName)!;
+    const vendorId   = vendorMap.get(p.vendorName)!;
+    const uomId      = uomMap.get(p.uomCode)!;
 
-    const record = await prisma.goods.upsert({
-      where:  { sku: g.sku },
-      update: { name: g.name, categoryId, vendorId, uomId, isActive: true },
-      create: { sku: g.sku, name: g.name, categoryId, vendorId, uomId, isActive: true },
+    const record = await prisma.product.upsert({
+      where:  { sku: p.sku },
+      update: { name: p.name, categoryId, vendorId, uomId, isActive: true },
+      create: { sku: p.sku, name: p.name, categoryId, vendorId, uomId, isActive: true },
     });
-    console.log(`  Goods: ${record.sku} — ${record.name}`);
+    console.log(`  Product: ${record.sku} — ${record.name}`);
   }
 
   console.log('');
@@ -212,7 +211,7 @@ async function main() {
   console.log('Test credentials (all use password: password123)');
   console.log('');
   console.log('  Admin:');
-  console.log('    admin@example.com      / password123');
+  console.log('    admin@example.com      / password123  [isAdmin: true]');
   console.log('');
   console.log('  Managers:');
   console.log('    manager1@example.com   / password123  (MANAGER at WH-001)');
@@ -228,8 +227,8 @@ async function main() {
   console.log('    Categories: Electronics, Office Supplies, Furniture');
   console.log('    Vendors: Tech Supplier Ltd, OfficeMart, FurnitureWorld');
   console.log('    UOMs: PCS, BOX, KG, L');
-  console.log('    Goods: 9 products (Laptop, Keyboard, Mouse, Printer Paper, Stapler,');
-  console.log('           Whiteboard Marker, Office Chair, Desk, Filing Cabinet)');
+  console.log('    Products: 9 items (Laptop, Keyboard, Mouse, Printer Paper, Stapler,');
+  console.log('              Whiteboard Marker, Office Chair, Desk, Filing Cabinet)');
 }
 
 main()

@@ -6,13 +6,17 @@ import app from '../src/app';
 // Mock database — no live MySQL required for unit tests
 // ---------------------------------------------------------------------------
 
-const MOCK_USERS: Record<string, { id: string; email: string; phone: string; passwordHash: string; isActive: boolean }> = {
+const MOCK_USERS: Record<string, {
+  id: string; email: string; phone: string; passwordHash: string;
+  isActive: boolean; isAdmin: boolean;
+}> = {
   'manager1@example.com': {
     id: 'test-manager1-id',
     email: 'manager1@example.com',
     phone: '+62811000001',
     passwordHash: '', // filled in beforeAll
     isActive: true,
+    isAdmin: false,
   },
   'operator1@example.com': {
     id: 'test-operator1-id',
@@ -20,6 +24,7 @@ const MOCK_USERS: Record<string, { id: string; email: string; phone: string; pas
     phone: '+62822000001',
     passwordHash: '', // filled in beforeAll
     isActive: true,
+    isAdmin: false,
   },
 };
 
@@ -53,7 +58,7 @@ function lookupUser(identifier: string) {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('POST /auth/login', () => {
+describe('POST /v1/auth/login', () => {
   const PASSWORD = 'password123';
 
   beforeAll(async () => {
@@ -73,20 +78,20 @@ describe('POST /auth/login', () => {
   // -- manager1 (email + phone) -------------------------------------------
 
   it('manager1: returns 200 with tokens when logging in by email', async () => {
-    const res = await request(app).post('/auth/login').send({
+    const res = await request(app).post('/v1/auth/login').send({
       identifier: 'manager1@example.com',
       password: PASSWORD,
     });
 
     expect(res.status).toBe(200);
-    expect(res.body.status).toBe('success');
+    expect(res.body.success).toBe(true);
     expect(res.body.data).toHaveProperty('access_token');
     expect(res.body.data).toHaveProperty('refresh_token');
     expect(res.body.data.user.email).toBe('manager1@example.com');
   });
 
   it('manager1: returns 200 with tokens when logging in by phone', async () => {
-    const res = await request(app).post('/auth/login').send({
+    const res = await request(app).post('/v1/auth/login').send({
       identifier: '+62811000001',
       password: PASSWORD,
     });
@@ -98,20 +103,20 @@ describe('POST /auth/login', () => {
   // -- operator1 (email + phone) ------------------------------------------
 
   it('operator1: returns 200 with tokens when logging in by email', async () => {
-    const res = await request(app).post('/auth/login').send({
+    const res = await request(app).post('/v1/auth/login').send({
       identifier: 'operator1@example.com',
       password: PASSWORD,
     });
 
     expect(res.status).toBe(200);
-    expect(res.body.status).toBe('success');
+    expect(res.body.success).toBe(true);
     expect(res.body.data).toHaveProperty('access_token');
     expect(res.body.data).toHaveProperty('refresh_token');
     expect(res.body.data.user.email).toBe('operator1@example.com');
   });
 
   it('operator1: returns 200 with tokens when logging in by phone', async () => {
-    const res = await request(app).post('/auth/login').send({
+    const res = await request(app).post('/v1/auth/login').send({
       identifier: '+62822000001',
       password: PASSWORD,
     });
@@ -123,39 +128,43 @@ describe('POST /auth/login', () => {
   // -- rejection cases -------------------------------------------------------
 
   it('returns 401 when password is incorrect', async () => {
-    const res = await request(app).post('/auth/login').send({
+    const res = await request(app).post('/v1/auth/login').send({
       identifier: 'manager1@example.com',
       password: 'wrongpassword',
     });
 
     expect(res.status).toBe(401);
-    expect(res.body.status).toBe('error');
+    expect(res.body.success).toBe(false);
+    expect(res.body.error).toBeDefined();
   });
 
   it('returns 401 when user does not exist', async () => {
-    const res = await request(app).post('/auth/login').send({
+    const res = await request(app).post('/v1/auth/login').send({
       identifier: 'unknown@example.com',
       password: PASSWORD,
     });
 
     expect(res.status).toBe(401);
+    expect(res.body.success).toBe(false);
   });
 
   // -- validation cases ------------------------------------------------------
 
   it('returns 400 when identifier is missing', async () => {
-    const res = await request(app).post('/auth/login').send({
+    const res = await request(app).post('/v1/auth/login').send({
       password: PASSWORD,
     });
 
     expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
   });
 
   it('returns 400 when password is missing', async () => {
-    const res = await request(app).post('/auth/login').send({
+    const res = await request(app).post('/v1/auth/login').send({
       identifier: 'manager1@example.com',
     });
 
     expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
   });
 });

@@ -23,17 +23,17 @@ export interface UpdateVendorInput {
 
 export const vendorsService = {
   async getAll(): Promise<Vendor[]> {
-    const res = await apiClient.get<{ success: boolean; data: Vendor[] }>('/vendors');
+    const res = await apiClient.get<{ success: boolean; data: Vendor[] }>('/admin/vendors');
     return res.data.data;
   },
 
   async create(input: CreateVendorInput): Promise<Vendor> {
-    const res = await apiClient.post<{ success: boolean; data: Vendor }>('/vendors', input);
+    const res = await apiClient.post<{ success: boolean; data: Vendor }>('/admin/vendors', input);
     return res.data.data;
   },
 
   async update(id: string, input: UpdateVendorInput): Promise<Vendor> {
-    const res = await apiClient.put<{ success: boolean; data: Vendor }>(`/vendors/${id}`, input);
+    const res = await apiClient.put<{ success: boolean; data: Vendor }>(`/admin/vendors/${id}`, input);
     return res.data.data;
   },
 };

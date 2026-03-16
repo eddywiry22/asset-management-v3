@@ -1,8 +1,9 @@
 /**
- * Master Data Module Tests — Stage 3
+ * Master Data Module Tests — Stage 3 (corrected)
  *
  * Tests run against a mocked Prisma client (no live database required).
- * Covers: categories, vendors, UOMs, goods.
+ * Covers: categories, vendors, UOMs, products.
+ * Routes: /v1/admin/* with auth + admin middleware.
  */
 
 import request from 'supertest';
@@ -14,9 +15,10 @@ import app from '../src/app';
 jest.mock('../src/modules/auth/auth.service', () => ({
   authService: {
     verifyAccessToken: jest.fn().mockReturnValue({
-      sub:   'user-admin-id',
-      email: 'admin@example.com',
-      phone: null,
+      sub:     'user-admin-id',
+      email:   'admin@example.com',
+      phone:   null,
+      isAdmin: true,
     }),
   },
 }));
@@ -40,7 +42,7 @@ jest.mock('../src/config/database', () => {
       category: createMock(),
       vendor:   createMock(),
       uom:      createMock(),
-      goods:    createMock(),
+      product:  createMock(),
       auditLog: { create: jest.fn().mockResolvedValue({}) },
       $connect:    jest.fn(),
       $disconnect: jest.fn(),
@@ -51,14 +53,14 @@ jest.mock('../src/config/database', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Helpers: get mock references after module is loaded
+// Helpers
 // ---------------------------------------------------------------------------
 const AUTH = { Authorization: 'Bearer valid.token.here' };
 
 const CATEGORY_ID = '11111111-1111-4111-a111-111111111111';
 const VENDOR_ID   = '22222222-2222-4222-a222-222222222222';
 const UOM_ID      = '33333333-3333-4333-a333-333333333333';
-const GOODS_ID    = '44444444-4444-4444-a444-444444444444';
+const PRODUCT_ID  = '44444444-4444-4444-a444-444444444444';
 
 const fakeCategory = {
   id: CATEGORY_ID, name: 'Electronics', isActive: true,
@@ -72,8 +74,8 @@ const fakeVendor = {
 
 const fakeUom = { id: UOM_ID, code: 'PCS', name: 'Pieces' };
 
-const fakeGoods = {
-  id: GOODS_ID, sku: 'ELEC-001', name: 'Laptop',
+const fakeProduct = {
+  id: PRODUCT_ID, sku: 'ELEC-001', name: 'Laptop',
   categoryId: CATEGORY_ID, vendorId: VENDOR_ID, uomId: UOM_ID,
   isActive: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
   category: { id: CATEGORY_ID, name: 'Electronics' },
@@ -81,7 +83,6 @@ const fakeGoods = {
   uom:      { id: UOM_ID, code: 'PCS', name: 'Pieces' },
 };
 
-// Retrieve mocked Prisma models from the mocked module
 let db: any;
 
 beforeAll(async () => {
@@ -96,35 +97,61 @@ beforeEach(() => {
 });
 
 // ===========================================================================
+// ADMIN ROLE ENFORCEMENT
+// ===========================================================================
+
+describe('Admin role enforcement', () => {
+  it('returns 403 when isAdmin is false', async () => {
+    const { authService } = await import('../src/modules/auth/auth.service');
+    (authService.verifyAccessToken as jest.Mock).mockReturnValueOnce({
+      sub:     'user-operator-id',
+      email:   'operator@example.com',
+      phone:   null,
+      isAdmin: false,
+    });
+
+    const res = await request(app).get('/v1/admin/categories').set(AUTH);
+    expect(res.status).toBe(403);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error.code).toBeDefined();
+  });
+
+  it('returns 401 without auth token', async () => {
+    const res = await request(app).get('/v1/admin/categories');
+    expect(res.status).toBe(401);
+    expect(res.body.success).toBe(false);
+  });
+});
+
+// ===========================================================================
 // CATEGORY TESTS
 // ===========================================================================
 
 describe('Categories', () => {
-  describe('GET /categories', () => {
-    it('returns list of categories', async () => {
+  describe('GET /v1/admin/categories', () => {
+    it('returns paginated list of categories', async () => {
       db.category.findMany.mockResolvedValue([fakeCategory]);
+      db.category.count.mockResolvedValue(1);
 
-      const res = await request(app).get('/categories').set(AUTH);
+      const res = await request(app).get('/v1/admin/categories').set(AUTH);
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data).toHaveLength(1);
       expect(res.body.data[0].name).toBe('Electronics');
-    });
-
-    it('returns 401 without auth token', async () => {
-      const res = await request(app).get('/categories');
-      expect(res.status).toBe(401);
+      expect(res.body.meta).toBeDefined();
+      expect(res.body.meta.total).toBe(1);
+      expect(res.body.meta.page).toBe(1);
     });
   });
 
-  describe('POST /categories — create category', () => {
+  describe('POST /v1/admin/categories', () => {
     it('creates a new category successfully', async () => {
       db.category.findUnique.mockResolvedValue(null);
       db.category.create.mockResolvedValue(fakeCategory);
 
       const res = await request(app)
-        .post('/categories')
+        .post('/v1/admin/categories')
         .set(AUTH)
         .send({ name: 'Electronics' });
 
@@ -135,38 +162,40 @@ describe('Categories', () => {
     });
 
     it('rejects duplicate category name', async () => {
-      db.category.findUnique.mockResolvedValue(fakeCategory); // name exists
+      db.category.findUnique.mockResolvedValue(fakeCategory);
 
       const res = await request(app)
-        .post('/categories')
+        .post('/v1/admin/categories')
         .set(AUTH)
         .send({ name: 'Electronics' });
 
       expect(res.status).toBe(400);
-      expect(res.body.status).toBe('error');
+      expect(res.body.success).toBe(false);
+      expect(res.body.error).toBeDefined();
       expect(db.category.create).not.toHaveBeenCalled();
     });
 
     it('returns 400 when name is missing', async () => {
       const res = await request(app)
-        .post('/categories')
+        .post('/v1/admin/categories')
         .set(AUTH)
         .send({});
 
       expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
     });
   });
 
-  describe('PUT /categories/:id — update category', () => {
+  describe('PUT /v1/admin/categories/:id', () => {
     it('updates a category successfully', async () => {
       const updated = { ...fakeCategory, name: 'Consumer Electronics' };
       db.category.findUnique
-        .mockResolvedValueOnce(fakeCategory) // findById
-        .mockResolvedValueOnce(null);         // findByName (new name not taken)
+        .mockResolvedValueOnce(fakeCategory)
+        .mockResolvedValueOnce(null);
       db.category.update.mockResolvedValue(updated);
 
       const res = await request(app)
-        .put(`/categories/${CATEGORY_ID}`)
+        .put(`/v1/admin/categories/${CATEGORY_ID}`)
         .set(AUTH)
         .send({ name: 'Consumer Electronics' });
 
@@ -178,11 +207,12 @@ describe('Categories', () => {
       db.category.findUnique.mockResolvedValue(null);
 
       const res = await request(app)
-        .put(`/categories/nonexistent-id`)
+        .put(`/v1/admin/categories/nonexistent-id`)
         .set(AUTH)
         .send({ name: 'New Name' });
 
       expect(res.status).toBe(404);
+      expect(res.body.success).toBe(false);
     });
   });
 });
@@ -192,24 +222,26 @@ describe('Categories', () => {
 // ===========================================================================
 
 describe('Vendors', () => {
-  describe('GET /vendors', () => {
-    it('returns list of vendors', async () => {
+  describe('GET /v1/admin/vendors', () => {
+    it('returns paginated list of vendors', async () => {
       db.vendor.findMany.mockResolvedValue([fakeVendor]);
+      db.vendor.count.mockResolvedValue(1);
 
-      const res = await request(app).get('/vendors').set(AUTH);
+      const res = await request(app).get('/v1/admin/vendors').set(AUTH);
 
       expect(res.status).toBe(200);
       expect(res.body.data).toHaveLength(1);
       expect(res.body.data[0].name).toBe('Tech Supplier Ltd');
+      expect(res.body.meta.total).toBe(1);
     });
   });
 
-  describe('POST /vendors — create vendor', () => {
+  describe('POST /v1/admin/vendors', () => {
     it('creates a vendor successfully', async () => {
       db.vendor.create.mockResolvedValue(fakeVendor);
 
       const res = await request(app)
-        .post('/vendors')
+        .post('/v1/admin/vendors')
         .set(AUTH)
         .send({ name: 'Tech Supplier Ltd', contactInfo: 'contact@tech.com' });
 
@@ -220,22 +252,23 @@ describe('Vendors', () => {
 
     it('returns 400 when contactInfo is missing', async () => {
       const res = await request(app)
-        .post('/vendors')
+        .post('/v1/admin/vendors')
         .set(AUTH)
         .send({ name: 'Tech Supplier Ltd' });
 
       expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
     });
   });
 
-  describe('PUT /vendors/:id — update vendor', () => {
+  describe('PUT /v1/admin/vendors/:id', () => {
     it('updates a vendor', async () => {
       const updated = { ...fakeVendor, contactInfo: 'new@tech.com' };
       db.vendor.findUnique.mockResolvedValue(fakeVendor);
       db.vendor.update.mockResolvedValue(updated);
 
       const res = await request(app)
-        .put(`/vendors/${VENDOR_ID}`)
+        .put(`/v1/admin/vendors/${VENDOR_ID}`)
         .set(AUTH)
         .send({ contactInfo: 'new@tech.com' });
 
@@ -250,25 +283,27 @@ describe('Vendors', () => {
 // ===========================================================================
 
 describe('UOMs', () => {
-  describe('GET /uoms', () => {
-    it('returns list of UOMs', async () => {
+  describe('GET /v1/admin/uoms', () => {
+    it('returns paginated list of UOMs', async () => {
       db.uom.findMany.mockResolvedValue([fakeUom]);
+      db.uom.count.mockResolvedValue(1);
 
-      const res = await request(app).get('/uoms').set(AUTH);
+      const res = await request(app).get('/v1/admin/uoms').set(AUTH);
 
       expect(res.status).toBe(200);
       expect(res.body.data).toHaveLength(1);
       expect(res.body.data[0].code).toBe('PCS');
+      expect(res.body.meta.total).toBe(1);
     });
   });
 
-  describe('POST /uoms — create UOM', () => {
+  describe('POST /v1/admin/uoms', () => {
     it('creates a UOM successfully', async () => {
-      db.uom.findUnique.mockResolvedValue(null); // code not taken
+      db.uom.findUnique.mockResolvedValue(null);
       db.uom.create.mockResolvedValue(fakeUom);
 
       const res = await request(app)
-        .post('/uoms')
+        .post('/v1/admin/uoms')
         .set(AUTH)
         .send({ code: 'PCS', name: 'Pieces' });
 
@@ -278,55 +313,59 @@ describe('UOMs', () => {
     });
 
     it('rejects duplicate UOM code', async () => {
-      db.uom.findUnique.mockResolvedValue(fakeUom); // code exists
+      db.uom.findUnique.mockResolvedValue(fakeUom);
 
       const res = await request(app)
-        .post('/uoms')
+        .post('/v1/admin/uoms')
         .set(AUTH)
         .send({ code: 'PCS', name: 'Pieces' });
 
       expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
       expect(db.uom.create).not.toHaveBeenCalled();
     });
 
     it('returns 400 when code is missing', async () => {
       const res = await request(app)
-        .post('/uoms')
+        .post('/v1/admin/uoms')
         .set(AUTH)
         .send({ name: 'Pieces' });
 
       expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
     });
   });
 });
 
 // ===========================================================================
-// GOODS TESTS
+// PRODUCT TESTS
 // ===========================================================================
 
-describe('Goods', () => {
-  describe('GET /goods', () => {
-    it('returns list of goods', async () => {
-      db.goods.findMany.mockResolvedValue([fakeGoods]);
+describe('Products', () => {
+  describe('GET /v1/admin/products', () => {
+    it('returns paginated list of products', async () => {
+      db.product.findMany.mockResolvedValue([fakeProduct]);
+      db.product.count.mockResolvedValue(1);
 
-      const res = await request(app).get('/goods').set(AUTH);
+      const res = await request(app).get('/v1/admin/products').set(AUTH);
 
       expect(res.status).toBe(200);
       expect(res.body.data).toHaveLength(1);
       expect(res.body.data[0].sku).toBe('ELEC-001');
+      expect(res.body.meta.total).toBe(1);
     });
   });
 
-  describe('POST /goods — create goods', () => {
-    it('creates goods successfully', async () => {
-      db.goods.findUnique.mockResolvedValue(null);
+  describe('POST /v1/admin/products', () => {
+    it('creates a product successfully', async () => {
+      db.product.findUnique.mockResolvedValue(null);
       db.category.findUnique.mockResolvedValue(fakeCategory);
       db.vendor.findUnique.mockResolvedValue(fakeVendor);
       db.uom.findUnique.mockResolvedValue(fakeUom);
-      db.goods.create.mockResolvedValue(fakeGoods);
+      db.product.create.mockResolvedValue(fakeProduct);
 
       const res = await request(app)
-        .post('/goods')
+        .post('/v1/admin/products')
         .set(AUTH)
         .send({
           sku:        'ELEC-001',
@@ -338,14 +377,14 @@ describe('Goods', () => {
 
       expect(res.status).toBe(201);
       expect(res.body.data.sku).toBe('ELEC-001');
-      expect(db.goods.create).toHaveBeenCalledTimes(1);
+      expect(db.product.create).toHaveBeenCalledTimes(1);
     });
 
     it('rejects duplicate SKU', async () => {
-      db.goods.findUnique.mockResolvedValue(fakeGoods); // SKU exists
+      db.product.findUnique.mockResolvedValue(fakeProduct);
 
       const res = await request(app)
-        .post('/goods')
+        .post('/v1/admin/products')
         .set(AUTH)
         .send({
           sku:        'ELEC-001',
@@ -356,88 +395,92 @@ describe('Goods', () => {
         });
 
       expect(res.status).toBe(400);
-      expect(res.body.status).toBe('error');
-      expect(db.goods.create).not.toHaveBeenCalled();
+      expect(res.body.success).toBe(false);
+      expect(db.product.create).not.toHaveBeenCalled();
     });
 
-    it('rejects invalid category FK', async () => {
-      db.goods.findUnique.mockResolvedValue(null);
-      db.category.findUnique.mockResolvedValue(null); // category not found
+    it('rejects invalid category FK (service-layer check)', async () => {
+      db.product.findUnique.mockResolvedValue(null);      // SKU not taken
+      db.category.findUnique.mockResolvedValue(null);     // category not found
 
       const res = await request(app)
-        .post('/goods')
+        .post('/v1/admin/products')
         .set(AUTH)
         .send({
           sku:        'ELEC-NEW',
           name:       'New Product',
-          categoryId: 'nonexistent-cat-id',
+          categoryId: CATEGORY_ID,   // valid UUID → passes Zod
           vendorId:   VENDOR_ID,
           uomId:      UOM_ID,
         });
 
       expect(res.status).toBe(400);
-      expect(db.goods.create).not.toHaveBeenCalled();
+      expect(res.body.success).toBe(false);
+      expect(db.product.create).not.toHaveBeenCalled();
     });
 
-    it('rejects invalid vendor FK', async () => {
-      db.goods.findUnique.mockResolvedValue(null);
+    it('rejects invalid vendor FK (service-layer check)', async () => {
+      db.product.findUnique.mockResolvedValue(null);
       db.category.findUnique.mockResolvedValue(fakeCategory);
-      db.vendor.findUnique.mockResolvedValue(null); // vendor not found
+      db.vendor.findUnique.mockResolvedValue(null);       // vendor not found
 
       const res = await request(app)
-        .post('/goods')
+        .post('/v1/admin/products')
         .set(AUTH)
         .send({
           sku:        'ELEC-NEW',
           name:       'New Product',
           categoryId: CATEGORY_ID,
-          vendorId:   'nonexistent-vendor-id',
+          vendorId:   VENDOR_ID,     // valid UUID → passes Zod
           uomId:      UOM_ID,
         });
 
       expect(res.status).toBe(400);
-      expect(db.goods.create).not.toHaveBeenCalled();
+      expect(res.body.success).toBe(false);
+      expect(db.product.create).not.toHaveBeenCalled();
     });
 
-    it('rejects invalid UOM FK', async () => {
-      db.goods.findUnique.mockResolvedValue(null);
+    it('rejects invalid UOM FK (service-layer check)', async () => {
+      db.product.findUnique.mockResolvedValue(null);
       db.category.findUnique.mockResolvedValue(fakeCategory);
       db.vendor.findUnique.mockResolvedValue(fakeVendor);
-      db.uom.findUnique.mockResolvedValue(null); // UOM not found
+      db.uom.findUnique.mockResolvedValue(null);          // UOM not found
 
       const res = await request(app)
-        .post('/goods')
+        .post('/v1/admin/products')
         .set(AUTH)
         .send({
           sku:        'ELEC-NEW',
           name:       'New Product',
           categoryId: CATEGORY_ID,
           vendorId:   VENDOR_ID,
-          uomId:      'nonexistent-uom-id',
+          uomId:      UOM_ID,        // valid UUID → passes Zod
         });
 
       expect(res.status).toBe(400);
-      expect(db.goods.create).not.toHaveBeenCalled();
+      expect(res.body.success).toBe(false);
+      expect(db.product.create).not.toHaveBeenCalled();
     });
 
     it('returns 400 when SKU is missing', async () => {
       const res = await request(app)
-        .post('/goods')
+        .post('/v1/admin/products')
         .set(AUTH)
         .send({ name: 'Laptop', categoryId: CATEGORY_ID, vendorId: VENDOR_ID, uomId: UOM_ID });
 
       expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
     });
   });
 
-  describe('PUT /goods/:id — update goods', () => {
-    it('deactivates goods', async () => {
-      const updated = { ...fakeGoods, isActive: false };
-      db.goods.findUnique.mockResolvedValue(fakeGoods);
-      db.goods.update.mockResolvedValue(updated);
+  describe('PUT /v1/admin/products/:id', () => {
+    it('deactivates a product', async () => {
+      const updated = { ...fakeProduct, isActive: false };
+      db.product.findUnique.mockResolvedValue(fakeProduct);
+      db.product.update.mockResolvedValue(updated);
 
       const res = await request(app)
-        .put(`/goods/${GOODS_ID}`)
+        .put(`/v1/admin/products/${PRODUCT_ID}`)
         .set(AUTH)
         .send({ isActive: false });
 
@@ -445,15 +488,16 @@ describe('Goods', () => {
       expect(res.body.data.isActive).toBe(false);
     });
 
-    it('returns 404 when goods not found', async () => {
-      db.goods.findUnique.mockResolvedValue(null);
+    it('returns 404 when product not found', async () => {
+      db.product.findUnique.mockResolvedValue(null);
 
       const res = await request(app)
-        .put(`/goods/nonexistent-id`)
+        .put(`/v1/admin/products/nonexistent-id`)
         .set(AUTH)
         .send({ name: 'New Name' });
 
       expect(res.status).toBe(404);
+      expect(res.body.success).toBe(false);
     });
   });
 });

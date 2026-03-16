@@ -5,8 +5,8 @@ import { NotFoundError, ValidationError } from '../../utils/errors';
 import { CreateUomDto } from './uoms.validator';
 
 export class UomsService {
-  async findAll(): Promise<Uom[]> {
-    return uomRepository.findAll();
+  async findAll(page: number, limit: number): Promise<{ data: Uom[]; total: number }> {
+    return uomRepository.findAll(page, limit);
   }
 
   async findById(id: string): Promise<Uom> {

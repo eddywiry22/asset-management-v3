@@ -12,26 +12,9 @@ import BusinessIcon from '@mui/icons-material/Business';
 import ScaleIcon from '@mui/icons-material/Scale';
 import InventoryIcon from '@mui/icons-material/Inventory';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
 
 const DRAWER_WIDTH = 240;
-
-const navGroups = [
-  {
-    label: 'General',
-    items: [
-      { label: 'Dashboard', path: '/dashboard', icon: <DashboardIcon /> },
-    ],
-  },
-  {
-    label: 'Master Data',
-    items: [
-      { label: 'Categories', path: '/categories', icon: <CategoryIcon /> },
-      { label: 'Vendors',    path: '/vendors',    icon: <BusinessIcon /> },
-      { label: 'UOM',        path: '/uoms',       icon: <ScaleIcon /> },
-      { label: 'Goods',      path: '/goods',      icon: <InventoryIcon /> },
-    ],
-  },
-];
 
 interface SidebarProps {
   open: boolean;
@@ -40,6 +23,25 @@ interface SidebarProps {
 export default function Sidebar({ open }: SidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
+  const { isAdmin } = useAuth();
+
+  const navGroups = [
+    {
+      label: 'General',
+      items: [
+        { label: 'Dashboard', path: '/dashboard', icon: <DashboardIcon /> },
+      ],
+    },
+    ...(isAdmin ? [{
+      label: 'Admin',
+      items: [
+        { label: 'Categories', path: '/admin/categories', icon: <CategoryIcon /> },
+        { label: 'Vendors',    path: '/admin/vendors',    icon: <BusinessIcon /> },
+        { label: 'UOM',        path: '/admin/uoms',       icon: <ScaleIcon /> },
+        { label: 'Products',   path: '/admin/products',   icon: <InventoryIcon /> },
+      ],
+    }] : []),
+  ];
 
   return (
     <Drawer

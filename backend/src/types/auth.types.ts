@@ -3,12 +3,14 @@ export interface AuthUser {
   email: string | null;
   phone: string | null;
   isActive: boolean;
+  isAdmin: boolean;
 }
 
 export interface TokenPayload {
   sub: string;
   email: string | null;
   phone: string | null;
+  isAdmin: boolean;
   iat?: number;
   exp?: number;
 }

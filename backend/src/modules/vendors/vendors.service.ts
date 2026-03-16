@@ -5,8 +5,8 @@ import { NotFoundError } from '../../utils/errors';
 import { CreateVendorDto, UpdateVendorDto } from './vendors.validator';
 
 export class VendorsService {
-  async findAll(): Promise<Vendor[]> {
-    return vendorRepository.findAll();
+  async findAll(page: number, limit: number): Promise<{ data: Vendor[]; total: number }> {
+    return vendorRepository.findAll(page, limit);
   }
 
   async findById(id: string): Promise<Vendor> {

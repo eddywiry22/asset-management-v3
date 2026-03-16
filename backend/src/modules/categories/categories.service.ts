@@ -5,8 +5,8 @@ import { NotFoundError, ValidationError } from '../../utils/errors';
 import { CreateCategoryDto, UpdateCategoryDto } from './categories.validator';
 
 export class CategoriesService {
-  async findAll(): Promise<Category[]> {
-    return categoryRepository.findAll();
+  async findAll(page: number, limit: number): Promise<{ data: Category[]; total: number }> {
+    return categoryRepository.findAll(page, limit);
   }
 
   async findById(id: string): Promise<Category> {

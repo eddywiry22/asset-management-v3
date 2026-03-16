@@ -20,17 +20,17 @@ export interface UpdateCategoryInput {
 
 export const categoriesService = {
   async getAll(): Promise<Category[]> {
-    const res = await apiClient.get<{ success: boolean; data: Category[] }>('/categories');
+    const res = await apiClient.get<{ success: boolean; data: Category[] }>('/admin/categories');
     return res.data.data;
   },
 
   async create(input: CreateCategoryInput): Promise<Category> {
-    const res = await apiClient.post<{ success: boolean; data: Category }>('/categories', input);
+    const res = await apiClient.post<{ success: boolean; data: Category }>('/admin/categories', input);
     return res.data.data;
   },
 
   async update(id: string, input: UpdateCategoryInput): Promise<Category> {
-    const res = await apiClient.put<{ success: boolean; data: Category }>(`/categories/${id}`, input);
+    const res = await apiClient.put<{ success: boolean; data: Category }>(`/admin/categories/${id}`, input);
     return res.data.data;
   },
 };

@@ -5,8 +5,10 @@ import { AuthenticatedRequest } from '../../types/request.types';
 export class CategoriesController {
   async getAll(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-      const data = await categoriesService.findAll();
-      res.status(200).json({ success: true, data });
+      const page  = parseInt(req.query.page  as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 20;
+      const { data, total } = await categoriesService.findAll(page, limit);
+      res.status(200).json({ success: true, data, meta: { page, limit, total } });
     } catch (err) {
       next(err);
     }

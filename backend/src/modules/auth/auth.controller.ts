@@ -7,7 +7,7 @@ export class AuthController {
       const { identifier, password } = req.body as { identifier: string; password: string };
       const result = await authService.login(identifier, password);
       res.status(200).json({
-        status: 'success',
+        success: true,
         data: result,
       });
     } catch (err) {

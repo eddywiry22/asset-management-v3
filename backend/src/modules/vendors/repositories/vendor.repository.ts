@@ -2,8 +2,13 @@ import prisma from '../../../config/database';
 import { Vendor } from '@prisma/client';
 
 export class VendorRepository {
-  async findAll(): Promise<Vendor[]> {
-    return prisma.vendor.findMany({ orderBy: { name: 'asc' } });
+  async findAll(page = 1, limit = 20): Promise<{ data: Vendor[]; total: number }> {
+    const skip = (page - 1) * limit;
+    const [data, total] = await Promise.all([
+      prisma.vendor.findMany({ skip, take: limit, orderBy: { name: 'asc' } }),
+      prisma.vendor.count(),
+    ]);
+    return { data, total };
   }
 
   async findById(id: string): Promise<Vendor | null> {
@@ -18,8 +23,8 @@ export class VendorRepository {
     return prisma.vendor.update({ where: { id }, data });
   }
 
-  async hasGoods(id: string): Promise<boolean> {
-    const count = await prisma.goods.count({ where: { vendorId: id } });
+  async hasProducts(id: string): Promise<boolean> {
+    const count = await prisma.product.count({ where: { vendorId: id } });
     return count > 0;
   }
 }

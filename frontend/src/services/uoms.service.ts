@@ -13,12 +13,12 @@ export interface CreateUomInput {
 
 export const uomsService = {
   async getAll(): Promise<Uom[]> {
-    const res = await apiClient.get<{ success: boolean; data: Uom[] }>('/uoms');
+    const res = await apiClient.get<{ success: boolean; data: Uom[] }>('/admin/uoms');
     return res.data.data;
   },
 
   async create(input: CreateUomInput): Promise<Uom> {
-    const res = await apiClient.post<{ success: boolean; data: Uom }>('/uoms', input);
+    const res = await apiClient.post<{ success: boolean; data: Uom }>('/admin/uoms', input);
     return res.data.data;
   },
 };

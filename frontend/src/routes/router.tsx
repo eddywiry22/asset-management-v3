@@ -1,11 +1,12 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import ProtectedRoute from '../components/layout/ProtectedRoute';
+import AdminRoute from '../components/layout/AdminRoute';
 import AppLayout from '../components/layout/AppLayout';
 import LoginPage from '../modules/auth/pages/LoginPage';
 import CategoriesPage from '../modules/categories/pages/CategoriesPage';
 import VendorsPage from '../modules/vendors/pages/VendorsPage';
 import UomsPage from '../modules/uoms/pages/UomsPage';
-import GoodsPage from '../modules/goods/pages/GoodsPage';
+import ProductsPage from '../modules/products/pages/ProductsPage';
 
 const router = createBrowserRouter([
   {
@@ -33,24 +34,30 @@ const router = createBrowserRouter([
             ),
           },
           {
-            path: 'categories',
-            element: <CategoriesPage />,
-          },
-          {
-            path: 'vendors',
-            element: <VendorsPage />,
-          },
-          {
-            path: 'uoms',
-            element: <UomsPage />,
-          },
-          {
-            path: 'goods',
-            element: <GoodsPage />,
-          },
-          {
             path: 'health',
             element: <div><h3>Frontend OK</h3></div>,
+          },
+          // Admin-only pages
+          {
+            element: <AdminRoute />,
+            children: [
+              {
+                path: 'admin/categories',
+                element: <CategoriesPage />,
+              },
+              {
+                path: 'admin/vendors',
+                element: <VendorsPage />,
+              },
+              {
+                path: 'admin/uoms',
+                element: <UomsPage />,
+              },
+              {
+                path: 'admin/products',
+                element: <ProductsPage />,
+              },
+            ],
           },
         ],
       },

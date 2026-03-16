@@ -2,8 +2,13 @@ import prisma from '../../../config/database';
 import { Uom } from '@prisma/client';
 
 export class UomRepository {
-  async findAll(): Promise<Uom[]> {
-    return prisma.uom.findMany({ orderBy: { code: 'asc' } });
+  async findAll(page = 1, limit = 20): Promise<{ data: Uom[]; total: number }> {
+    const skip = (page - 1) * limit;
+    const [data, total] = await Promise.all([
+      prisma.uom.findMany({ skip, take: limit, orderBy: { code: 'asc' } }),
+      prisma.uom.count(),
+    ]);
+    return { data, total };
   }
 
   async findById(id: string): Promise<Uom | null> {

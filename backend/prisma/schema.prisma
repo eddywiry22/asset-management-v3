@@ -16,6 +16,7 @@ model User {
   phone        String?  @unique
   passwordHash String
   isActive     Boolean  @default(true)
+  isAdmin      Boolean  @default(false)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -59,7 +60,7 @@ model Category {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  goods Goods[]
+  products Product[]
 }
 
 model Vendor {
@@ -70,7 +71,7 @@ model Vendor {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  goods Goods[]
+  products Product[]
 }
 
 model Uom {
@@ -78,10 +79,10 @@ model Uom {
   code String @unique
   name String
 
-  goods Goods[]
+  products Product[]
 }
 
-model Goods {
+model Product {
   id         String   @id @default(uuid())
   sku        String   @unique
   name       String
