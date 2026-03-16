@@ -1,4 +1,4 @@
-import { PrismaClient, Role } from '@prisma/client';
+import { PrismaClient, Role, LedgerSourceType } from '@prisma/client';
 import bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
@@ -203,6 +203,54 @@ async function main() {
       create: { sku: p.sku, name: p.name, categoryId, vendorId, uomId, isActive: true },
     });
     console.log(`  Product: ${record.sku} — ${record.name}`);
+  }
+
+  // ------------------------------------------------------------------
+  // Stage 4: Stock Balances — 10 units per product per location
+  // ------------------------------------------------------------------
+  console.log('');
+  console.log('Seeding stock balances...');
+
+  const allProducts = await prisma.product.findMany({ select: { id: true, sku: true } });
+  const allLocations = await prisma.location.findMany({ where: { isActive: true }, select: { id: true, code: true } });
+  const INITIAL_QTY = 10;
+
+  for (const product of allProducts) {
+    for (const location of allLocations) {
+      // Check if balance already exists
+      const existing = await prisma.stockBalance.findUnique({
+        where: { productId_locationId: { productId: product.id, locationId: location.id } },
+      });
+
+      if (!existing) {
+        // Create balance and seed ledger entry in a transaction
+        await prisma.$transaction(async (tx) => {
+          await (tx as any).stockBalance.create({
+            data: {
+              productId:   product.id,
+              locationId:  location.id,
+              onHandQty:   INITIAL_QTY,
+              reservedQty: 0,
+            },
+          });
+
+          await (tx as any).stockLedger.create({
+            data: {
+              productId:   product.id,
+              locationId:  location.id,
+              changeQty:   INITIAL_QTY,
+              balanceAfter: INITIAL_QTY,
+              sourceType:  LedgerSourceType.SEED,
+              sourceId:    'seed',
+            },
+          });
+        });
+
+        console.log(`  StockBalance: ${product.sku} @ ${location.code} = ${INITIAL_QTY}`);
+      } else {
+        console.log(`  StockBalance (exists): ${product.sku} @ ${location.code} = ${Number(existing.onHandQty)}`);
+      }
+    }
   }
 
   console.log('');
