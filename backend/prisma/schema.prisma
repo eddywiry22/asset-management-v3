@@ -25,6 +25,7 @@ model User {
   adjustmentsCreated    StockAdjustmentRequest[] @relation("AdjustmentCreatedBy")
   adjustmentsApproved   StockAdjustmentRequest[] @relation("AdjustmentApprovedBy")
   adjustmentsFinalized  StockAdjustmentRequest[] @relation("AdjustmentFinalizedBy")
+  transfersCreated      StockTransferRequest[]   @relation("TransferCreatedBy")
 }
 
 model Location {
@@ -36,10 +37,12 @@ model Location {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  userRoles       UserLocationRole[]
-  stockBalances   StockBalance[]
-  stockLedgers    StockLedger[]
-  adjustmentItems StockAdjustmentItem[]
+  userRoles              UserLocationRole[]
+  stockBalances          StockBalance[]
+  stockLedgers           StockLedger[]
+  adjustmentItems        StockAdjustmentItem[]
+  transfersAsSource      StockTransferRequest[] @relation("TransferSourceLocation")
+  transfersAsDestination StockTransferRequest[] @relation("TransferDestinationLocation")
 }
 
 model UserLocationRole {
@@ -105,6 +108,7 @@ model Product {
   stockBalances    StockBalance[]
   stockLedgers     StockLedger[]
   adjustmentItems  StockAdjustmentItem[]
+  transferItems    StockTransferItem[]
 }
 
 // ---------------------------------------------------------------------------
@@ -148,6 +152,8 @@ enum LedgerSourceType {
   MOVEMENT_IN
   MOVEMENT_OUT
   SEED
+  TRANSFER_IN
+  TRANSFER_OUT
 }
 
 // ---------------------------------------------------------------------------
@@ -211,4 +217,49 @@ model AuditLog {
   timestamp   DateTime @default(now())
 
   user User @relation(fields: [performedBy], references: [id])
+}
+
+// ---------------------------------------------------------------------------
+// Stage 6: Stock Transfer Requests
+// ---------------------------------------------------------------------------
+
+enum TransferRequestStatus {
+  DRAFT
+  FINALIZED
+}
+
+model StockTransferRequest {
+  id                    String                @id @default(uuid())
+  requestNumber         String                @unique
+  status                TransferRequestStatus @default(DRAFT)
+  sourceLocationId      String
+  destinationLocationId String
+  notes                 String?               @db.Text
+  createdById           String
+  finalizedAt           DateTime?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  createdBy           User                @relation("TransferCreatedBy",          fields: [createdById],           references: [id])
+  sourceLocation      Location            @relation("TransferSourceLocation",      fields: [sourceLocationId],      references: [id])
+  destinationLocation Location            @relation("TransferDestinationLocation", fields: [destinationLocationId], references: [id])
+  items               StockTransferItem[]
+
+  @@index([status])
+  @@index([createdById])
+  @@index([sourceLocationId])
+  @@index([destinationLocationId])
+}
+
+model StockTransferItem {
+  id        String   @id @default(uuid())
+  requestId String
+  productId String
+  qty       Decimal  @db.Decimal(15, 4)
+  createdAt DateTime @default(now())
+
+  request StockTransferRequest @relation(fields: [requestId], references: [id])
+  product Product              @relation(fields: [productId], references: [id])
+
+  @@index([requestId])
 }

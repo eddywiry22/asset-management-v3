@@ -11,6 +11,7 @@ import uomsRoutes from './modules/uoms/uoms.routes';
 import productsRoutes from './modules/products/products.routes';
 import stockRoutes from './modules/stock/stock.routes';
 import stockAdjustmentRoutes from './modules/stock-adjustments/stockAdjustment.routes';
+import stockTransferRoutes from './modules/stock-transfers/transfer.routes';
 import { productsController } from './modules/products/products.controller';
 import { AuthenticatedRequest } from './types/request.types';
 
@@ -53,6 +54,9 @@ v1Router.use('/stock', authMiddleware, stockRoutes);
 
 // /v1/stock-adjustments — requires auth, accessible by all roles
 v1Router.use('/stock-adjustments', authMiddleware, stockAdjustmentRoutes);
+
+// /v1/stock-transfers — requires auth, accessible by all roles
+v1Router.use('/stock-transfers', authMiddleware, stockTransferRoutes);
 
 app.use('/v1', v1Router);
 

@@ -10,6 +10,8 @@ import ProductsPage from '../modules/products/pages/ProductsPage';
 import StockDashboardPage from '../modules/stock/pages/StockDashboardPage';
 import StockAdjustmentsPage from '../modules/adjustments/pages/StockAdjustmentsPage';
 import StockAdjustmentDetailPage from '../modules/adjustments/pages/StockAdjustmentDetailPage';
+import StockTransfersPage from '../modules/transfers/pages/StockTransfersPage';
+import StockTransferDetailPage from '../modules/transfers/pages/StockTransferDetailPage';
 
 const router = createBrowserRouter([
   {
@@ -51,6 +53,14 @@ const router = createBrowserRouter([
           {
             path: 'stock-adjustments/:id',
             element: <StockAdjustmentDetailPage />,
+          },
+          {
+            path: 'stock-transfers',
+            element: <StockTransfersPage />,
+          },
+          {
+            path: 'stock-transfers/:id',
+            element: <StockTransferDetailPage />,
           },
           // Admin-only pages
           {
