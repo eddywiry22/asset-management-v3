@@ -7,6 +7,7 @@ import CategoriesPage from '../modules/categories/pages/CategoriesPage';
 import VendorsPage from '../modules/vendors/pages/VendorsPage';
 import UomsPage from '../modules/uoms/pages/UomsPage';
 import ProductsPage from '../modules/products/pages/ProductsPage';
+import StockDashboardPage from '../modules/stock/pages/StockDashboardPage';
 
 const router = createBrowserRouter([
   {
@@ -36,6 +37,10 @@ const router = createBrowserRouter([
           {
             path: 'health',
             element: <div><h3>Frontend OK</h3></div>,
+          },
+          {
+            path: 'stock',
+            element: <StockDashboardPage />,
           },
           // Admin-only pages
           {

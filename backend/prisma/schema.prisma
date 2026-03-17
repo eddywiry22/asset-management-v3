@@ -33,7 +33,9 @@ model Location {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  userRoles UserLocationRole[]
+  userRoles     UserLocationRole[]
+  stockBalances StockBalance[]
+  stockLedgers  StockLedger[]
 }
 
 model UserLocationRole {
@@ -93,9 +95,54 @@ model Product {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  category Category @relation(fields: [categoryId], references: [id])
-  vendor   Vendor   @relation(fields: [vendorId], references: [id])
-  uom      Uom      @relation(fields: [uomId], references: [id])
+  category      Category       @relation(fields: [categoryId], references: [id])
+  vendor        Vendor         @relation(fields: [vendorId], references: [id])
+  uom           Uom            @relation(fields: [uomId], references: [id])
+  stockBalances StockBalance[]
+  stockLedgers  StockLedger[]
+}
+
+// ---------------------------------------------------------------------------
+// Stage 4: Stock Balances & Ledger
+// ---------------------------------------------------------------------------
+
+model StockBalance {
+  id          String   @id @default(uuid())
+  productId   String
+  locationId  String
+  onHandQty   Decimal  @default(0) @db.Decimal(15, 4)
+  reservedQty Decimal  @default(0) @db.Decimal(15, 4)
+  updatedAt   DateTime @updatedAt
+
+  product  Product  @relation(fields: [productId], references: [id])
+  location Location @relation(fields: [locationId], references: [id])
+
+  @@unique([productId, locationId])
+  @@index([locationId])
+}
+
+model StockLedger {
+  id           String           @id @default(uuid())
+  productId    String
+  locationId   String
+  changeQty    Decimal          @db.Decimal(15, 4)
+  balanceAfter Decimal          @db.Decimal(15, 4)
+  sourceType   LedgerSourceType
+  sourceId     String
+  createdAt    DateTime         @default(now())
+
+  product  Product  @relation(fields: [productId], references: [id])
+  location Location @relation(fields: [locationId], references: [id])
+
+  @@index([productId, locationId, createdAt])
+  @@index([locationId, createdAt])
+}
+
+enum LedgerSourceType {
+  ADJUSTMENT
+  MOVEMENT_IN
+  MOVEMENT_OUT
+  SEED
 }
 
 model AuditLog {
