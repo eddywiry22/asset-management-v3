@@ -10,6 +10,7 @@ import vendorsRoutes from './modules/vendors/vendors.routes';
 import uomsRoutes from './modules/uoms/uoms.routes';
 import productsRoutes from './modules/products/products.routes';
 import stockRoutes from './modules/stock/stock.routes';
+import stockAdjustmentRoutes from './modules/stock-adjustments/stockAdjustment.routes';
 
 const app: Application = express();
 
@@ -42,6 +43,9 @@ v1Router.use('/admin', adminRouter);
 
 // /v1/stock — requires auth, accessible by all roles
 v1Router.use('/stock', authMiddleware, stockRoutes);
+
+// /v1/stock-adjustments — requires auth, accessible by all roles
+v1Router.use('/stock-adjustments', authMiddleware, stockAdjustmentRoutes);
 
 app.use('/v1', v1Router);
 

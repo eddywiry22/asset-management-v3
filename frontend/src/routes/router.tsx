@@ -8,6 +8,8 @@ import VendorsPage from '../modules/vendors/pages/VendorsPage';
 import UomsPage from '../modules/uoms/pages/UomsPage';
 import ProductsPage from '../modules/products/pages/ProductsPage';
 import StockDashboardPage from '../modules/stock/pages/StockDashboardPage';
+import StockAdjustmentsPage from '../modules/adjustments/pages/StockAdjustmentsPage';
+import StockAdjustmentDetailPage from '../modules/adjustments/pages/StockAdjustmentDetailPage';
 
 const router = createBrowserRouter([
   {
@@ -41,6 +43,14 @@ const router = createBrowserRouter([
           {
             path: 'stock',
             element: <StockDashboardPage />,
+          },
+          {
+            path: 'stock-adjustments',
+            element: <StockAdjustmentsPage />,
+          },
+          {
+            path: 'stock-adjustments/:id',
+            element: <StockAdjustmentDetailPage />,
           },
           // Admin-only pages
           {

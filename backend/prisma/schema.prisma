@@ -20,8 +20,11 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  locationRoles UserLocationRole[]
-  auditLogs     AuditLog[]
+  locationRoles         UserLocationRole[]
+  auditLogs             AuditLog[]
+  adjustmentsCreated    StockAdjustmentRequest[] @relation("AdjustmentCreatedBy")
+  adjustmentsApproved   StockAdjustmentRequest[] @relation("AdjustmentApprovedBy")
+  adjustmentsFinalized  StockAdjustmentRequest[] @relation("AdjustmentFinalizedBy")
 }
 
 model Location {
@@ -33,9 +36,10 @@ model Location {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  userRoles     UserLocationRole[]
-  stockBalances StockBalance[]
-  stockLedgers  StockLedger[]
+  userRoles       UserLocationRole[]
+  stockBalances   StockBalance[]
+  stockLedgers    StockLedger[]
+  adjustmentItems StockAdjustmentItem[]
 }
 
 model UserLocationRole {
@@ -98,8 +102,9 @@ model Product {
   category      Category       @relation(fields: [categoryId], references: [id])
   vendor        Vendor         @relation(fields: [vendorId], references: [id])
   uom           Uom            @relation(fields: [uomId], references: [id])
-  stockBalances StockBalance[]
-  stockLedgers  StockLedger[]
+  stockBalances    StockBalance[]
+  stockLedgers     StockLedger[]
+  adjustmentItems  StockAdjustmentItem[]
 }
 
 // ---------------------------------------------------------------------------
@@ -143,6 +148,56 @@ enum LedgerSourceType {
   MOVEMENT_IN
   MOVEMENT_OUT
   SEED
+}
+
+// ---------------------------------------------------------------------------
+// Stage 5: Stock Adjustment Requests
+// ---------------------------------------------------------------------------
+
+enum AdjustmentRequestStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  FINALIZED
+}
+
+model StockAdjustmentRequest {
+  id            String                   @id @default(uuid())
+  requestNumber String                   @unique
+  status        AdjustmentRequestStatus  @default(DRAFT)
+  notes         String?
+  createdById   String
+  approvedById  String?
+  finalizedById String?
+  approvedAt    DateTime?
+  finalizedAt   DateTime?
+  createdAt     DateTime                 @default(now())
+  updatedAt     DateTime                 @updatedAt
+
+  createdBy   User                   @relation("AdjustmentCreatedBy",   fields: [createdById],   references: [id])
+  approvedBy  User?                  @relation("AdjustmentApprovedBy",  fields: [approvedById],  references: [id])
+  finalizedBy User?                  @relation("AdjustmentFinalizedBy", fields: [finalizedById], references: [id])
+  items       StockAdjustmentItem[]
+
+  @@index([status])
+  @@index([createdById])
+}
+
+model StockAdjustmentItem {
+  id        String   @id @default(uuid())
+  requestId String
+  productId String
+  locationId String
+  qtyChange Decimal  @db.Decimal(15, 4)
+  reason    String?
+  createdAt DateTime @default(now())
+
+  request  StockAdjustmentRequest @relation(fields: [requestId], references: [id])
+  product  Product                @relation(fields: [productId], references: [id])
+  location Location               @relation(fields: [locationId], references: [id])
+
+  @@index([requestId])
 }
 
 model AuditLog {
