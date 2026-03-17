@@ -2,8 +2,9 @@
  * Stock Module Tests — Stage 4
  *
  * Tests run against a mocked Prisma client (no live database required).
- * Covers: GET /v1/stock, GET /v1/stock/ledger
- * Enforces: auth, role visibility, pagination, period filters.
+ * Covers: GET /v1/stock, GET /v1/stock/ledger, GET /v1/stock/locations
+ * Enforces: auth, role visibility, pagination, period filters,
+ *           ledger location security, reservation underflow protection.
  */
 
 import request from 'supertest';
@@ -47,9 +48,11 @@ jest.mock('../src/config/database', () => {
       location:        createMock(),
       userLocationRole: createMock(),
       auditLog:        { create: jest.fn().mockResolvedValue({}) },
-      $connect:    jest.fn(),
-      $disconnect: jest.fn(),
+      $connect:     jest.fn(),
+      $disconnect:  jest.fn(),
       $transaction: jest.fn(),
+      // Used by lockBalanceRow (SELECT FOR UPDATE inside transactions)
+      $queryRaw:    jest.fn(),
     },
     connectDatabase:    jest.fn(),
     disconnectDatabase: jest.fn(),
@@ -97,6 +100,8 @@ beforeAll(async () => {
   authService = (await import('../src/modules/auth/auth.service')).authService;
 });
 
+const LOCATION_ID_2 = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+
 beforeEach(() => {
   jest.clearAllMocks();
   // Default: manager user with role at LOCATION_ID
@@ -107,6 +112,9 @@ beforeEach(() => {
     isAdmin: false,
   });
   db.userLocationRole.findMany.mockResolvedValue([{ locationId: LOCATION_ID }]);
+
+  // Default: lockBalanceRow returns rows with sufficient stock
+  db.$queryRaw.mockResolvedValue([{ onHandQty: '10', reservedQty: '0' }]);
 });
 
 // ===========================================================================
@@ -351,24 +359,15 @@ describe('GET /v1/stock/ledger', () => {
 
 describe('Stock reservation enforcement', () => {
   it('validates that reservedQty cannot exceed onHandQty via service', async () => {
-    // This tests the service-layer business rule
     const { stockService } = await import('../src/modules/stock/stock.service');
 
-    // Mock $transaction to call the callback
-    db.$transaction.mockImplementation(async (cb: Function) => {
-      await cb(db);
-    });
-
-    // Mock upsert (for upsertZero)
+    db.$transaction.mockImplementation(async (cb: Function) => await cb(db));
     db.stockBalance.upsert.mockResolvedValue({
       id: 'id', productId: PRODUCT_ID, locationId: LOCATION_ID,
-      onHandQty: '5', reservedQty: '0',
-    });
-
-    // Mock findUnique to return insufficient stock
-    db.stockBalance.findUnique.mockResolvedValue({
       onHandQty: '5', reservedQty: '3',
     });
+    // lockBalanceRow returns onHand=5, reserved=3 → available=2; requesting 10 → fail
+    db.$queryRaw.mockResolvedValue([{ onHandQty: '5', reservedQty: '3' }]);
 
     await expect(
       stockService.reserveStock({ productId: PRODUCT_ID, locationId: LOCATION_ID, qty: 10 })
@@ -378,22 +377,102 @@ describe('Stock reservation enforcement', () => {
   it('validates that adjustment cannot reduce stock below available qty', async () => {
     const { stockService } = await import('../src/modules/stock/stock.service');
 
-    db.$transaction.mockImplementation(async (cb: Function) => {
-      await cb(db);
-    });
-
+    db.$transaction.mockImplementation(async (cb: Function) => await cb(db));
     db.stockBalance.upsert.mockResolvedValue({
       id: 'id', productId: PRODUCT_ID, locationId: LOCATION_ID,
       onHandQty: '5', reservedQty: '3',
     });
+    // lockBalanceRow: onHand=5, reserved=3 → available=2; change=-5 → would go negative
+    db.$queryRaw.mockResolvedValue([{ onHandQty: '5', reservedQty: '3' }]);
 
-    db.stockBalance.findUnique.mockResolvedValue({
-      onHandQty: '5', reservedQty: '3',
-    });
-
-    // Available = 5 - 3 = 2. Trying to decrease by 5 should fail.
     await expect(
       stockService.applyAdjustment({ productId: PRODUCT_ID, locationId: LOCATION_ID, qtyChange: -5, sourceId: 'test' })
     ).rejects.toMatchObject({ statusCode: 400 });
+  });
+});
+
+// ===========================================================================
+// LEDGER LOCATION SECURITY — multi-location non-admin user
+// ===========================================================================
+
+describe('GET /v1/stock/ledger — location security for multi-role users', () => {
+  it('restricts ledger results to the user\'s assigned locations when no locationId is specified', async () => {
+    // User has roles at TWO locations
+    db.userLocationRole.findMany.mockResolvedValue([
+      { locationId: LOCATION_ID },
+      { locationId: LOCATION_ID_2 },
+    ]);
+    db.stockLedger.findMany.mockResolvedValue([fakeLedgerEntry]);
+    db.stockLedger.count.mockResolvedValue(1);
+
+    const res = await request(app)
+      .get('/v1/stock/ledger')
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+
+    // The repository must have been called with a WHERE IN clause over both locations
+    const findManyCall = db.stockLedger.findMany.mock.calls[0][0];
+    expect(findManyCall.where.locationId).toEqual({ in: [LOCATION_ID, LOCATION_ID_2] });
+  });
+
+  it('returns only the requested location when locationId is explicitly specified', async () => {
+    db.userLocationRole.findMany.mockResolvedValue([
+      { locationId: LOCATION_ID },
+      { locationId: LOCATION_ID_2 },
+    ]);
+    db.stockLedger.findMany.mockResolvedValue([fakeLedgerEntry]);
+    db.stockLedger.count.mockResolvedValue(1);
+
+    const res = await request(app)
+      .get(`/v1/stock/ledger?locationId=${LOCATION_ID}`)
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+    // The repository must have been called with a single locationId, not an IN clause
+    const findManyCall = db.stockLedger.findMany.mock.calls[0][0];
+    expect(findManyCall.where.locationId).toBe(LOCATION_ID);
+  });
+});
+
+// ===========================================================================
+// RESERVATION UNDERFLOW PROTECTION
+// ===========================================================================
+
+describe('releaseReservation underflow protection', () => {
+  it('returns 400 when release qty exceeds currently reserved qty', async () => {
+    const { stockService } = await import('../src/modules/stock/stock.service');
+
+    db.$transaction.mockImplementation(async (cb: Function) => await cb(db));
+    // Only 2 units are reserved; trying to release 10 must fail
+    db.stockBalance.findUnique.mockResolvedValue({
+      id: 'id', productId: PRODUCT_ID, locationId: LOCATION_ID,
+      onHandQty: '10', reservedQty: '2',
+    });
+
+    await expect(
+      stockService.releaseReservation({ productId: PRODUCT_ID, locationId: LOCATION_ID, qty: 10 })
+    ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it('succeeds when release qty is within reserved qty', async () => {
+    const { stockService } = await import('../src/modules/stock/stock.service');
+
+    db.$transaction.mockImplementation(async (cb: Function) => await cb(db));
+    db.stockBalance.findUnique.mockResolvedValue({
+      id: 'id', productId: PRODUCT_ID, locationId: LOCATION_ID,
+      onHandQty: '10', reservedQty: '5',
+    });
+    db.stockBalance.update.mockResolvedValue({
+      id: 'id', productId: PRODUCT_ID, locationId: LOCATION_ID,
+      onHandQty: '10', reservedQty: '3',
+      product: { id: PRODUCT_ID, sku: 'ELEC-001', name: 'Laptop', uom: { code: 'PCS' } },
+      location: { id: LOCATION_ID, code: 'WH-001', name: 'Main Warehouse' },
+    });
+
+    await expect(
+      stockService.releaseReservation({ productId: PRODUCT_ID, locationId: LOCATION_ID, qty: 2 })
+    ).resolves.toBeUndefined();
   });
 });

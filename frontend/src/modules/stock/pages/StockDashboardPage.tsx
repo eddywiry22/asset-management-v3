@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, Dialog, DialogContent, DialogTitle,
-  Divider, FormControl, InputLabel, MenuItem, Select, Table, TableBody, TableCell,
+  Divider, MenuItem, Select, FormControl, InputLabel, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, TextField, Typography, Paper, Snackbar,
   TablePagination, Tooltip,
 } from '@mui/material';
@@ -10,7 +10,6 @@ import FilterListIcon from '@mui/icons-material/FilterList';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { useQuery } from '@tanstack/react-query';
 import stockService, { StockOverviewItem, StockLedgerEntry } from '../../../services/stock.service';
-import { useAuth } from '../../../context/AuthContext';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -43,7 +42,7 @@ type LedgerModalProps = {
 };
 
 function LedgerModal({ open, onClose, productId, locationId, productSku, locationCode }: LedgerModalProps) {
-  const [page, setPage]   = useState(0);
+  const [page, setPage] = useState(0);
   const limit = 10;
 
   const { data, isLoading, error } = useQuery({
@@ -52,8 +51,8 @@ function LedgerModal({ open, onClose, productId, locationId, productSku, locatio
     enabled:  open,
   });
 
-  const entries  = data?.data ?? [];
-  const total    = data?.meta?.total ?? 0;
+  const entries = data?.data ?? [];
+  const total   = data?.meta?.total ?? 0;
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
@@ -117,16 +116,14 @@ function LedgerModal({ open, onClose, productId, locationId, productSku, locatio
 // Stock Dashboard Page
 // ---------------------------------------------------------------------------
 export default function StockDashboardPage() {
-  const { isAdmin } = useAuth();
-
   // Filters
   const [filterLocationId, setFilterLocationId] = useState('');
   const [filterStartDate,  setFilterStartDate]  = useState('');
   const [filterEndDate,    setFilterEndDate]     = useState('');
-  const [page, setPage]     = useState(0);
-  const [limit]             = useState(20);
+  const [page, setPage]  = useState(0);
+  const [limit]          = useState(20);
 
-  // Applied filters (submit on click)
+  // Applied filters (submitted on click)
   const [appliedFilters, setAppliedFilters] = useState<{
     locationId?: string; startDate?: string; endDate?: string;
   }>({});
@@ -137,13 +134,17 @@ export default function StockDashboardPage() {
   // Snackbar
   const [snackMsg, setSnackMsg] = useState('');
 
+  // Fetch locations visible to this user (drives the location filter dropdown)
+  const { data: visibleLocations = [] } = useQuery({
+    queryKey: ['stock-visible-locations'],
+    queryFn:  stockService.getVisibleLocations,
+  });
+
+  const showLocationFilter = visibleLocations.length > 1;
+
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['stock-overview', appliedFilters, page, limit],
-    queryFn:  () => stockService.getStockOverview({
-      ...appliedFilters,
-      page:  page + 1,
-      limit,
-    }),
+    queryFn:  () => stockService.getStockOverview({ ...appliedFilters, page: page + 1, limit }),
   });
 
   const rows  = data?.data ?? [];
@@ -153,8 +154,8 @@ export default function StockDashboardPage() {
     setPage(0);
     setAppliedFilters({
       locationId: filterLocationId || undefined,
-      startDate:  filterStartDate  ? new Date(filterStartDate).toISOString()  : undefined,
-      endDate:    filterEndDate    ? new Date(filterEndDate).toISOString()    : undefined,
+      startDate:  filterStartDate ? new Date(filterStartDate).toISOString() : undefined,
+      endDate:    filterEndDate   ? new Date(filterEndDate).toISOString()   : undefined,
     });
   }
 
@@ -179,16 +180,25 @@ export default function StockDashboardPage() {
       {/* Filters */}
       <Paper sx={{ p: 2, mb: 2 }}>
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          {isAdmin && (
-            <TextField
-              label="Location ID"
-              size="small"
-              value={filterLocationId}
-              onChange={(e) => setFilterLocationId(e.target.value)}
-              placeholder="UUID or leave blank for all"
-              sx={{ minWidth: 260 }}
-            />
+          {/* Location filter — visible when the user has access to more than one location */}
+          {showLocationFilter && (
+            <FormControl size="small" sx={{ minWidth: 200 }}>
+              <InputLabel>Location</InputLabel>
+              <Select
+                value={filterLocationId}
+                label="Location"
+                onChange={(e) => setFilterLocationId(e.target.value)}
+              >
+                <MenuItem value=""><em>All locations</em></MenuItem>
+                {visibleLocations.map((loc) => (
+                  <MenuItem key={loc.id} value={loc.id}>
+                    {loc.code} — {loc.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
           )}
+
           <TextField
             label="Period Start"
             type="datetime-local"
@@ -231,14 +241,11 @@ export default function StockDashboardPage() {
                   <TableCell align="right">On Hand</TableCell>
                   <TableCell align="right">Reserved</TableCell>
                   <TableCell align="right">Available</TableCell>
-                  {(appliedFilters.startDate || appliedFilters.endDate) && (
-                    <>
-                      <TableCell align="right">Starting</TableCell>
-                      <TableCell align="right">Inbound</TableCell>
-                      <TableCell align="right">Outbound</TableCell>
-                      <TableCell align="right">Final Qty</TableCell>
-                    </>
-                  )}
+                  {/* Period columns are ALWAYS rendered; values are current state when no filter */}
+                  <TableCell align="right">Starting</TableCell>
+                  <TableCell align="right">Inbound</TableCell>
+                  <TableCell align="right">Outbound</TableCell>
+                  <TableCell align="right">Final Qty</TableCell>
                   <TableCell align="center">Ledger</TableCell>
                 </TableRow>
               </TableHead>
@@ -258,20 +265,18 @@ export default function StockDashboardPage() {
                     <TableCell align="right" sx={{ color: row.availableQty <= 0 ? 'error.main' : 'success.main', fontWeight: 600 }}>
                       {fmtQty(row.availableQty)}
                     </TableCell>
-                    {(appliedFilters.startDate || appliedFilters.endDate) && (
-                      <>
-                        <TableCell align="right">{fmtQty(row.startingQty)}</TableCell>
-                        <TableCell align="right" sx={{ color: 'success.main' }}>{fmtQty(row.inboundQty)}</TableCell>
-                        <TableCell align="right" sx={{ color: 'error.main' }}>{fmtQty(row.outboundQty)}</TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 600 }}>{fmtQty(row.finalQty)}</TableCell>
-                      </>
-                    )}
+                    <TableCell align="right">{fmtQty(row.startingQty)}</TableCell>
+                    <TableCell align="right" sx={{ color: row.inboundQty > 0 ? 'success.main' : 'inherit' }}>
+                      {fmtQty(row.inboundQty)}
+                    </TableCell>
+                    <TableCell align="right" sx={{ color: row.outboundQty > 0 ? 'error.main' : 'inherit' }}>
+                      {fmtQty(row.outboundQty)}
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 600 }}>
+                      {fmtQty(row.finalQty)}
+                    </TableCell>
                     <TableCell align="center">
-                      <Button
-                        size="small"
-                        startIcon={<HistoryIcon />}
-                        onClick={() => setLedgerTarget(row)}
-                      >
+                      <Button size="small" startIcon={<HistoryIcon />} onClick={() => setLedgerTarget(row)}>
                         View
                       </Button>
                     </TableCell>

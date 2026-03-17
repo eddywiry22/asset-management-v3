@@ -4,7 +4,34 @@ import { stockQuerySchema, ledgerQuerySchema } from './stock.validator';
 import { AuthenticatedRequest } from '../../types/request.types';
 import { ValidationError } from '../../utils/errors';
 
+import prisma from '../../config/database';
+
 export class StockController {
+  async getVisibleLocations(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      let locations: Array<{ id: string; code: string; name: string }>;
+
+      if (req.user.isAdmin) {
+        locations = await prisma.location.findMany({
+          where:   { isActive: true },
+          select:  { id: true, code: true, name: true },
+          orderBy: { code: 'asc' },
+        });
+      } else {
+        const roles = await prisma.userLocationRole.findMany({
+          where:   { userId: req.user.id },
+          include: { location: { select: { id: true, code: true, name: true } } },
+        });
+        locations = roles
+          .map((r) => r.location)
+          .sort((a, b) => a.code.localeCompare(b.code));
+      }
+
+      res.status(200).json({ success: true, data: locations });
+    } catch (err) {
+      next(err);
+    }
+  }
   async getStockOverview(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const parsed = stockQuerySchema.safeParse(req.query);

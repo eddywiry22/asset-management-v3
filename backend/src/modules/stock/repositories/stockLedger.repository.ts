@@ -44,17 +44,25 @@ export class StockLedgerRepository {
   async findMany(params: {
     productId?: string;
     locationId?: string;
+    visibleLocationIds?: string[];
     startDate?: Date;
     endDate?: Date;
     page: number;
     limit: number;
   }): Promise<{ data: StockLedgerRow[]; total: number }> {
-    const { productId, locationId, startDate, endDate, page, limit } = params;
+    const { productId, locationId, visibleLocationIds, startDate, endDate, page, limit } = params;
     const skip = (page - 1) * limit;
 
     const where: Record<string, unknown> = {};
     if (productId)  where.productId  = productId;
-    if (locationId) where.locationId = locationId;
+
+    // Location scoping: single ID wins; otherwise restrict to allowed set
+    if (locationId) {
+      where.locationId = locationId;
+    } else if (visibleLocationIds && visibleLocationIds.length > 0) {
+      where.locationId = { in: visibleLocationIds };
+    }
+
     if (startDate || endDate) {
       where.createdAt = {
         ...(startDate ? { gte: startDate } : {}),

@@ -2,7 +2,7 @@ import prisma from '../../config/database';
 import { LedgerSourceType } from '@prisma/client';
 import { stockBalanceRepository, StockBalanceRow } from './repositories/stockBalance.repository';
 import { stockLedgerRepository, StockLedgerRow } from './repositories/stockLedger.repository';
-import { ValidationError, NotFoundError, ForbiddenError } from '../../utils/errors';
+import { ValidationError, ForbiddenError } from '../../utils/errors';
 
 export type StockOverviewItem = {
   productId: string;
@@ -173,11 +173,15 @@ export class StockService {
       throw new ForbiddenError('You do not have access to this location');
     }
 
-    const effectiveLocationId = locationId ?? (visibleLocationIds.length === 1 ? visibleLocationIds[0] : undefined);
-
+    // Always scope results to visible locations.
+    // Pass a single locationId when one was explicitly requested,
+    // otherwise pass the full visibleLocationIds array so the repository
+    // adds a WHERE locationId IN (...) clause — preventing data leakage
+    // for non-admin users who have roles in multiple locations.
     return stockLedgerRepository.findMany({
       productId,
-      locationId: effectiveLocationId,
+      locationId,
+      visibleLocationIds: locationId ? undefined : visibleLocationIds,
       startDate,
       endDate,
       page,
@@ -198,16 +202,13 @@ export class StockService {
     const { productId, locationId, qtyChange, sourceId } = params;
 
     await prisma.$transaction(async (tx) => {
-      // Ensure balance row exists
+      // Ensure balance row exists before acquiring lock
       await stockBalanceRepository.upsertZero(tx as any, productId, locationId);
 
-      // Get current balance for validation
-      const current = await (tx as any).stockBalance.findUnique({
-        where: { productId_locationId: { productId, locationId } },
-      });
-
-      const currentOnHand = Number(current?.onHandQty ?? 0);
-      const reserved      = Number(current?.reservedQty ?? 0);
+      // Acquire row-level lock (SELECT FOR UPDATE) to prevent concurrent mutations
+      const locked = await this.lockBalanceRow(tx as any, productId, locationId);
+      const currentOnHand = Number(locked.onHandQty);
+      const reserved      = Number(locked.reservedQty);
 
       if (qtyChange < 0) {
         const available = currentOnHand - reserved;
@@ -218,7 +219,6 @@ export class StockService {
         }
       }
 
-      // Apply change
       let updated: any;
       if (qtyChange >= 0) {
         updated = await stockBalanceRepository.increment(tx as any, productId, locationId, qtyChange);
@@ -226,7 +226,6 @@ export class StockService {
         updated = await stockBalanceRepository.decrement(tx as any, productId, locationId, Math.abs(qtyChange));
       }
 
-      // Record immutable ledger entry
       await stockLedgerRepository.create(tx as any, {
         productId,
         locationId,
@@ -252,13 +251,8 @@ export class StockService {
     await prisma.$transaction(async (tx) => {
       await stockBalanceRepository.upsertZero(tx as any, productId, locationId);
 
-      const current = await (tx as any).stockBalance.findUnique({
-        where: { productId_locationId: { productId, locationId } },
-      });
-
-      const currentOnHand = Number(current?.onHandQty ?? 0);
-      const reserved      = Number(current?.reservedQty ?? 0);
-      const available     = currentOnHand - reserved;
+      const locked    = await this.lockBalanceRow(tx as any, productId, locationId);
+      const available = Number(locked.onHandQty) - Number(locked.reservedQty);
 
       if (available < qty) {
         throw new ValidationError(
@@ -293,6 +287,9 @@ export class StockService {
     await prisma.$transaction(async (tx) => {
       await stockBalanceRepository.upsertZero(tx as any, productId, locationId);
 
+      // Lock the row before incrementing to maintain consistent balanceAfter
+      await this.lockBalanceRow(tx as any, productId, locationId);
+
       const updated = await stockBalanceRepository.increment(tx as any, productId, locationId, qty);
 
       await stockLedgerRepository.create(tx as any, {
@@ -319,13 +316,8 @@ export class StockService {
     await prisma.$transaction(async (tx) => {
       await stockBalanceRepository.upsertZero(tx as any, productId, locationId);
 
-      const current = await (tx as any).stockBalance.findUnique({
-        where: { productId_locationId: { productId, locationId } },
-      });
-
-      const onHand    = Number(current?.onHandQty ?? 0);
-      const reserved  = Number(current?.reservedQty ?? 0);
-      const available = onHand - reserved;
+      const locked    = await this.lockBalanceRow(tx as any, productId, locationId);
+      const available = Number(locked.onHandQty) - Number(locked.reservedQty);
 
       if (available < qty) {
         throw new ValidationError(
@@ -354,6 +346,13 @@ export class StockService {
 
       if (!current) return; // nothing to release
 
+      const currentReserved = Number(current.reservedQty);
+      if (qty > currentReserved) {
+        throw new ValidationError(
+          `Cannot release ${qty} units; only ${currentReserved} are reserved`,
+        );
+      }
+
       await stockBalanceRepository.release(tx as any, productId, locationId, qty);
     });
   }
@@ -361,6 +360,34 @@ export class StockService {
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
+
+  /**
+   * Acquire a row-level lock on a StockBalance row using SELECT … FOR UPDATE.
+   * This prevents concurrent transactions from reading stale available-qty
+   * values and both passing the availability check, which would otherwise
+   * allow negative inventory under REPEATABLE READ isolation.
+   *
+   * Must be called inside a prisma.$transaction callback.
+   */
+  private async lockBalanceRow(
+    tx: any,
+    productId: string,
+    locationId: string,
+  ): Promise<{ onHandQty: string; reservedQty: string }> {
+    const rows: Array<{ onHandQty: string; reservedQty: string }> =
+      await tx.$queryRaw`
+        SELECT onHandQty, reservedQty
+        FROM StockBalance
+        WHERE productId = ${productId}
+          AND locationId = ${locationId}
+        FOR UPDATE
+      `;
+    if (!rows.length) {
+      // Should not happen after upsertZero, but guard defensively
+      return { onHandQty: '0', reservedQty: '0' };
+    }
+    return rows[0];
+  }
 
   private async getVisibleLocationIds(
     userId: string,
