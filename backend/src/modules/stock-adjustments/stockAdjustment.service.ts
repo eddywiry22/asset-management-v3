@@ -94,6 +94,9 @@ export class StockAdjustmentService {
     if (req.status !== AdjustmentRequestStatus.DRAFT) {
       throw new ValidationError('Items can only be added when the request is in DRAFT status');
     }
+    if (req.createdById !== user.id) {
+      throw new ForbiddenError('Only the creator can modify a draft adjustment request');
+    }
     // Guard: user must have access to the target location
     await assertUserCanAccessLocation(user.id, user.isAdmin, dto.locationId);
 
@@ -118,6 +121,9 @@ export class StockAdjustmentService {
     if (req.status !== AdjustmentRequestStatus.DRAFT) {
       throw new ValidationError('Items can only be edited when the request is in DRAFT status');
     }
+    if (req.createdById !== user.id) {
+      throw new ForbiddenError('Only the creator can modify a draft adjustment request');
+    }
     const item = await stockAdjustmentRepository.findItemById(itemId);
     if (!item || item.requestId !== requestId) {
       throw new NotFoundError(`Item not found: ${itemId}`);
@@ -136,6 +142,9 @@ export class StockAdjustmentService {
     if (req.status !== AdjustmentRequestStatus.DRAFT) {
       throw new ValidationError('Items can only be deleted when the request is in DRAFT status');
     }
+    if (req.createdById !== user.id) {
+      throw new ForbiddenError('Only the creator can modify a draft adjustment request');
+    }
     const item = await stockAdjustmentRepository.findItemById(itemId);
     if (!item || item.requestId !== requestId) {
       throw new NotFoundError(`Item not found: ${itemId}`);
@@ -153,6 +162,9 @@ export class StockAdjustmentService {
     const req = await this.findById(requestId);
     if (req.status !== AdjustmentRequestStatus.DRAFT) {
       throw new ValidationError(`Cannot submit a request with status ${req.status}`);
+    }
+    if (req.createdById !== userId) {
+      throw new ForbiddenError('Only the creator can submit this request');
     }
     if (!req.items || req.items.length === 0) {
       throw new ValidationError('Request must contain at least one item before submission');

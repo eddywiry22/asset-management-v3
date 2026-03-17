@@ -145,6 +145,9 @@ export class TransferService {
     if (req.status !== TransferRequestStatus.DRAFT) {
       throw new ValidationError('Items can only be added when the request is in DRAFT status');
     }
+    if (req.createdById !== user.id) {
+      throw new ForbiddenError('Only the creator can modify a draft transfer request');
+    }
     await assertUserCanAccessLocation(user.id, user.isAdmin, req.sourceLocationId);
 
     const product = await prisma.product.findUnique({ where: { id: dto.productId } });
@@ -165,6 +168,9 @@ export class TransferService {
     if (req.status !== TransferRequestStatus.DRAFT) {
       throw new ValidationError('Items can only be edited when the request is in DRAFT status');
     }
+    if (req.createdById !== user.id) {
+      throw new ForbiddenError('Only the creator can modify a draft transfer request');
+    }
     await assertUserCanAccessLocation(user.id, user.isAdmin, req.sourceLocationId);
 
     const item = await transferRepository.findItemById(itemId);
@@ -181,6 +187,9 @@ export class TransferService {
     const req = await this.findById(requestId);
     if (req.status !== TransferRequestStatus.DRAFT) {
       throw new ValidationError('Items can only be deleted when the request is in DRAFT status');
+    }
+    if (req.createdById !== user.id) {
+      throw new ForbiddenError('Only the creator can modify a draft transfer request');
     }
     await assertUserCanAccessLocation(user.id, user.isAdmin, req.sourceLocationId);
 
@@ -199,6 +208,9 @@ export class TransferService {
     const req = await this.findById(requestId);
     if (req.status !== TransferRequestStatus.DRAFT) {
       throw new ValidationError(`Cannot submit a request with status ${req.status}`);
+    }
+    if (req.createdById !== user.id) {
+      throw new ForbiddenError('Only the creator can submit this request');
     }
     if (!req.items || req.items.length === 0) {
       throw new ValidationError('Request must contain at least one item before submission');

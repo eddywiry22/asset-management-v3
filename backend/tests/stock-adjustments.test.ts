@@ -860,3 +860,100 @@ describe('GET /v1/stock-adjustments — location-based filtering', () => {
     expect(findManyCall.where.items).toBeUndefined();
   });
 });
+
+// ===========================================================================
+// DRAFT OWNERSHIP — only the creator can edit/submit
+// ===========================================================================
+
+describe('Draft ownership enforcement', () => {
+  const OTHER_USER_ID = 'other-user-id';
+  const otherUserDraft = () => ({ ...makeFakeRequest('DRAFT', [fakeItem]), createdById: OTHER_USER_ID });
+
+  it('non-creator cannot add items to another user\'s DRAFT → 403', async () => {
+    // Current user is USER_ID (not the creator)
+    db.stockAdjustmentRequest.findUnique.mockResolvedValue(otherUserDraft());
+
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/items`)
+      .set(AUTH)
+      .send({ productId: PRODUCT_ID, locationId: LOCATION_ID, qtyChange: 5 });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toMatch(/Only the creator/);
+  });
+
+  it('admin cannot add items to another user\'s DRAFT → 403', async () => {
+    (authService.verifyAccessToken as jest.Mock).mockReturnValue({
+      sub: USER_ID, email: 'admin@example.com', phone: null, isAdmin: true,
+    });
+    db.stockAdjustmentRequest.findUnique.mockResolvedValue(otherUserDraft());
+
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/items`)
+      .set(AUTH)
+      .send({ productId: PRODUCT_ID, locationId: LOCATION_ID, qtyChange: 5 });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toMatch(/Only the creator/);
+  });
+
+  it('non-creator cannot update items in another user\'s DRAFT → 403', async () => {
+    db.stockAdjustmentRequest.findUnique.mockResolvedValue(otherUserDraft());
+
+    const res = await request(app)
+      .put(`/v1/stock-adjustments/${REQ_ID}/items/${ITEM_ID}`)
+      .set(AUTH)
+      .send({ qtyChange: 10 });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toMatch(/Only the creator/);
+  });
+
+  it('non-creator cannot delete items from another user\'s DRAFT → 403', async () => {
+    db.stockAdjustmentRequest.findUnique.mockResolvedValue(otherUserDraft());
+
+    const res = await request(app)
+      .delete(`/v1/stock-adjustments/${REQ_ID}/items/${ITEM_ID}`)
+      .set(AUTH);
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toMatch(/Only the creator/);
+  });
+
+  it('non-creator cannot submit another user\'s DRAFT → 403', async () => {
+    db.stockAdjustmentRequest.findUnique.mockResolvedValue(
+      { ...otherUserDraft(), items: [fakeItem] },
+    );
+
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/submit`)
+      .set(AUTH);
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toMatch(/Only the creator/);
+  });
+
+  it('creator can add items to their own DRAFT → 201', async () => {
+    db.stockAdjustmentRequest.findUnique.mockResolvedValue(makeFakeRequest('DRAFT'));
+    db.stockAdjustmentItem.create.mockResolvedValue(fakeItem);
+
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/items`)
+      .set(AUTH)
+      .send({ productId: PRODUCT_ID, locationId: LOCATION_ID, qtyChange: 5 });
+
+    expect(res.status).toBe(201);
+  });
+
+  it('creator can submit their own DRAFT → 200', async () => {
+    db.stockAdjustmentRequest.findUnique.mockResolvedValue(makeFakeRequest('DRAFT', [fakeItem]));
+    db.stockAdjustmentRequest.update.mockResolvedValue(makeFakeRequest('SUBMITTED', [fakeItem]));
+
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/submit`)
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe('SUBMITTED');
+  });
+});

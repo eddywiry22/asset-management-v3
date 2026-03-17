@@ -435,7 +435,7 @@ export default function StockTransferDetailPage() {
       {/* Items */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
         <Typography variant="h6">Items</Typography>
-        {isDraft && (
+        {isDraft && isCreator && (
           <Button
             variant="outlined"
             size="small"
@@ -455,7 +455,7 @@ export default function StockTransferDetailPage() {
                 <TableCell>Product (SKU)</TableCell>
                 <TableCell align="right">Quantity</TableCell>
                 <TableCell>UOM</TableCell>
-                {isDraft && <TableCell align="center">Actions</TableCell>}
+                {isDraft && isCreator && <TableCell align="center">Actions</TableCell>}
               </TableRow>
             </TableHead>
             <TableBody>
@@ -469,7 +469,7 @@ export default function StockTransferDetailPage() {
                   <TableCell>{item.product?.sku} — {item.product?.name}</TableCell>
                   <TableCell align="right" sx={{ fontWeight: 600 }}>{Number(item.qty)}</TableCell>
                   <TableCell>{item.product?.uom?.code}</TableCell>
-                  {isDraft && (
+                  {isDraft && isCreator && (
                     <TableCell align="center">
                       <Tooltip title="Edit">
                         <IconButton
@@ -503,8 +503,8 @@ export default function StockTransferDetailPage() {
           <Divider sx={{ mb: 2 }} />
           <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
 
-            {/* DRAFT: Submit (creator/admin) */}
-            {isDraft && (isAdmin || isCreator) && (
+            {/* DRAFT: Submit (creator only) */}
+            {isDraft && isCreator && (
               <Button
                 variant="contained"
                 color="primary"

@@ -304,7 +304,7 @@ export default function StockAdjustmentDetailPage() {
       {/* Items */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
         <Typography variant="h6">Items</Typography>
-        {isDraft && (
+        {isDraft && isCreator && (
           <Button
             variant="outlined"
             size="small"
@@ -325,7 +325,7 @@ export default function StockAdjustmentDetailPage() {
                 <TableCell>Location</TableCell>
                 <TableCell align="right">Qty Change</TableCell>
                 <TableCell>Reason</TableCell>
-                {isDraft && <TableCell align="center">Actions</TableCell>}
+                {isDraft && isCreator && <TableCell align="center">Actions</TableCell>}
               </TableRow>
             </TableHead>
             <TableBody>
@@ -345,7 +345,7 @@ export default function StockAdjustmentDetailPage() {
                     {Number(item.qtyChange) >= 0 ? '+' : ''}{Number(item.qtyChange)}
                   </TableCell>
                   <TableCell>{item.reason ?? '—'}</TableCell>
-                  {isDraft && (
+                  {isDraft && isCreator && (
                     <TableCell align="center">
                       <Tooltip title="Edit">
                         <IconButton size="small" onClick={() => { setEditingItem(item); setItemDialogOpen(true); }}>
@@ -369,7 +369,7 @@ export default function StockAdjustmentDetailPage() {
       {/* Workflow Actions */}
       <Divider sx={{ mb: 2 }} />
       <Box sx={{ display: 'flex', gap: 2 }}>
-        {isDraft && (
+        {isDraft && isCreator && (
           <Button variant="contained" color="primary" onClick={() => setConfirmAction('submit')}>
             Submit for Approval
           </Button>
