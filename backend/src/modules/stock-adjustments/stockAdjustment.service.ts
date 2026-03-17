@@ -30,7 +30,7 @@ export class StockAdjustmentService {
   }
 
   // -------------------------------------------------------------------------
-  // List requests
+  // List requests — non-admins only see requests touching their locations
   // -------------------------------------------------------------------------
   async findAll(params: {
     status?: AdjustmentRequestStatus;
@@ -38,8 +38,15 @@ export class StockAdjustmentService {
     endDate?: Date;
     page: number;
     limit: number;
+    user: UserCtx;
   }): Promise<{ data: AdjustmentRequestRow[]; total: number }> {
-    return stockAdjustmentRepository.findAll(params);
+    let locationIds: string[] | undefined;
+    if (!params.user.isAdmin) {
+      const roles = await prisma.userLocationRole.findMany({ where: { userId: params.user.id } });
+      locationIds = roles.map((r) => r.locationId);
+    }
+    const { user: _user, ...rest } = params;
+    return stockAdjustmentRepository.findAll({ ...rest, locationIds });
   }
 
   // -------------------------------------------------------------------------
@@ -263,6 +270,45 @@ export class StockAdjustmentService {
     }
 
     void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', afterValue: { status: 'FINALIZED' }, performedBy: userId });
+    return (await stockAdjustmentRepository.findById(requestId))!;
+  }
+  // -------------------------------------------------------------------------
+  // Cancel (any pre-terminal state → CANCELLED)
+  // Creator, admin, or manager at any item's location can cancel
+  // -------------------------------------------------------------------------
+  async cancel(requestId: string, user: UserCtx): Promise<AdjustmentRequestRow> {
+    const req = await this.findById(requestId);
+
+    if (req.status === AdjustmentRequestStatus.FINALIZED || req.status === AdjustmentRequestStatus.CANCELLED) {
+      throw new ValidationError(`Cannot cancel a request with status ${req.status}`);
+    }
+
+    if (!user.isAdmin && req.createdById !== user.id) {
+      // Check if user is a manager at any item's location
+      const locationIds = [...new Set(req.items.map((i) => i.locationId))];
+      let hasManagerAccess = false;
+      for (const locationId of locationIds) {
+        const role = await prisma.userLocationRole.findFirst({
+          where: { userId: user.id, locationId, role: Role.MANAGER },
+        });
+        if (role) { hasManagerAccess = true; break; }
+      }
+      if (!hasManagerAccess) {
+        throw new ForbiddenError('Only the creator, a manager at the item location, or an admin can cancel this request');
+      }
+    }
+
+    const claimed = await stockAdjustmentRepository.claimCancellation(
+      requestId,
+      user.id,
+      new Date(),
+      [req.status],
+    );
+    if (!claimed) {
+      throw new ValidationError(`Cannot cancel a request with status ${req.status}`);
+    }
+
+    void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', afterValue: { status: 'CANCELLED' }, performedBy: user.id });
     return (await stockAdjustmentRepository.findById(requestId))!;
   }
 }

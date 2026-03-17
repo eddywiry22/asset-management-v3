@@ -56,4 +56,8 @@ router.post('/:id/finalize', (req, res, next) =>
   stockAdjustmentController.finalize(cast(req), res, next)
 );
 
+router.post('/:id/cancel', (req, res, next) =>
+  stockAdjustmentController.cancel(cast(req), res, next)
+);
+
 export default router;

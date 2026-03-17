@@ -96,13 +96,16 @@ function makeFakeRequest(status = 'DRAFT', items: any[] = []) {
     createdById:   USER_ID,
     approvedById:  null,
     finalizedById: null,
+    cancelledById: null,
     approvedAt:    null,
     finalizedAt:   null,
+    cancelledAt:   null,
     createdAt:     new Date().toISOString(),
     updatedAt:     new Date().toISOString(),
     createdBy:     fakeUser,
     approvedBy:    null,
     finalizedBy:   null,
+    cancelledBy:   null,
     items,
   };
 }
@@ -650,5 +653,154 @@ describe('W13 — finalize APPROVED request with no items', () => {
     expect(res.status).toBe(200);
     expect(res.body.data.status).toBe('FINALIZED');
     expect(db.$transaction).not.toHaveBeenCalled();
+  });
+});
+
+// ===========================================================================
+// CANCEL
+// ===========================================================================
+
+describe('POST /v1/stock-adjustments/:id/cancel', () => {
+  it('creator can cancel a DRAFT request → 200 (CANCELLED)', async () => {
+    db.stockAdjustmentRequest.findUnique
+      .mockResolvedValueOnce(makeFakeRequest('DRAFT', [fakeItem]))
+      .mockResolvedValueOnce(makeFakeRequest('CANCELLED', [fakeItem]));
+
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/cancel`)
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe('CANCELLED');
+  });
+
+  it('creator can cancel a SUBMITTED request → 200', async () => {
+    db.stockAdjustmentRequest.findUnique
+      .mockResolvedValueOnce(makeFakeRequest('SUBMITTED', [fakeItem]))
+      .mockResolvedValueOnce(makeFakeRequest('CANCELLED', [fakeItem]));
+
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/cancel`)
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+  });
+
+  it('creator can cancel an APPROVED request → 200', async () => {
+    db.stockAdjustmentRequest.findUnique
+      .mockResolvedValueOnce(makeFakeRequest('APPROVED', [fakeItem]))
+      .mockResolvedValueOnce(makeFakeRequest('CANCELLED', [fakeItem]));
+
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/cancel`)
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+  });
+
+  it('cannot cancel a FINALIZED request → 400', async () => {
+    db.stockAdjustmentRequest.findUnique.mockResolvedValue(makeFakeRequest('FINALIZED', [fakeItem]));
+
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/cancel`)
+      .set(AUTH);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/Cannot cancel a request with status FINALIZED/);
+  });
+
+  it('cannot cancel an already CANCELLED request → 400', async () => {
+    db.stockAdjustmentRequest.findUnique.mockResolvedValue(makeFakeRequest('CANCELLED', [fakeItem]));
+
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/cancel`)
+      .set(AUTH);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/Cannot cancel a request with status CANCELLED/);
+  });
+
+  it('manager at item location can cancel another user\'s request → 200', async () => {
+    const otherUserReq = { ...makeFakeRequest('SUBMITTED', [fakeItem]), createdById: 'other-user-id' };
+    db.stockAdjustmentRequest.findUnique
+      .mockResolvedValueOnce(otherUserReq)
+      .mockResolvedValueOnce(makeFakeRequest('CANCELLED', [fakeItem]));
+    // Default findFirst returns MANAGER role at LOCATION_ID
+
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/cancel`)
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+  });
+
+  it('non-manager without item location access cannot cancel → 403', async () => {
+    const otherUserReq = { ...makeFakeRequest('SUBMITTED', [fakeItem]), createdById: 'other-user-id' };
+    db.stockAdjustmentRequest.findUnique.mockResolvedValue(otherUserReq);
+    // No MANAGER role at item location
+    db.userLocationRole.findFirst.mockResolvedValue(null);
+
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/cancel`)
+      .set(AUTH);
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toMatch(/Only the creator, a manager at the item location, or an admin/);
+  });
+
+  it('admin can cancel any request regardless of creator → 200', async () => {
+    (authService.verifyAccessToken as jest.Mock).mockReturnValue({
+      sub: USER_ID, email: 'admin@example.com', phone: null, isAdmin: true,
+    });
+    const otherUserReq = { ...makeFakeRequest('APPROVED', [fakeItem]), createdById: 'other-user-id' };
+    db.stockAdjustmentRequest.findUnique
+      .mockResolvedValueOnce(otherUserReq)
+      .mockResolvedValueOnce(makeFakeRequest('CANCELLED', [fakeItem]));
+
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/cancel`)
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+  });
+});
+
+// ===========================================================================
+// LIST FILTERING — LOCATION VISIBILITY
+// ===========================================================================
+
+describe('GET /v1/stock-adjustments — location-based filtering', () => {
+  it('non-admin only sees requests for their locations', async () => {
+    // Override findMany to return role with locationId
+    db.userLocationRole.findMany.mockResolvedValue([{ locationId: LOCATION_ID, role: 'MANAGER' }]);
+    db.stockAdjustmentRequest.findMany.mockResolvedValue([makeFakeRequest('DRAFT', [fakeItem])]);
+    db.stockAdjustmentRequest.count.mockResolvedValue(1);
+
+    const res = await request(app)
+      .get('/v1/stock-adjustments')
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+    // Verify the repository was called with a locationIds filter (items.some constraint)
+    const findManyCall = db.stockAdjustmentRequest.findMany.mock.calls[0][0];
+    expect(findManyCall.where.items).toBeDefined();
+    expect(findManyCall.where.items.some.locationId.in).toContain(LOCATION_ID);
+  });
+
+  it('admin sees all requests with no location filter', async () => {
+    (authService.verifyAccessToken as jest.Mock).mockReturnValue({
+      sub: USER_ID, email: 'admin@example.com', phone: null, isAdmin: true,
+    });
+    db.stockAdjustmentRequest.findMany.mockResolvedValue([]);
+    db.stockAdjustmentRequest.count.mockResolvedValue(0);
+
+    const res = await request(app)
+      .get('/v1/stock-adjustments')
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+    // No items filter for admin
+    const findManyCall = db.stockAdjustmentRequest.findMany.mock.calls[0][0];
+    expect(findManyCall.where.items).toBeUndefined();
   });
 });

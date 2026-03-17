@@ -35,7 +35,8 @@ export class StockAdjustmentController {
         if (isNaN(endDate.getTime())) throw new ValidationError('Invalid endDate');
       }
 
-      const { data, total } = await stockAdjustmentService.findAll({ status, startDate, endDate, page, limit });
+      const user = { id: req.user.id, isAdmin: req.user.isAdmin };
+      const { data, total } = await stockAdjustmentService.findAll({ status, startDate, endDate, page, limit, user });
       res.status(200).json({ success: true, data, meta: { page, limit, total } });
     } catch (err) {
       next(err);
@@ -137,6 +138,16 @@ export class StockAdjustmentController {
     try {
       const user = { id: req.user.id, isAdmin: req.user.isAdmin };
       const data = await stockAdjustmentService.finalize(req.params.id, req.user.id, user);
+      res.status(200).json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async cancel(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const user = { id: req.user.id, isAdmin: req.user.isAdmin };
+      const data = await stockAdjustmentService.cancel(req.params.id, user);
       res.status(200).json({ success: true, data });
     } catch (err) {
       next(err);

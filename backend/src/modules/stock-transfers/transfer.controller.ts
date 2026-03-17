@@ -32,7 +32,8 @@ export class TransferController {
         if (isNaN(endDate.getTime())) throw new ValidationError('Invalid endDate');
       }
 
-      const { data, total } = await transferService.findAll({ status, startDate, endDate, page, limit });
+      const user = { id: req.user.id, isAdmin: req.user.isAdmin };
+      const { data, total } = await transferService.findAll({ status, startDate, endDate, page, limit, user });
       res.status(200).json({ success: true, data, meta: { page, limit, total } });
     } catch (err) {
       next(err);

@@ -5,7 +5,8 @@ export type AdjustmentRequestStatus =
   | 'SUBMITTED'
   | 'APPROVED'
   | 'REJECTED'
-  | 'FINALIZED';
+  | 'FINALIZED'
+  | 'CANCELLED';
 
 export type AdjustmentItemUser = {
   id: string;
@@ -113,6 +114,10 @@ const stockAdjustmentsService = {
 
   finalize(requestId: string): Promise<{ success: boolean; data: AdjustmentRequest }> {
     return apiClient.post(`stock-adjustments/${requestId}/finalize`).then((r) => r.data);
+  },
+
+  cancel(requestId: string): Promise<{ success: boolean; data: AdjustmentRequest }> {
+    return apiClient.post(`stock-adjustments/${requestId}/cancel`).then((r) => r.data);
   },
 };
 

@@ -9,6 +9,7 @@ import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import CancelOutlinedIcon from '@mui/icons-material/CancelOutlined';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import stockAdjustmentsService, {
@@ -29,6 +30,7 @@ const STATUS_COLORS: Record<string, 'default' | 'warning' | 'info' | 'success' |
   APPROVED:  'info',
   REJECTED:  'error',
   FINALIZED: 'success',
+  CANCELLED: 'error',
 };
 
 function fmtDate(d: string | null | undefined): string {
@@ -141,11 +143,11 @@ export default function StockAdjustmentDetailPage() {
   const { id }       = useParams<{ id: string }>();
   const navigate     = useNavigate();
   const queryClient  = useQueryClient();
-  const { isAdmin } = useAuth();
+  const { isAdmin, user: currentUser } = useAuth();
 
   const [itemDialogOpen, setItemDialogOpen] = useState(false);
   const [editingItem,    setEditingItem]    = useState<AdjustmentItem | null>(null);
-  const [confirmAction,  setConfirmAction]  = useState<'submit' | 'approve' | 'reject' | 'finalize' | null>(null);
+  const [confirmAction,  setConfirmAction]  = useState<'submit' | 'approve' | 'reject' | 'finalize' | 'cancel' | null>(null);
   const [rejectNotes,    setRejectNotes]    = useState('');
   const [snack, setSnack] = useState<{ msg: string; severity: 'success' | 'error' } | null>(null);
 
@@ -212,9 +214,18 @@ export default function StockAdjustmentDetailPage() {
     onError: (e: any) => { setConfirmAction(null); setSnack({ msg: e?.response?.data?.error?.message ?? 'Finalize failed', severity: 'error' }); },
   });
 
+  const cancelMutation = useMutation({
+    mutationFn: () => stockAdjustmentsService.cancel(id!),
+    onSuccess: () => { invalidate(); setConfirmAction(null); setSnack({ msg: 'Request cancelled', severity: 'success' }); },
+    onError: (e: any) => { setConfirmAction(null); setSnack({ msg: e?.response?.data?.error?.message ?? 'Cancel failed', severity: 'error' }); },
+  });
+
   const isDraft     = req?.status === 'DRAFT';
   const isSubmitted = req?.status === 'SUBMITTED';
   const isApproved  = req?.status === 'APPROVED';
+  const isTerminal  = req?.status === 'FINALIZED' || req?.status === 'CANCELLED';
+  const isCreator   = req?.createdById === (currentUser?.id ?? '');
+  const canCancel   = !isTerminal && (isAdmin || isCreator || isManager);
 
   if (isLoading) return <CircularProgress />;
   if (error || !req) return <Alert severity="error">Failed to load request</Alert>;
@@ -350,6 +361,11 @@ export default function StockAdjustmentDetailPage() {
             Finalize (Apply Stock Changes)
           </Button>
         )}
+        {canCancel && (
+          <Button variant="outlined" color="error" startIcon={<CancelOutlinedIcon />} onClick={() => setConfirmAction('cancel')}>
+            Cancel
+          </Button>
+        )}
       </Box>
 
       {/* Add/Edit Item Dialog */}
@@ -374,6 +390,7 @@ export default function StockAdjustmentDetailPage() {
           {confirmAction === 'approve'  && 'Approve Request'}
           {confirmAction === 'reject'   && 'Reject Request'}
           {confirmAction === 'finalize' && 'Finalize Request'}
+          {confirmAction === 'cancel'   && 'Cancel Request'}
         </DialogTitle>
         <DialogContent>
           {confirmAction === 'reject' && (
@@ -392,7 +409,12 @@ export default function StockAdjustmentDetailPage() {
               This will apply stock changes permanently and cannot be undone.
             </Alert>
           )}
-          {confirmAction !== 'reject' && confirmAction !== 'finalize' && (
+          {confirmAction === 'cancel' && (
+            <Alert severity="warning" sx={{ mt: 1 }}>
+              Cancelling this request cannot be undone.
+            </Alert>
+          )}
+          {confirmAction !== 'reject' && confirmAction !== 'finalize' && confirmAction !== 'cancel' && (
             <Typography>Are you sure?</Typography>
           )}
         </DialogContent>
@@ -400,12 +422,13 @@ export default function StockAdjustmentDetailPage() {
           <Button onClick={() => setConfirmAction(null)}>Cancel</Button>
           <Button
             variant="contained"
-            color={confirmAction === 'reject' ? 'error' : confirmAction === 'finalize' ? 'warning' : 'primary'}
+            color={confirmAction === 'reject' || confirmAction === 'cancel' ? 'error' : confirmAction === 'finalize' ? 'warning' : 'primary'}
             onClick={() => {
               if (confirmAction === 'submit')   submitMutation.mutate();
               if (confirmAction === 'approve')  approveMutation.mutate();
               if (confirmAction === 'reject')   rejectMutation.mutate();
               if (confirmAction === 'finalize') finalizeMutation.mutate();
+              if (confirmAction === 'cancel')   cancelMutation.mutate();
             }}
           >
             Confirm

@@ -21,13 +21,16 @@ export type AdjustmentRequestRow = {
   createdById: string;
   approvedById: string | null;
   finalizedById: string | null;
+  cancelledById: string | null;
   approvedAt: Date | null;
   finalizedAt: Date | null;
+  cancelledAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
   createdBy: { id: string; email: string | null; phone: string | null };
   approvedBy: { id: string; email: string | null; phone: string | null } | null;
   finalizedBy: { id: string; email: string | null; phone: string | null } | null;
+  cancelledBy: { id: string; email: string | null; phone: string | null } | null;
   items: AdjustmentItemRow[];
 };
 
@@ -42,6 +45,7 @@ const REQUEST_INCLUDE = {
   createdBy:   USER_SELECT,
   approvedBy:  USER_SELECT,
   finalizedBy: USER_SELECT,
+  cancelledBy: USER_SELECT,
   items: { include: ITEM_INCLUDE, orderBy: { createdAt: 'asc' as const } },
 };
 
@@ -52,8 +56,9 @@ export class StockAdjustmentRepository {
     endDate?: Date;
     page: number;
     limit: number;
+    locationIds?: string[];
   }): Promise<{ data: AdjustmentRequestRow[]; total: number }> {
-    const { status, startDate, endDate, page, limit } = params;
+    const { status, startDate, endDate, page, limit, locationIds } = params;
     const where: Record<string, unknown> = {};
     if (status)    where['status']    = status;
     if (startDate || endDate) {
@@ -61,6 +66,9 @@ export class StockAdjustmentRepository {
         ...(startDate ? { gte: startDate } : {}),
         ...(endDate   ? { lte: endDate   } : {}),
       };
+    }
+    if (locationIds) {
+      where['items'] = { some: { locationId: { in: locationIds } } };
     }
 
     const skip = (page - 1) * limit;
@@ -164,6 +172,15 @@ export class StockAdjustmentRepository {
     const result = await prisma.stockAdjustmentRequest.updateMany({
       where: { id, status: AdjustmentRequestStatus.APPROVED },
       data:  { status: AdjustmentRequestStatus.FINALIZED, finalizedById: userId, finalizedAt: now },
+    });
+    return result.count > 0;
+  }
+
+  // Atomically transition any allowed status → CANCELLED; returns true if claim succeeded.
+  async claimCancellation(id: string, userId: string, now: Date, allowedStatuses: AdjustmentRequestStatus[]): Promise<boolean> {
+    const result = await prisma.stockAdjustmentRequest.updateMany({
+      where: { id, status: { in: allowedStatuses } },
+      data:  { status: AdjustmentRequestStatus.CANCELLED, cancelledById: userId, cancelledAt: now },
     });
     return result.count > 0;
   }

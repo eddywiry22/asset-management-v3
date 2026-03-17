@@ -283,8 +283,9 @@ export default function StockTransferDetailPage() {
   const isTerminal  = status === 'FINALIZED' || status === 'CANCELLED';
 
   const isCreator = req.createdById === userId;
-  // Cancel only applies to SUBMITTED and beyond — DRAFT uses Delete instead
-  const canCancel = !isDraft && !isTerminal && (isAdmin || isCreator);
+  // Cancel: SUBMITTED+ (DRAFT uses Delete); any participant or creator/admin
+  const hasLocationAccess = isAdmin || srcRole !== '' || dstRole !== '';
+  const canCancel = !isDraft && !isTerminal && (isAdmin || isCreator || hasLocationAccess);
   const canDelete = isDraft && (isAdmin || isCreator);
 
   // Workflow action confirmation config

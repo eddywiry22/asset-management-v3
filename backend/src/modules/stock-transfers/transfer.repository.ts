@@ -60,8 +60,9 @@ export class TransferRepository {
     endDate?: Date;
     page: number;
     limit: number;
+    locationIds?: string[];
   }): Promise<{ data: TransferRequestRow[]; total: number }> {
-    const { status, startDate, endDate, page, limit } = params;
+    const { status, startDate, endDate, page, limit, locationIds } = params;
     const where: Record<string, unknown> = {};
     if (status) where['status'] = status;
     if (startDate || endDate) {
@@ -69,6 +70,12 @@ export class TransferRepository {
         ...(startDate ? { gte: startDate } : {}),
         ...(endDate   ? { lte: endDate   } : {}),
       };
+    }
+    if (locationIds) {
+      where['OR'] = [
+        { sourceLocationId:      { in: locationIds } },
+        { destinationLocationId: { in: locationIds } },
+      ];
     }
 
     const skip = (page - 1) * limit;

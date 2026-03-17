@@ -25,6 +25,7 @@ model User {
   adjustmentsCreated    StockAdjustmentRequest[] @relation("AdjustmentCreatedBy")
   adjustmentsApproved   StockAdjustmentRequest[] @relation("AdjustmentApprovedBy")
   adjustmentsFinalized  StockAdjustmentRequest[] @relation("AdjustmentFinalizedBy")
+  adjustmentsCancelled  StockAdjustmentRequest[] @relation("AdjustmentCancelledBy")
   transfersCreated              StockTransferRequest[] @relation("TransferCreatedBy")
   transfersOriginApproved       StockTransferRequest[] @relation("TransferOriginApprovedBy")
   transfersDestinationApproved  StockTransferRequest[] @relation("TransferDestinationApprovedBy")
@@ -169,6 +170,7 @@ enum AdjustmentRequestStatus {
   APPROVED
   REJECTED
   FINALIZED
+  CANCELLED
 }
 
 model StockAdjustmentRequest {
@@ -179,14 +181,17 @@ model StockAdjustmentRequest {
   createdById   String
   approvedById  String?
   finalizedById String?
+  cancelledById String?
   approvedAt    DateTime?
   finalizedAt   DateTime?
+  cancelledAt   DateTime?
   createdAt     DateTime                 @default(now())
   updatedAt     DateTime                 @updatedAt
 
   createdBy   User                   @relation("AdjustmentCreatedBy",   fields: [createdById],   references: [id])
   approvedBy  User?                  @relation("AdjustmentApprovedBy",  fields: [approvedById],  references: [id])
   finalizedBy User?                  @relation("AdjustmentFinalizedBy", fields: [finalizedById], references: [id])
+  cancelledBy User?                  @relation("AdjustmentCancelledBy", fields: [cancelledById], references: [id])
   items       StockAdjustmentItem[]
 
   @@index([status])

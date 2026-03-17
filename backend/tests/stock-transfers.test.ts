@@ -1177,17 +1177,19 @@ describe('POST /v1/stock-transfers/:id/cancel', () => {
     expect(res.body.error.message).toMatch(/Cannot cancel/);
   });
 
-  it('non-creator cannot cancel another user\'s SUBMITTED request → 403', async () => {
+  it('non-creator with no location access cannot cancel → 403', async () => {
     // Use SUBMITTED (not DRAFT) since DRAFT is no longer cancellable — use Delete for DRAFTs
     const otherUsersRequest = { ...makeFakeRequest('SUBMITTED', [fakeItem]), createdById: 'other-user-id' };
     db.stockTransferRequest.findUnique.mockResolvedValue(otherUsersRequest);
+    // Explicitly no location access
+    db.userLocationRole.findFirst.mockResolvedValue(null);
 
     const res = await request(app)
       .post(`/v1/stock-transfers/${REQ_ID}/cancel`)
       .set(AUTH);
 
     expect(res.status).toBe(403);
-    expect(res.body.error.message).toMatch(/Only the creator or an admin/);
+    expect(res.body.error.message).toMatch(/Only the creator, a location participant, or an admin/);
   });
 
   it('admin can cancel any request regardless of creator', async () => {
@@ -1525,7 +1527,93 @@ describe('POST /v1/stock-transfers/:id/reject', () => {
 });
 
 // ===========================================================================
-// 25. FINALIZE — DESTINATION-ONLY PERMISSION
+// 25. CANCEL — LOCATION PARTICIPANT ACCESS (F2)
+// ===========================================================================
+
+describe('POST /v1/stock-transfers/:id/cancel — location participant access', () => {
+  it('destination user (not creator) can cancel a READY_TO_FINALIZE request → 200', async () => {
+    const otherUsersRequest = { ...makeFakeRequest('READY_TO_FINALIZE', [fakeItem]), createdById: 'other-user-id' };
+    db.stockTransferRequest.findUnique
+      .mockResolvedValueOnce(otherUsersRequest)
+      .mockResolvedValueOnce(makeFakeRequest('CANCELLED', [fakeItem]));
+    // User has access to DST_LOC_ID (destination) via the OR location check
+    db.userLocationRole.findFirst.mockResolvedValue({ id: 'role-1', userId: USER_ID, locationId: DST_LOC_ID, role: 'OPERATOR' });
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/cancel`)
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+  });
+
+  it('source user (not creator) can cancel a SUBMITTED request → 200', async () => {
+    const otherUsersRequest = { ...makeFakeRequest('SUBMITTED', [fakeItem]), createdById: 'other-user-id' };
+    db.stockTransferRequest.findUnique
+      .mockResolvedValueOnce(otherUsersRequest)
+      .mockResolvedValueOnce(makeFakeRequest('CANCELLED', [fakeItem]));
+    db.userLocationRole.findFirst.mockResolvedValue({ id: 'role-1', userId: USER_ID, locationId: SRC_LOC_ID, role: 'MANAGER' });
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/cancel`)
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+  });
+
+  it('user with no location access (and not creator) cannot cancel → 403', async () => {
+    const otherUsersRequest = { ...makeFakeRequest('SUBMITTED', [fakeItem]), createdById: 'other-user-id' };
+    db.stockTransferRequest.findUnique.mockResolvedValue(otherUsersRequest);
+    db.userLocationRole.findFirst.mockResolvedValue(null);
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/cancel`)
+      .set(AUTH);
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toMatch(/Only the creator, a location participant, or an admin/);
+  });
+});
+
+// ===========================================================================
+// 26. LIST FILTERING — LOCATION VISIBILITY (F3)
+// ===========================================================================
+
+describe('GET /v1/stock-transfers — location-based filtering', () => {
+  it('non-admin only sees requests for their locations (OR filter applied)', async () => {
+    // Override findMany to return role with locationId
+    db.userLocationRole.findMany.mockResolvedValue([{ locationId: SRC_LOC_ID, role: 'MANAGER' }]);
+    db.stockTransferRequest.findMany.mockResolvedValue([]);
+    db.stockTransferRequest.count.mockResolvedValue(0);
+
+    const res = await request(app)
+      .get('/v1/stock-transfers')
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+    const findManyCall = db.stockTransferRequest.findMany.mock.calls[0][0];
+    expect(findManyCall.where.OR).toBeDefined();
+    expect(findManyCall.where.OR[0].sourceLocationId.in).toContain(SRC_LOC_ID);
+  });
+
+  it('admin sees all requests with no location filter', async () => {
+    (authService.verifyAccessToken as jest.Mock).mockReturnValue({
+      sub: USER_ID, email: 'admin@example.com', phone: null, isAdmin: true,
+    });
+    db.stockTransferRequest.findMany.mockResolvedValue([]);
+    db.stockTransferRequest.count.mockResolvedValue(0);
+
+    const res = await request(app)
+      .get('/v1/stock-transfers')
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+    const findManyCall = db.stockTransferRequest.findMany.mock.calls[0][0];
+    expect(findManyCall.where.OR).toBeUndefined();
+  });
+});
+
+// ===========================================================================
+// 27. FINALIZE — DESTINATION-ONLY PERMISSION
 // ===========================================================================
 
 describe('Finalize — destination-only access requirement', () => {

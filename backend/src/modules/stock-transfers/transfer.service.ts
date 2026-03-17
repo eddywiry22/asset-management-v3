@@ -38,7 +38,7 @@ export class TransferService {
   }
 
   // -------------------------------------------------------------------------
-  // List transfers
+  // List transfers — non-admins only see requests for their locations
   // -------------------------------------------------------------------------
   async findAll(params: {
     status?: TransferRequestStatus;
@@ -46,8 +46,15 @@ export class TransferService {
     endDate?: Date;
     page: number;
     limit: number;
+    user: UserCtx;
   }): Promise<{ data: TransferRequestRow[]; total: number }> {
-    return transferRepository.findAll(params);
+    let locationIds: string[] | undefined;
+    if (!params.user.isAdmin) {
+      const roles = await prisma.userLocationRole.findMany({ where: { userId: params.user.id } });
+      locationIds = roles.map((r) => r.locationId);
+    }
+    const { user: _user, ...rest } = params;
+    return transferRepository.findAll({ ...rest, locationIds });
   }
 
   // -------------------------------------------------------------------------
@@ -369,7 +376,7 @@ export class TransferService {
 
   // -------------------------------------------------------------------------
   // Cancel (any pre-finalized state → CANCELLED)
-  // Creator can cancel their own request; admin can cancel any
+  // Creator, admin, or any user with access to source/destination location can cancel
   // -------------------------------------------------------------------------
   async cancel(requestId: string, user: UserCtx): Promise<TransferRequestRow> {
     const req = await this.findById(requestId);
@@ -378,7 +385,16 @@ export class TransferService {
       throw new ValidationError(`Cannot cancel a request with status ${req.status}`);
     }
     if (!user.isAdmin && req.createdById !== user.id) {
-      throw new ForbiddenError('Only the creator or an admin can cancel a transfer request');
+      // Also allow users with access to source OR destination location
+      const locRole = await prisma.userLocationRole.findFirst({
+        where: {
+          userId: user.id,
+          locationId: { in: [req.sourceLocationId, req.destinationLocationId] },
+        },
+      });
+      if (!locRole) {
+        throw new ForbiddenError('Only the creator, a location participant, or an admin can cancel a transfer request');
+      }
     }
 
     const claimed = await transferRepository.claimCancellation(
