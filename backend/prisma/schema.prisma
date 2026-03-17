@@ -225,6 +225,8 @@ model AuditLog {
 
 enum TransferRequestStatus {
   DRAFT
+  APPROVED
+  REJECTED
   FINALIZED
 }
 

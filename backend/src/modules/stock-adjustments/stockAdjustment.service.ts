@@ -6,9 +6,12 @@ import {
 } from './stockAdjustment.repository';
 import { stockService } from '../stock/stock.service';
 import { NotFoundError, ValidationError, ForbiddenError } from '../../utils/errors';
+import { assertUserCanAccessLocation } from '../../utils/guards';
 import { CreateRequestDto, AddItemDto, UpdateItemDto } from './stockAdjustment.validator';
 import { auditService } from '../../services/audit.service';
 import prisma from '../../config/database';
+
+type UserCtx = { id: string; isAdmin: boolean };
 
 export class StockAdjustmentService {
   // -------------------------------------------------------------------------
@@ -69,13 +72,16 @@ export class StockAdjustmentService {
   }
 
   // -------------------------------------------------------------------------
-  // Add item (DRAFT only)  (W3: pre-validate productId/locationId)
+  // Add item (DRAFT only) — Part 1: guard by item locationId
   // -------------------------------------------------------------------------
-  async addItem(requestId: string, dto: AddItemDto): Promise<AdjustmentItemRow> {
+  async addItem(requestId: string, dto: AddItemDto, user: UserCtx): Promise<AdjustmentItemRow> {
     const req = await this.findById(requestId);
     if (req.status !== AdjustmentRequestStatus.DRAFT) {
       throw new ValidationError('Items can only be added when the request is in DRAFT status');
     }
+    // Guard: user must have access to the target location
+    await assertUserCanAccessLocation(user.id, user.isAdmin, dto.locationId);
+
     const product = await prisma.product.findUnique({ where: { id: dto.productId } });
     if (!product) throw new NotFoundError(`Product not found: ${dto.productId}`);
     const location = await prisma.location.findUnique({ where: { id: dto.locationId } });
@@ -90,9 +96,9 @@ export class StockAdjustmentService {
   }
 
   // -------------------------------------------------------------------------
-  // Update item (DRAFT only)
+  // Update item (DRAFT only) — Part 1: guard by item locationId
   // -------------------------------------------------------------------------
-  async updateItem(requestId: string, itemId: string, dto: UpdateItemDto): Promise<AdjustmentItemRow> {
+  async updateItem(requestId: string, itemId: string, dto: UpdateItemDto, user: UserCtx): Promise<AdjustmentItemRow> {
     const req  = await this.findById(requestId);
     if (req.status !== AdjustmentRequestStatus.DRAFT) {
       throw new ValidationError('Items can only be edited when the request is in DRAFT status');
@@ -101,13 +107,16 @@ export class StockAdjustmentService {
     if (!item || item.requestId !== requestId) {
       throw new NotFoundError(`Item not found: ${itemId}`);
     }
+    // Guard: user must have access to the item's location
+    await assertUserCanAccessLocation(user.id, user.isAdmin, item.locationId);
+
     return stockAdjustmentRepository.updateItem(itemId, dto);
   }
 
   // -------------------------------------------------------------------------
-  // Delete item (DRAFT only)
+  // Delete item (DRAFT only) — Part 1: guard by item locationId
   // -------------------------------------------------------------------------
-  async deleteItem(requestId: string, itemId: string): Promise<void> {
+  async deleteItem(requestId: string, itemId: string, user: UserCtx): Promise<void> {
     const req  = await this.findById(requestId);
     if (req.status !== AdjustmentRequestStatus.DRAFT) {
       throw new ValidationError('Items can only be deleted when the request is in DRAFT status');
@@ -116,6 +125,9 @@ export class StockAdjustmentService {
     if (!item || item.requestId !== requestId) {
       throw new NotFoundError(`Item not found: ${itemId}`);
     }
+    // Guard: user must have access to the item's location
+    await assertUserCanAccessLocation(user.id, user.isAdmin, item.locationId);
+
     await stockAdjustmentRepository.deleteItem(itemId);
   }
 
@@ -138,7 +150,8 @@ export class StockAdjustmentService {
   }
 
   // -------------------------------------------------------------------------
-  // Approve (SUBMITTED → APPROVED) — managers and admins only  (W14: audit log)
+  // Approve (SUBMITTED → APPROVED) — managers and admins only
+  // Part 1: guard by any item's location
   // -------------------------------------------------------------------------
   async approve(requestId: string, userId: string, userRoles: { isAdmin: boolean; locationRoles: string[] }): Promise<AdjustmentRequestRow> {
     if (!userRoles.isAdmin && !userRoles.locationRoles.includes(Role.MANAGER)) {
@@ -151,6 +164,20 @@ export class StockAdjustmentService {
     if (!req.items || req.items.length === 0) {
       throw new ValidationError('Cannot approve a request with no items');
     }
+
+    // Part 1: verify user has access to at least one item's location
+    if (!userRoles.isAdmin) {
+      const locationIds = [...new Set(req.items.map((i) => i.locationId))];
+      let hasAccess = false;
+      for (const locationId of locationIds) {
+        const role = await prisma.userLocationRole.findFirst({ where: { userId, locationId } });
+        if (role) { hasAccess = true; break; }
+      }
+      if (!hasAccess) {
+        throw new ForbiddenError('You do not have access to this location');
+      }
+    }
+
     const updated = await stockAdjustmentRepository.updateStatus(requestId, {
       status:      AdjustmentRequestStatus.APPROVED,
       approvedById: userId,
@@ -161,7 +188,8 @@ export class StockAdjustmentService {
   }
 
   // -------------------------------------------------------------------------
-  // Reject (SUBMITTED → REJECTED) — managers and admins only  (W14: audit log)
+  // Reject (SUBMITTED → REJECTED) — managers and admins only
+  // Part 1: guard by any item's location
   // -------------------------------------------------------------------------
   async reject(requestId: string, userId: string, userRoles: { isAdmin: boolean; locationRoles: string[] }, notes?: string): Promise<AdjustmentRequestRow> {
     if (!userRoles.isAdmin && !userRoles.locationRoles.includes(Role.MANAGER)) {
@@ -171,6 +199,20 @@ export class StockAdjustmentService {
     if (req.status !== AdjustmentRequestStatus.SUBMITTED) {
       throw new ValidationError(`Cannot reject a request with status ${req.status}`);
     }
+
+    // Part 1: verify user has access to at least one item's location
+    if (!userRoles.isAdmin && req.items && req.items.length > 0) {
+      const locationIds = [...new Set(req.items.map((i) => i.locationId))];
+      let hasAccess = false;
+      for (const locationId of locationIds) {
+        const role = await prisma.userLocationRole.findFirst({ where: { userId, locationId } });
+        if (role) { hasAccess = true; break; }
+      }
+      if (!hasAccess) {
+        throw new ForbiddenError('You do not have access to this location');
+      }
+    }
+
     const updated = await stockAdjustmentRepository.updateStatus(requestId, {
       status: AdjustmentRequestStatus.REJECTED,
       approvedById: userId,
@@ -183,11 +225,25 @@ export class StockAdjustmentService {
 
   // -------------------------------------------------------------------------
   // Finalize (APPROVED → FINALIZED)  (C1: optimistic concurrency, W14: audit)
+  // Part 1: guard by any item's location
   // -------------------------------------------------------------------------
-  async finalize(requestId: string, userId: string): Promise<AdjustmentRequestRow> {
+  async finalize(requestId: string, userId: string, userCtx?: UserCtx): Promise<AdjustmentRequestRow> {
     const req = await this.findById(requestId);
     if (req.status !== AdjustmentRequestStatus.APPROVED) {
       throw new ValidationError(`Cannot finalize a request with status ${req.status}`);
+    }
+
+    // Part 1: if user context provided, verify location access
+    if (userCtx && !userCtx.isAdmin && req.items && req.items.length > 0) {
+      const locationIds = [...new Set(req.items.map((i) => i.locationId))];
+      let hasAccess = false;
+      for (const locationId of locationIds) {
+        const role = await prisma.userLocationRole.findFirst({ where: { userId, locationId } });
+        if (role) { hasAccess = true; break; }
+      }
+      if (!hasAccess) {
+        throw new ForbiddenError('You do not have access to this location');
+      }
     }
 
     // Atomically claim: only the first concurrent caller transitions APPROVED → FINALIZED.

@@ -126,6 +126,8 @@ beforeEach(() => {
   });
   // User has MANAGER role
   db.userLocationRole.findMany.mockResolvedValue([{ locationId: LOCATION_ID, role: 'MANAGER' }]);
+  // User has access to LOCATION_ID (satisfies assertUserCanAccessLocation)
+  db.userLocationRole.findFirst.mockResolvedValue({ id: 'role-1', userId: USER_ID, locationId: LOCATION_ID, role: 'MANAGER' });
   // W3: default product/location lookups succeed
   db.product.findUnique.mockResolvedValue({ id: PRODUCT_ID, sku: 'ELEC-001', name: 'Laptop' });
   db.location.findUnique.mockResolvedValue({ id: LOCATION_ID, code: 'WH-001', name: 'Main Warehouse' });

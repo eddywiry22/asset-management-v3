@@ -62,7 +62,8 @@ export class StockAdjustmentController {
 
   async addItem(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-      const data = await stockAdjustmentService.addItem(req.params.id, req.body);
+      const user = { id: req.user.id, isAdmin: req.user.isAdmin };
+      const data = await stockAdjustmentService.addItem(req.params.id, req.body, user);
       res.status(201).json({ success: true, data });
     } catch (err) {
       next(err);
@@ -71,7 +72,8 @@ export class StockAdjustmentController {
 
   async updateItem(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-      const data = await stockAdjustmentService.updateItem(req.params.id, req.params.itemId, req.body);
+      const user = { id: req.user.id, isAdmin: req.user.isAdmin };
+      const data = await stockAdjustmentService.updateItem(req.params.id, req.params.itemId, req.body, user);
       res.status(200).json({ success: true, data });
     } catch (err) {
       next(err);
@@ -80,7 +82,8 @@ export class StockAdjustmentController {
 
   async deleteItem(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-      await stockAdjustmentService.deleteItem(req.params.id, req.params.itemId);
+      const user = { id: req.user.id, isAdmin: req.user.isAdmin };
+      await stockAdjustmentService.deleteItem(req.params.id, req.params.itemId, user);
       res.status(204).send();
     } catch (err) {
       next(err);
@@ -132,7 +135,8 @@ export class StockAdjustmentController {
 
   async finalize(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-      const data = await stockAdjustmentService.finalize(req.params.id, req.user.id);
+      const user = { id: req.user.id, isAdmin: req.user.isAdmin };
+      const data = await stockAdjustmentService.finalize(req.params.id, req.user.id, user);
       res.status(200).json({ success: true, data });
     } catch (err) {
       next(err);

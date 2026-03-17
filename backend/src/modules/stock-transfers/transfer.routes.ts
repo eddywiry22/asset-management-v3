@@ -34,7 +34,15 @@ router.delete('/:id/items/:itemId', (req, res, next) =>
   transferController.deleteItem(cast(req), res, next)
 );
 
-// Finalize
+// Workflow actions
+router.post('/:id/approve', (req, res, next) =>
+  transferController.approve(cast(req), res, next)
+);
+
+router.post('/:id/reject', (req, res, next) =>
+  transferController.reject(cast(req), res, next)
+);
+
 router.post('/:id/finalize', (req, res, next) =>
   transferController.finalize(cast(req), res, next)
 );

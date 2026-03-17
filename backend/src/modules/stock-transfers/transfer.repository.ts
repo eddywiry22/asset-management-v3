@@ -136,10 +136,21 @@ export class TransferRepository {
     });
   }
 
-  // C1: Atomically transition DRAFT → FINALIZED; returns true if claim succeeded.
+  // Update status (approve, reject, etc.)
+  async updateStatus(id: string, data: {
+    status: TransferRequestStatus;
+  }): Promise<TransferRequestRow> {
+    return prisma.stockTransferRequest.update({
+      where: { id },
+      data,
+      include: REQUEST_INCLUDE,
+    }) as Promise<TransferRequestRow>;
+  }
+
+  // C1: Atomically transition APPROVED → FINALIZED; returns true if claim succeeded.
   async claimFinalization(id: string, now: Date): Promise<boolean> {
     const result = await prisma.stockTransferRequest.updateMany({
-      where: { id, status: TransferRequestStatus.DRAFT },
+      where: { id, status: TransferRequestStatus.APPROVED },
       data:  { status: TransferRequestStatus.FINALIZED, finalizedAt: now },
     });
     return result.count > 0;

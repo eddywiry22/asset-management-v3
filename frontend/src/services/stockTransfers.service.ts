@@ -1,6 +1,6 @@
 import apiClient from '../api/client';
 
-export type TransferRequestStatus = 'DRAFT' | 'FINALIZED';
+export type TransferRequestStatus = 'DRAFT' | 'APPROVED' | 'REJECTED' | 'FINALIZED';
 
 export type TransferUser = {
   id: string;
@@ -90,6 +90,14 @@ const stockTransfersService = {
 
   deleteItem(requestId: string, itemId: string): Promise<void> {
     return apiClient.delete(`stock-transfers/${requestId}/items/${itemId}`).then(() => undefined);
+  },
+
+  approve(requestId: string): Promise<{ success: boolean; data: TransferRequest }> {
+    return apiClient.post(`stock-transfers/${requestId}/approve`).then((r) => r.data);
+  },
+
+  reject(requestId: string): Promise<{ success: boolean; data: TransferRequest }> {
+    return apiClient.post(`stock-transfers/${requestId}/reject`).then((r) => r.data);
   },
 
   finalize(requestId: string): Promise<{ success: boolean; data: TransferRequest }> {

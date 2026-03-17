@@ -1,14 +1,17 @@
-import { TransferRequestStatus } from '@prisma/client';
+import { TransferRequestStatus, Role } from '@prisma/client';
 import {
   transferRepository,
   TransferRequestRow,
   TransferItemRow,
 } from './transfer.repository';
 import { stockService } from '../stock/stock.service';
-import { NotFoundError, ValidationError } from '../../utils/errors';
+import { NotFoundError, ValidationError, ForbiddenError } from '../../utils/errors';
+import { assertUserCanAccessLocation } from '../../utils/guards';
 import { CreateTransferDto, AddItemDto, UpdateItemDto } from './transfer.validator';
 import { auditService } from '../../services/audit.service';
 import prisma from '../../config/database';
+
+type UserCtx = { id: string; isAdmin: boolean };
 
 export class TransferService {
   // -------------------------------------------------------------------------
@@ -49,12 +52,16 @@ export class TransferService {
   }
 
   // -------------------------------------------------------------------------
-  // Create DRAFT request  (retry on unique constraint collision)
+  // Create DRAFT request
+  // Part 2: sourceLocationId must equal user's assigned location (non-admins)
   // -------------------------------------------------------------------------
-  async create(dto: CreateTransferDto, userId: string): Promise<TransferRequestRow> {
+  async create(dto: CreateTransferDto, user: UserCtx): Promise<TransferRequestRow> {
     if (dto.sourceLocationId === dto.destinationLocationId) {
       throw new ValidationError('Source and destination locations must be different');
     }
+
+    // Part 2: only admin can create requests for locations they are not assigned to
+    await assertUserCanAccessLocation(user.id, user.isAdmin, dto.sourceLocationId);
 
     const source = await prisma.location.findUnique({ where: { id: dto.sourceLocationId } });
     if (!source) throw new NotFoundError(`Source location not found: ${dto.sourceLocationId}`);
@@ -69,7 +76,7 @@ export class TransferService {
           requestNumber,
           sourceLocationId:      dto.sourceLocationId,
           destinationLocationId: dto.destinationLocationId,
-          createdById:           userId,
+          createdById:           user.id,
           notes:                 dto.notes,
         });
 
@@ -77,7 +84,7 @@ export class TransferService {
           entityType:  'STOCK_TRANSFER_REQUEST',
           entityId:    request.id,
           action:      'TRANSFER_CREATE',
-          performedBy: userId,
+          performedBy: user.id,
           afterValue: {
             status:                'DRAFT',
             sourceLocationId:      request.sourceLocationId,
@@ -95,13 +102,15 @@ export class TransferService {
   }
 
   // -------------------------------------------------------------------------
-  // Add item (DRAFT only)
+  // Add item (DRAFT only)  — Part 1: guard by sourceLocationId
   // -------------------------------------------------------------------------
-  async addItem(requestId: string, dto: AddItemDto): Promise<TransferItemRow> {
+  async addItem(requestId: string, dto: AddItemDto, user: UserCtx): Promise<TransferItemRow> {
     const req = await this.findById(requestId);
     if (req.status !== TransferRequestStatus.DRAFT) {
       throw new ValidationError('Items can only be added when the request is in DRAFT status');
     }
+    await assertUserCanAccessLocation(user.id, user.isAdmin, req.sourceLocationId);
+
     const product = await prisma.product.findUnique({ where: { id: dto.productId } });
     if (!product) throw new NotFoundError(`Product not found: ${dto.productId}`);
 
@@ -113,13 +122,15 @@ export class TransferService {
   }
 
   // -------------------------------------------------------------------------
-  // Update item qty (DRAFT only)
+  // Update item qty (DRAFT only)  — Part 1: guard by sourceLocationId
   // -------------------------------------------------------------------------
-  async updateItem(requestId: string, itemId: string, dto: UpdateItemDto): Promise<TransferItemRow> {
+  async updateItem(requestId: string, itemId: string, dto: UpdateItemDto, user: UserCtx): Promise<TransferItemRow> {
     const req = await this.findById(requestId);
     if (req.status !== TransferRequestStatus.DRAFT) {
       throw new ValidationError('Items can only be edited when the request is in DRAFT status');
     }
+    await assertUserCanAccessLocation(user.id, user.isAdmin, req.sourceLocationId);
+
     const item = await transferRepository.findItemById(itemId);
     if (!item || item.requestId !== requestId) {
       throw new NotFoundError(`Item not found: ${itemId}`);
@@ -128,13 +139,15 @@ export class TransferService {
   }
 
   // -------------------------------------------------------------------------
-  // Delete item (DRAFT only)
+  // Delete item (DRAFT only)  — Part 1: guard by sourceLocationId
   // -------------------------------------------------------------------------
-  async deleteItem(requestId: string, itemId: string): Promise<void> {
+  async deleteItem(requestId: string, itemId: string, user: UserCtx): Promise<void> {
     const req = await this.findById(requestId);
     if (req.status !== TransferRequestStatus.DRAFT) {
       throw new ValidationError('Items can only be deleted when the request is in DRAFT status');
     }
+    await assertUserCanAccessLocation(user.id, user.isAdmin, req.sourceLocationId);
+
     const item = await transferRepository.findItemById(itemId);
     if (!item || item.requestId !== requestId) {
       throw new NotFoundError(`Item not found: ${itemId}`);
@@ -143,12 +156,96 @@ export class TransferService {
   }
 
   // -------------------------------------------------------------------------
-  // Finalize (DRAFT → FINALIZED)  (C1: optimistic concurrency)
+  // Approve (DRAFT → APPROVED)  — Part 3: managers and admins only
+  // Part 1: guard by sourceLocationId
   // -------------------------------------------------------------------------
-  async finalize(requestId: string, userId: string): Promise<TransferRequestRow> {
+  async approve(requestId: string, user: UserCtx): Promise<TransferRequestRow> {
+    // Role check: manager or admin only
+    if (!user.isAdmin) {
+      const roles = await prisma.userLocationRole.findMany({
+        where: { userId: user.id },
+        select: { role: true },
+      });
+      const isManager = roles.some((r) => r.role === Role.MANAGER);
+      if (!isManager) {
+        throw new ForbiddenError('Only managers or admins can approve transfer requests');
+      }
+    }
+
+    const req = await this.findById(requestId);
+    if (req.status !== TransferRequestStatus.DRAFT) {
+      throw new ValidationError(`Cannot approve a request with status ${req.status}`);
+    }
+    if (!req.items || req.items.length === 0) {
+      throw new ValidationError('Cannot approve a transfer with no items');
+    }
+
+    // Location guard: approver must have access to source location
+    await assertUserCanAccessLocation(user.id, user.isAdmin, req.sourceLocationId);
+
+    const updated = await transferRepository.updateStatus(requestId, {
+      status: TransferRequestStatus.APPROVED,
+    });
+
+    void auditService.log({
+      entityType:  'STOCK_TRANSFER_REQUEST',
+      entityId:    requestId,
+      action:      'STATUS_CHANGE',
+      afterValue:  { status: 'APPROVED' },
+      performedBy: user.id,
+    });
+
+    return updated;
+  }
+
+  // -------------------------------------------------------------------------
+  // Reject (DRAFT → REJECTED)  — Part 3: managers and admins only
+  // Part 1: guard by sourceLocationId
+  // -------------------------------------------------------------------------
+  async reject(requestId: string, user: UserCtx): Promise<TransferRequestRow> {
+    // Role check: manager or admin only
+    if (!user.isAdmin) {
+      const roles = await prisma.userLocationRole.findMany({
+        where: { userId: user.id },
+        select: { role: true },
+      });
+      const isManager = roles.some((r) => r.role === Role.MANAGER);
+      if (!isManager) {
+        throw new ForbiddenError('Only managers or admins can reject transfer requests');
+      }
+    }
+
+    const req = await this.findById(requestId);
+    if (req.status !== TransferRequestStatus.DRAFT) {
+      throw new ValidationError(`Cannot reject a request with status ${req.status}`);
+    }
+
+    // Location guard: rejecter must have access to source location
+    await assertUserCanAccessLocation(user.id, user.isAdmin, req.sourceLocationId);
+
+    const updated = await transferRepository.updateStatus(requestId, {
+      status: TransferRequestStatus.REJECTED,
+    });
+
+    void auditService.log({
+      entityType:  'STOCK_TRANSFER_REQUEST',
+      entityId:    requestId,
+      action:      'STATUS_CHANGE',
+      afterValue:  { status: 'REJECTED' },
+      performedBy: user.id,
+    });
+
+    return updated;
+  }
+
+  // -------------------------------------------------------------------------
+  // Finalize (APPROVED → FINALIZED)  — Part 1/3
+  // Changed from DRAFT → FINALIZED to APPROVED → FINALIZED
+  // -------------------------------------------------------------------------
+  async finalize(requestId: string, user: UserCtx): Promise<TransferRequestRow> {
     const req = await this.findById(requestId);
 
-    if (req.status !== TransferRequestStatus.DRAFT) {
+    if (req.status !== TransferRequestStatus.APPROVED) {
       throw new ValidationError(`Cannot finalize a request with status ${req.status}`);
     }
     if (!req.items || req.items.length === 0) {
@@ -158,7 +255,10 @@ export class TransferService {
       throw new ValidationError('Source and destination locations must be different');
     }
 
-    // Atomically claim: only the first concurrent caller transitions DRAFT → FINALIZED.
+    // Location guard: finalizer must have access to source location
+    await assertUserCanAccessLocation(user.id, user.isAdmin, req.sourceLocationId);
+
+    // Atomically claim: only the first concurrent caller transitions APPROVED → FINALIZED.
     const claimed = await transferRepository.claimFinalization(requestId, new Date());
     if (!claimed) {
       throw new ValidationError(`Cannot finalize a request with status ${req.status}`);
@@ -167,11 +267,11 @@ export class TransferService {
     // Apply stock moves (each call is internally transactional).
     for (const item of req.items) {
       await stockService.moveStock({
-        productId:            item.productId,
-        sourceLocationId:     req.sourceLocationId,
+        productId:             item.productId,
+        sourceLocationId:      req.sourceLocationId,
         destinationLocationId: req.destinationLocationId,
-        qty:                  Number(item.qty),
-        sourceId:             requestId,
+        qty:                   Number(item.qty),
+        sourceId:              requestId,
       });
     }
 
@@ -180,7 +280,7 @@ export class TransferService {
       entityId:    requestId,
       action:      'STATUS_CHANGE',
       afterValue:  { status: 'FINALIZED' },
-      performedBy: userId,
+      performedBy: user.id,
     });
 
     return (await transferRepository.findById(requestId))!;

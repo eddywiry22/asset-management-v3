@@ -19,8 +19,10 @@ import stockService from '../../../services/stock.service';
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-const STATUS_COLORS: Record<TransferRequestStatus, 'default' | 'success'> = {
+const STATUS_COLORS: Record<TransferRequestStatus, 'default' | 'success' | 'warning' | 'error'> = {
   DRAFT:     'default',
+  APPROVED:  'warning',
+  REJECTED:  'error',
   FINALIZED: 'success',
 };
 
@@ -184,7 +186,7 @@ export default function StockTransfersPage() {
               onChange={(e) => setStatusFilter(e.target.value as TransferRequestStatus | '')}
             >
               <MenuItem value="">All</MenuItem>
-              {(['DRAFT', 'FINALIZED'] as TransferRequestStatus[]).map((s) => (
+              {(['DRAFT', 'APPROVED', 'REJECTED', 'FINALIZED'] as TransferRequestStatus[]).map((s) => (
                 <MenuItem key={s} value={s}>{s}</MenuItem>
               ))}
             </Select>

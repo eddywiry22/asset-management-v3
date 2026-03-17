@@ -50,7 +50,8 @@ export class TransferController {
 
   async create(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-      const data = await transferService.create(req.body, req.user.id);
+      const user = { id: req.user.id, isAdmin: req.user.isAdmin };
+      const data = await transferService.create(req.body, user);
       res.status(201).json({ success: true, data });
     } catch (err) {
       next(err);
@@ -59,7 +60,8 @@ export class TransferController {
 
   async addItem(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-      const data = await transferService.addItem(req.params.id, req.body);
+      const user = { id: req.user.id, isAdmin: req.user.isAdmin };
+      const data = await transferService.addItem(req.params.id, req.body, user);
       res.status(201).json({ success: true, data });
     } catch (err) {
       next(err);
@@ -68,7 +70,8 @@ export class TransferController {
 
   async updateItem(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-      const data = await transferService.updateItem(req.params.id, req.params.itemId, req.body);
+      const user = { id: req.user.id, isAdmin: req.user.isAdmin };
+      const data = await transferService.updateItem(req.params.id, req.params.itemId, req.body, user);
       res.status(200).json({ success: true, data });
     } catch (err) {
       next(err);
@@ -77,8 +80,29 @@ export class TransferController {
 
   async deleteItem(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-      await transferService.deleteItem(req.params.id, req.params.itemId);
+      const user = { id: req.user.id, isAdmin: req.user.isAdmin };
+      await transferService.deleteItem(req.params.id, req.params.itemId, user);
       res.status(204).send();
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async approve(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const user = { id: req.user.id, isAdmin: req.user.isAdmin };
+      const data = await transferService.approve(req.params.id, user);
+      res.status(200).json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async reject(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const user = { id: req.user.id, isAdmin: req.user.isAdmin };
+      const data = await transferService.reject(req.params.id, user);
+      res.status(200).json({ success: true, data });
     } catch (err) {
       next(err);
     }
@@ -86,7 +110,8 @@ export class TransferController {
 
   async finalize(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-      const data = await transferService.finalize(req.params.id, req.user.id);
+      const user = { id: req.user.id, isAdmin: req.user.isAdmin };
+      const data = await transferService.finalize(req.params.id, user);
       res.status(200).json({ success: true, data });
     } catch (err) {
       next(err);

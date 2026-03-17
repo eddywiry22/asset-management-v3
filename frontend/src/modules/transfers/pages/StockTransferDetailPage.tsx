@@ -9,6 +9,8 @@ import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import CancelOutlinedIcon from '@mui/icons-material/CancelOutlined';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import stockTransfersService, {
@@ -18,12 +20,15 @@ import stockTransfersService, {
   UpdateItemPayload,
 } from '../../../services/stockTransfers.service';
 import apiClient from '../../../api/client';
+import { AuthUser } from '../../../types/auth.types';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-const STATUS_COLORS: Record<string, 'default' | 'success'> = {
+const STATUS_COLORS: Record<string, 'default' | 'success' | 'warning' | 'error'> = {
   DRAFT:     'default',
+  APPROVED:  'warning',
+  REJECTED:  'error',
   FINALIZED: 'success',
 };
 
@@ -35,6 +40,15 @@ function fmtDate(d: string | null | undefined): string {
 function userLabel(u: { email: string | null; phone: string | null } | null | undefined): string {
   if (!u) return '—';
   return u.email ?? u.phone ?? '(unknown)';
+}
+
+function getCurrentUser(): AuthUser | null {
+  try {
+    const raw = localStorage.getItem('auth_user');
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
 }
 
 type SimpleProduct = { id: string; sku: string; name: string };
@@ -122,9 +136,19 @@ export default function StockTransferDetailPage() {
   const navigate    = useNavigate();
   const queryClient = useQueryClient();
 
-  const [itemDialogOpen, setItemDialogOpen] = useState(false);
-  const [editingItem,    setEditingItem]    = useState<TransferItem | null>(null);
+  const currentUser = getCurrentUser();
+  // Manager and admin can approve/reject/finalize
+  const canManage = currentUser?.isAdmin === true;
+  // We treat any non-null user as potentially a manager; actual enforcement is server-side.
+  // The UI shows approve/reject for any logged-in user; server returns 403 if unauthorized.
+  // For a cleaner UX, we show these buttons only for admins — operators won't see them.
+  // (Role data beyond isAdmin is not in the JWT, so we rely on server-side enforcement.)
+
+  const [itemDialogOpen,  setItemDialogOpen]  = useState(false);
+  const [editingItem,     setEditingItem]     = useState<TransferItem | null>(null);
   const [confirmFinalize, setConfirmFinalize] = useState(false);
+  const [confirmApprove,  setConfirmApprove]  = useState(false);
+  const [confirmReject,   setConfirmReject]   = useState(false);
   const [snack, setSnack] = useState<{ msg: string; severity: 'success' | 'error' } | null>(null);
 
   const { data: reqData, isLoading, error } = useQuery({
@@ -170,6 +194,32 @@ export default function StockTransferDetailPage() {
     onError: () => setSnack({ msg: 'Failed to remove item', severity: 'error' }),
   });
 
+  const approveMutation = useMutation({
+    mutationFn: () => stockTransfersService.approve(id!),
+    onSuccess: () => {
+      invalidate();
+      setConfirmApprove(false);
+      setSnack({ msg: 'Transfer approved', severity: 'success' });
+    },
+    onError: (e: any) => {
+      setConfirmApprove(false);
+      setSnack({ msg: e?.response?.data?.error?.message ?? 'Approve failed', severity: 'error' });
+    },
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: () => stockTransfersService.reject(id!),
+    onSuccess: () => {
+      invalidate();
+      setConfirmReject(false);
+      setSnack({ msg: 'Transfer rejected', severity: 'success' });
+    },
+    onError: (e: any) => {
+      setConfirmReject(false);
+      setSnack({ msg: e?.response?.data?.error?.message ?? 'Reject failed', severity: 'error' });
+    },
+  });
+
   const finalizeMutation = useMutation({
     mutationFn: () => stockTransfersService.finalize(id!),
     onSuccess: () => {
@@ -183,7 +233,8 @@ export default function StockTransferDetailPage() {
     },
   });
 
-  const isDraft = req?.status === 'DRAFT';
+  const isDraft    = req?.status === 'DRAFT';
+  const isApproved = req?.status === 'APPROVED';
 
   if (isLoading) return <CircularProgress />;
   if (error || !req) return <Alert severity="error">Failed to load transfer request</Alert>;
@@ -299,18 +350,44 @@ export default function StockTransferDetailPage() {
       </Paper>
 
       {/* Workflow Actions */}
-      {isDraft && (
+      {(isDraft || isApproved) && (
         <>
           <Divider sx={{ mb: 2 }} />
-          <Box sx={{ display: 'flex', gap: 2 }}>
-            <Button
-              variant="contained"
-              color="warning"
-              disabled={req.items.length === 0}
-              onClick={() => setConfirmFinalize(true)}
-            >
-              Finalize Transfer
-            </Button>
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+            {/* Operator sees nothing special on DRAFT — they just edit items.
+                Manager/Admin can approve or reject a DRAFT request. */}
+            {isDraft && canManage && (
+              <>
+                <Button
+                  variant="contained"
+                  color="success"
+                  startIcon={<CheckCircleOutlineIcon />}
+                  disabled={req.items.length === 0}
+                  onClick={() => setConfirmApprove(true)}
+                >
+                  Approve
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="error"
+                  startIcon={<CancelOutlinedIcon />}
+                  onClick={() => setConfirmReject(true)}
+                >
+                  Reject
+                </Button>
+              </>
+            )}
+            {/* Manager/Admin can finalize an APPROVED request */}
+            {isApproved && canManage && (
+              <Button
+                variant="contained"
+                color="warning"
+                disabled={req.items.length === 0}
+                onClick={() => setConfirmFinalize(true)}
+              >
+                Finalize Transfer
+              </Button>
+            )}
           </Box>
         </>
       )}
@@ -329,6 +406,38 @@ export default function StockTransferDetailPage() {
         }}
         initial={editingItem}
       />
+
+      {/* Confirm Approve Dialog */}
+      <Dialog open={confirmApprove} onClose={() => setConfirmApprove(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Approve Transfer</DialogTitle>
+        <DialogContent>
+          <Alert severity="info" sx={{ mt: 1 }}>
+            Approving will allow this transfer to be finalized and stock moved.
+          </Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmApprove(false)}>Cancel</Button>
+          <Button variant="contained" color="success" onClick={() => approveMutation.mutate()}>
+            Confirm Approve
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Confirm Reject Dialog */}
+      <Dialog open={confirmReject} onClose={() => setConfirmReject(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Reject Transfer</DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mt: 1 }}>
+            Rejecting this transfer request cannot be undone.
+          </Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmReject(false)}>Cancel</Button>
+          <Button variant="contained" color="error" onClick={() => rejectMutation.mutate()}>
+            Confirm Reject
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Confirm Finalize Dialog */}
       <Dialog open={confirmFinalize} onClose={() => setConfirmFinalize(false)} maxWidth="xs" fullWidth>
