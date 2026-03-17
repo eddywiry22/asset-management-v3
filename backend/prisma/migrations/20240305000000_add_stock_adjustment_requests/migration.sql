@@ -1,15 +1,12 @@
 -- Stage 5: Stock Adjustment Requests
 -- Migration: 20240305000000_add_stock_adjustment_requests
 
--- CreateEnum
-ALTER TABLE `StockLedger` MODIFY `sourceType` ENUM('ADJUSTMENT', 'MOVEMENT_IN', 'MOVEMENT_OUT', 'SEED') NOT NULL;
-
 -- CreateTable
 CREATE TABLE `StockAdjustmentRequest` (
     `id` VARCHAR(191) NOT NULL,
     `requestNumber` VARCHAR(191) NOT NULL,
     `status` ENUM('DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED', 'FINALIZED') NOT NULL DEFAULT 'DRAFT',
-    `notes` VARCHAR(191) NULL,
+    `notes` TEXT NULL,
     `createdById` VARCHAR(191) NOT NULL,
     `approvedById` VARCHAR(191) NULL,
     `finalizedById` VARCHAR(191) NULL,
@@ -31,7 +28,7 @@ CREATE TABLE `StockAdjustmentItem` (
     `productId` VARCHAR(191) NOT NULL,
     `locationId` VARCHAR(191) NOT NULL,
     `qtyChange` DECIMAL(15,4) NOT NULL,
-    `reason` VARCHAR(191) NULL,
+    `reason` TEXT NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 
     INDEX `StockAdjustmentItem_requestId_idx`(`requestId`),

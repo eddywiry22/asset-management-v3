@@ -28,15 +28,16 @@ jest.mock('../src/modules/auth/auth.service', () => ({
 // ---------------------------------------------------------------------------
 jest.mock('../src/config/database', () => {
   const createMock = () => ({
-    findMany:   jest.fn(),
-    findUnique: jest.fn(),
-    findFirst:  jest.fn(),
-    create:     jest.fn(),
-    update:     jest.fn(),
-    delete:     jest.fn(),
-    count:      jest.fn(),
-    groupBy:    jest.fn(),
-    upsert:     jest.fn(),
+    findMany:    jest.fn(),
+    findUnique:  jest.fn(),
+    findFirst:   jest.fn(),
+    create:      jest.fn(),
+    update:      jest.fn(),
+    updateMany:  jest.fn(),
+    delete:      jest.fn(),
+    count:       jest.fn(),
+    groupBy:     jest.fn(),
+    upsert:      jest.fn(),
   });
 
   return {
@@ -125,11 +126,16 @@ beforeEach(() => {
   });
   // User has MANAGER role
   db.userLocationRole.findMany.mockResolvedValue([{ locationId: LOCATION_ID, role: 'MANAGER' }]);
+  // W3: default product/location lookups succeed
+  db.product.findUnique.mockResolvedValue({ id: PRODUCT_ID, sku: 'ELEC-001', name: 'Laptop' });
+  db.location.findUnique.mockResolvedValue({ id: LOCATION_ID, code: 'WH-001', name: 'Main Warehouse' });
   // applyAdjustment internals
   db.$queryRaw.mockResolvedValue([{ onHandQty: '100', reservedQty: '0' }]);
   db.stockBalance.upsert.mockResolvedValue({ id: 'bal', productId: PRODUCT_ID, locationId: LOCATION_ID, onHandQty: '100', reservedQty: '0' });
   db.stockBalance.update.mockResolvedValue({ id: 'bal', productId: PRODUCT_ID, locationId: LOCATION_ID, onHandQty: '105', reservedQty: '0' });
   db.stockLedger.create.mockResolvedValue({});
+  // C1: default finalization claim succeeds
+  db.stockAdjustmentRequest.updateMany.mockResolvedValue({ count: 1 });
 });
 
 // ===========================================================================
@@ -229,6 +235,13 @@ describe('GET /v1/stock-adjustments — list', () => {
     expect(res.body.data[0].status).toBe('SUBMITTED');
     const findArgs = db.stockAdjustmentRequest.findMany.mock.calls[0][0];
     expect(findArgs.where.status).toBe('SUBMITTED');
+  });
+
+  // W12: invalid status returns 400
+  it('returns 400 for an invalid status filter', async () => {
+    const res = await request(app).get('/v1/stock-adjustments?status=INVALID').set(AUTH);
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/Invalid status/);
   });
 });
 
@@ -445,8 +458,10 @@ describe('POST /v1/stock-adjustments/:id/finalize', () => {
     const itemA = { ...fakeItem, id: 'item-a', qtyChange: { toString: () => '5' } };
     const itemB = { ...fakeItem, id: 'item-b', productId: 'prod-b', qtyChange: { toString: () => '-3' } };
 
-    db.stockAdjustmentRequest.findUnique.mockResolvedValue(makeFakeRequest('APPROVED', [itemA, itemB]));
-    db.stockAdjustmentRequest.update.mockResolvedValue(makeFakeRequest('FINALIZED', [itemA, itemB]));
+    // C1: findUnique called twice — once at start (APPROVED), once at end (FINALIZED)
+    db.stockAdjustmentRequest.findUnique
+      .mockResolvedValueOnce(makeFakeRequest('APPROVED', [itemA, itemB]))
+      .mockResolvedValueOnce(makeFakeRequest('FINALIZED', [itemA, itemB]));
 
     // applyAdjustment internals
     db.$transaction.mockImplementation(async (cb: Function) => await cb(db));
@@ -472,8 +487,9 @@ describe('POST /v1/stock-adjustments/:id/finalize', () => {
   });
 
   it('creates ledger entries during finalization (ADJUSTMENT source type)', async () => {
-    db.stockAdjustmentRequest.findUnique.mockResolvedValue(makeFakeRequest('APPROVED', [fakeItem]));
-    db.stockAdjustmentRequest.update.mockResolvedValue(makeFakeRequest('FINALIZED', [fakeItem]));
+    db.stockAdjustmentRequest.findUnique
+      .mockResolvedValueOnce(makeFakeRequest('APPROVED', [fakeItem]))
+      .mockResolvedValueOnce(makeFakeRequest('FINALIZED', [fakeItem]));
     db.$transaction.mockImplementation(async (cb: Function) => await cb(db));
     db.stockBalance.upsert.mockResolvedValue({ id: 'b', productId: PRODUCT_ID, locationId: LOCATION_ID, onHandQty: '10', reservedQty: '0' });
     db.$queryRaw.mockResolvedValue([{ onHandQty: '10', reservedQty: '0' }]);
@@ -573,5 +589,64 @@ describe('Request number generation', () => {
 
     expect(res.status).toBe(201);
     expect(res.body.data.requestNumber).toMatch(/^ADJ-\d{8}-\d{4}$/);
+  });
+});
+
+// ===========================================================================
+// W10: Negative qtyChange is allowed
+// ===========================================================================
+
+describe('W10 — negative qtyChange is valid', () => {
+  it('accepts negative qtyChange (stock decrease) and returns 201', async () => {
+    const negItem = { ...fakeItem, qtyChange: { toString: () => '-3' } };
+    db.stockAdjustmentRequest.findUnique.mockResolvedValue(makeFakeRequest('DRAFT'));
+    db.stockAdjustmentItem.create.mockResolvedValue(negItem);
+
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/items`)
+      .set(AUTH)
+      .send({ productId: PRODUCT_ID, locationId: LOCATION_ID, qtyChange: -3, reason: 'shrinkage' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
+  });
+});
+
+// ===========================================================================
+// W11: Item belonging to a different request returns 404
+// ===========================================================================
+
+describe('W11 — item from different request returns 404', () => {
+  it('returns 404 when item.requestId does not match the URL :id', async () => {
+    const OTHER_REQ_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+    db.stockAdjustmentRequest.findUnique.mockResolvedValue(makeFakeRequest('DRAFT', [fakeItem]));
+    db.stockAdjustmentItem.findUnique.mockResolvedValue({ ...fakeItem, requestId: OTHER_REQ_ID });
+
+    const res = await request(app)
+      .put(`/v1/stock-adjustments/${REQ_ID}/items/${ITEM_ID}`)
+      .set(AUTH)
+      .send({ qtyChange: 10 });
+
+    expect(res.status).toBe(404);
+  });
+});
+
+// ===========================================================================
+// W13: Finalize APPROVED request with no items
+// ===========================================================================
+
+describe('W13 — finalize APPROVED request with no items', () => {
+  it('finalizes an APPROVED request that has no items (empty loop)', async () => {
+    db.stockAdjustmentRequest.findUnique
+      .mockResolvedValueOnce(makeFakeRequest('APPROVED', []))
+      .mockResolvedValueOnce(makeFakeRequest('FINALIZED', []));
+
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/finalize`)
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe('FINALIZED');
+    expect(db.$transaction).not.toHaveBeenCalled();
   });
 });

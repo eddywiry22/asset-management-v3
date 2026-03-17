@@ -7,10 +7,12 @@ import {
 import { stockService } from '../stock/stock.service';
 import { NotFoundError, ValidationError, ForbiddenError } from '../../utils/errors';
 import { CreateRequestDto, AddItemDto, UpdateItemDto } from './stockAdjustment.validator';
+import { auditService } from '../../services/audit.service';
+import prisma from '../../config/database';
 
 export class StockAdjustmentService {
   // -------------------------------------------------------------------------
-  // Request Number Generator: ADJ-YYYYMMDD-XXXX
+  // Request Number Generator: ADJ-YYYYMMDD-XXXX  (C2: retry on collision)
   // -------------------------------------------------------------------------
   private async generateRequestNumber(): Promise<string> {
     const now    = new Date();
@@ -47,25 +49,37 @@ export class StockAdjustmentService {
   }
 
   // -------------------------------------------------------------------------
-  // Create request
+  // Create request  (C2: retry on unique constraint collision)
   // -------------------------------------------------------------------------
   async create(dto: CreateRequestDto, userId: string): Promise<AdjustmentRequestRow> {
-    const requestNumber = await this.generateRequestNumber();
-    return stockAdjustmentRepository.create({
-      requestNumber,
-      createdById: userId,
-      notes: dto.notes,
-    });
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const requestNumber = await this.generateRequestNumber();
+      try {
+        return await stockAdjustmentRepository.create({
+          requestNumber,
+          createdById: userId,
+          notes: dto.notes,
+        });
+      } catch (err: any) {
+        if (err?.code === 'P2002' && attempt < 4) continue; // unique collision — retry
+        throw err;
+      }
+    }
+    throw new ValidationError('Unable to generate a unique request number');
   }
 
   // -------------------------------------------------------------------------
-  // Add item (DRAFT only)
+  // Add item (DRAFT only)  (W3: pre-validate productId/locationId)
   // -------------------------------------------------------------------------
   async addItem(requestId: string, dto: AddItemDto): Promise<AdjustmentItemRow> {
     const req = await this.findById(requestId);
     if (req.status !== AdjustmentRequestStatus.DRAFT) {
       throw new ValidationError('Items can only be added when the request is in DRAFT status');
     }
+    const product = await prisma.product.findUnique({ where: { id: dto.productId } });
+    if (!product) throw new NotFoundError(`Product not found: ${dto.productId}`);
+    const location = await prisma.location.findUnique({ where: { id: dto.locationId } });
+    if (!location) throw new NotFoundError(`Location not found: ${dto.locationId}`);
     return stockAdjustmentRepository.addItem({
       requestId,
       productId:  dto.productId,
@@ -106,9 +120,9 @@ export class StockAdjustmentService {
   }
 
   // -------------------------------------------------------------------------
-  // Submit (DRAFT → SUBMITTED)
+  // Submit (DRAFT → SUBMITTED)  (W14: audit log)
   // -------------------------------------------------------------------------
-  async submit(requestId: string): Promise<AdjustmentRequestRow> {
+  async submit(requestId: string, userId: string): Promise<AdjustmentRequestRow> {
     const req = await this.findById(requestId);
     if (req.status !== AdjustmentRequestStatus.DRAFT) {
       throw new ValidationError(`Cannot submit a request with status ${req.status}`);
@@ -116,13 +130,15 @@ export class StockAdjustmentService {
     if (!req.items || req.items.length === 0) {
       throw new ValidationError('Request must contain at least one item before submission');
     }
-    return stockAdjustmentRepository.updateStatus(requestId, {
+    const updated = await stockAdjustmentRepository.updateStatus(requestId, {
       status: AdjustmentRequestStatus.SUBMITTED,
     });
+    void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', afterValue: { status: 'SUBMITTED' }, performedBy: userId });
+    return updated;
   }
 
   // -------------------------------------------------------------------------
-  // Approve (SUBMITTED → APPROVED) — managers and admins only
+  // Approve (SUBMITTED → APPROVED) — managers and admins only  (W14: audit log)
   // -------------------------------------------------------------------------
   async approve(requestId: string, userId: string, userRoles: { isAdmin: boolean; locationRoles: string[] }): Promise<AdjustmentRequestRow> {
     if (!userRoles.isAdmin && !userRoles.locationRoles.includes(Role.MANAGER)) {
@@ -135,15 +151,17 @@ export class StockAdjustmentService {
     if (!req.items || req.items.length === 0) {
       throw new ValidationError('Cannot approve a request with no items');
     }
-    return stockAdjustmentRepository.updateStatus(requestId, {
+    const updated = await stockAdjustmentRepository.updateStatus(requestId, {
       status:      AdjustmentRequestStatus.APPROVED,
       approvedById: userId,
       approvedAt:   new Date(),
     });
+    void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', afterValue: { status: 'APPROVED' }, performedBy: userId });
+    return updated;
   }
 
   // -------------------------------------------------------------------------
-  // Reject (SUBMITTED → REJECTED) — managers and admins only
+  // Reject (SUBMITTED → REJECTED) — managers and admins only  (W14: audit log)
   // -------------------------------------------------------------------------
   async reject(requestId: string, userId: string, userRoles: { isAdmin: boolean; locationRoles: string[] }, notes?: string): Promise<AdjustmentRequestRow> {
     if (!userRoles.isAdmin && !userRoles.locationRoles.includes(Role.MANAGER)) {
@@ -153,16 +171,18 @@ export class StockAdjustmentService {
     if (req.status !== AdjustmentRequestStatus.SUBMITTED) {
       throw new ValidationError(`Cannot reject a request with status ${req.status}`);
     }
-    return stockAdjustmentRepository.updateStatus(requestId, {
+    const updated = await stockAdjustmentRepository.updateStatus(requestId, {
       status: AdjustmentRequestStatus.REJECTED,
       approvedById: userId,
       approvedAt:   new Date(),
       ...(notes ? { notes } : {}),
     });
+    void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', afterValue: { status: 'REJECTED' }, performedBy: userId });
+    return updated;
   }
 
   // -------------------------------------------------------------------------
-  // Finalize (APPROVED → FINALIZED) — calls stockService.applyAdjustment per item
+  // Finalize (APPROVED → FINALIZED)  (C1: optimistic concurrency, W14: audit)
   // -------------------------------------------------------------------------
   async finalize(requestId: string, userId: string): Promise<AdjustmentRequestRow> {
     const req = await this.findById(requestId);
@@ -170,8 +190,13 @@ export class StockAdjustmentService {
       throw new ValidationError(`Cannot finalize a request with status ${req.status}`);
     }
 
-    // Call applyAdjustment for each item (each call is itself transactional).
-    // If any item fails, an error is thrown and status remains APPROVED.
+    // Atomically claim: only the first concurrent caller transitions APPROVED → FINALIZED.
+    const claimed = await stockAdjustmentRepository.claimFinalization(requestId, userId, new Date());
+    if (!claimed) {
+      throw new ValidationError(`Cannot finalize a request with status ${req.status}`);
+    }
+
+    // Apply stock adjustments (each call is internally transactional).
     for (const item of req.items) {
       await stockService.applyAdjustment({
         productId:  item.productId,
@@ -181,11 +206,8 @@ export class StockAdjustmentService {
       });
     }
 
-    return stockAdjustmentRepository.updateStatus(requestId, {
-      status:       AdjustmentRequestStatus.FINALIZED,
-      finalizedById: userId,
-      finalizedAt:   new Date(),
-    });
+    void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', afterValue: { status: 'FINALIZED' }, performedBy: userId });
+    return (await stockAdjustmentRepository.findById(requestId))!;
   }
 }
 

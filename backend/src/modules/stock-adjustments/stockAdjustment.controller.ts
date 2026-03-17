@@ -3,15 +3,37 @@ import { stockAdjustmentService } from './stockAdjustment.service';
 import { AuthenticatedRequest } from '../../types/request.types';
 import { AdjustmentRequestStatus } from '@prisma/client';
 import prisma from '../../config/database';
+import { ValidationError } from '../../utils/errors';
+
+const VALID_STATUSES = new Set<string>(Object.values(AdjustmentRequestStatus));
 
 export class StockAdjustmentController {
   async getAll(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-      const page   = parseInt(req.query.page  as string) || 1;
-      const limit  = parseInt(req.query.limit as string) || 20;
-      const status = req.query.status as AdjustmentRequestStatus | undefined;
-      const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
-      const endDate   = req.query.endDate   ? new Date(req.query.endDate   as string) : undefined;
+      const page  = parseInt(req.query.page  as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 20;
+
+      // W5: validate status
+      let status: AdjustmentRequestStatus | undefined;
+      if (req.query.status) {
+        const raw = req.query.status as string;
+        if (!VALID_STATUSES.has(raw)) {
+          throw new ValidationError(`Invalid status: ${raw}. Must be one of: ${[...VALID_STATUSES].join(', ')}`);
+        }
+        status = raw as AdjustmentRequestStatus;
+      }
+
+      // W6: validate dates
+      let startDate: Date | undefined;
+      let endDate: Date | undefined;
+      if (req.query.startDate) {
+        startDate = new Date(req.query.startDate as string);
+        if (isNaN(startDate.getTime())) throw new ValidationError('Invalid startDate');
+      }
+      if (req.query.endDate) {
+        endDate = new Date(req.query.endDate as string);
+        if (isNaN(endDate.getTime())) throw new ValidationError('Invalid endDate');
+      }
 
       const { data, total } = await stockAdjustmentService.findAll({ status, startDate, endDate, page, limit });
       res.status(200).json({ success: true, data, meta: { page, limit, total } });
@@ -67,7 +89,7 @@ export class StockAdjustmentController {
 
   async submit(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-      const data = await stockAdjustmentService.submit(req.params.id);
+      const data = await stockAdjustmentService.submit(req.params.id, req.user.id);
       res.status(200).json({ success: true, data });
     } catch (err) {
       next(err);

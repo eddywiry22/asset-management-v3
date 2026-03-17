@@ -166,7 +166,7 @@ model StockAdjustmentRequest {
   id            String                   @id @default(uuid())
   requestNumber String                   @unique
   status        AdjustmentRequestStatus  @default(DRAFT)
-  notes         String?
+  notes         String?  @db.Text
   createdById   String
   approvedById  String?
   finalizedById String?
@@ -190,7 +190,7 @@ model StockAdjustmentItem {
   productId String
   locationId String
   qtyChange Decimal  @db.Decimal(15, 4)
-  reason    String?
+  reason    String?  @db.Text
   createdAt DateTime @default(now())
 
   request  StockAdjustmentRequest @relation(fields: [requestId], references: [id])

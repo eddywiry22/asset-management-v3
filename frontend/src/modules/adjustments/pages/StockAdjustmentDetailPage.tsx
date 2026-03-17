@@ -18,6 +18,7 @@ import stockAdjustmentsService, {
 } from '../../../services/stockAdjustments.service';
 import stockService from '../../../services/stock.service';
 import apiClient from '../../../api/client';
+import { useAuth } from '../../../context/AuthContext';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -67,7 +68,7 @@ function ItemDialog({
 
   const { data: productsRes } = useQuery({
     queryKey: ['products-simple'],
-    queryFn:  () => apiClient.get('admin/products?limit=200').then((r) => r.data),
+    queryFn:  () => apiClient.get('products?limit=200').then((r) => r.data),
     enabled:  open,
   });
 
@@ -140,6 +141,7 @@ export default function StockAdjustmentDetailPage() {
   const { id }       = useParams<{ id: string }>();
   const navigate     = useNavigate();
   const queryClient  = useQueryClient();
+  const { isAdmin } = useAuth();
 
   const [itemDialogOpen, setItemDialogOpen] = useState(false);
   const [editingItem,    setEditingItem]    = useState<AdjustmentItem | null>(null);
@@ -182,25 +184,25 @@ export default function StockAdjustmentDetailPage() {
   const submitMutation = useMutation({
     mutationFn: () => stockAdjustmentsService.submit(id!),
     onSuccess: () => { invalidate(); setConfirmAction(null); setSnack({ msg: 'Submitted successfully', severity: 'success' }); },
-    onError: (e: any) => { setConfirmAction(null); setSnack({ msg: e?.response?.data?.message ?? 'Submit failed', severity: 'error' }); },
+    onError: (e: any) => { setConfirmAction(null); setSnack({ msg: e?.response?.data?.error?.message ?? 'Submit failed', severity: 'error' }); },
   });
 
   const approveMutation = useMutation({
     mutationFn: () => stockAdjustmentsService.approve(id!),
     onSuccess: () => { invalidate(); setConfirmAction(null); setSnack({ msg: 'Approved', severity: 'success' }); },
-    onError: (e: any) => { setConfirmAction(null); setSnack({ msg: e?.response?.data?.message ?? 'Approve failed', severity: 'error' }); },
+    onError: (e: any) => { setConfirmAction(null); setSnack({ msg: e?.response?.data?.error?.message ?? 'Approve failed', severity: 'error' }); },
   });
 
   const rejectMutation = useMutation({
     mutationFn: () => stockAdjustmentsService.reject(id!, rejectNotes || undefined),
     onSuccess: () => { invalidate(); setConfirmAction(null); setRejectNotes(''); setSnack({ msg: 'Rejected', severity: 'success' }); },
-    onError: (e: any) => { setConfirmAction(null); setSnack({ msg: e?.response?.data?.message ?? 'Reject failed', severity: 'error' }); },
+    onError: (e: any) => { setConfirmAction(null); setSnack({ msg: e?.response?.data?.error?.message ?? 'Reject failed', severity: 'error' }); },
   });
 
   const finalizeMutation = useMutation({
     mutationFn: () => stockAdjustmentsService.finalize(id!),
     onSuccess: () => { invalidate(); setConfirmAction(null); setSnack({ msg: 'Finalized — stock updated', severity: 'success' }); },
-    onError: (e: any) => { setConfirmAction(null); setSnack({ msg: e?.response?.data?.message ?? 'Finalize failed', severity: 'error' }); },
+    onError: (e: any) => { setConfirmAction(null); setSnack({ msg: e?.response?.data?.error?.message ?? 'Finalize failed', severity: 'error' }); },
   });
 
   const isDraft     = req?.status === 'DRAFT';
@@ -326,7 +328,7 @@ export default function StockAdjustmentDetailPage() {
             Submit for Approval
           </Button>
         )}
-        {isSubmitted && (
+        {isSubmitted && isAdmin && (
           <>
             <Button variant="contained" color="success" onClick={() => setConfirmAction('approve')}>
               Approve
@@ -345,6 +347,7 @@ export default function StockAdjustmentDetailPage() {
 
       {/* Add/Edit Item Dialog */}
       <ItemDialog
+        key={editingItem?.id ?? 'new'}
         open={itemDialogOpen}
         onClose={() => { setItemDialogOpen(false); setEditingItem(null); }}
         onSave={(payload) => {

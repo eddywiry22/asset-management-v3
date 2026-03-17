@@ -158,6 +158,15 @@ export class StockAdjustmentRepository {
       where: { requestNumber: { startsWith: prefix } },
     });
   }
+
+  // C1: Atomically transition APPROVED → FINALIZED; returns true if claim succeeded.
+  async claimFinalization(id: string, userId: string, now: Date): Promise<boolean> {
+    const result = await prisma.stockAdjustmentRequest.updateMany({
+      where: { id, status: AdjustmentRequestStatus.APPROVED },
+      data:  { status: AdjustmentRequestStatus.FINALIZED, finalizedById: userId, finalizedAt: now },
+    });
+    return result.count > 0;
+  }
 }
 
 export const stockAdjustmentRepository = new StockAdjustmentRepository();

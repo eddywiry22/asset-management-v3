@@ -11,6 +11,8 @@ import uomsRoutes from './modules/uoms/uoms.routes';
 import productsRoutes from './modules/products/products.routes';
 import stockRoutes from './modules/stock/stock.routes';
 import stockAdjustmentRoutes from './modules/stock-adjustments/stockAdjustment.routes';
+import { productsController } from './modules/products/products.controller';
+import { AuthenticatedRequest } from './types/request.types';
 
 const app: Application = express();
 
@@ -40,6 +42,11 @@ adminRouter.use('/products',   productsRoutes);
 const v1Router = Router();
 v1Router.use('/auth',  authRoutes);
 v1Router.use('/admin', adminRouter);
+
+// /v1/products — read-only, accessible by all authenticated users (C3)
+v1Router.get('/products', authMiddleware, (req, res, next) =>
+  productsController.getAll(req as AuthenticatedRequest, res, next)
+);
 
 // /v1/stock — requires auth, accessible by all roles
 v1Router.use('/stock', authMiddleware, stockRoutes);
