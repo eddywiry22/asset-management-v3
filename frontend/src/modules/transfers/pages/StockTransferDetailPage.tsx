@@ -11,6 +11,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import CancelOutlinedIcon from '@mui/icons-material/CancelOutlined';
+import SendIcon from '@mui/icons-material/Send';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import stockTransfersService, {
@@ -25,11 +26,14 @@ import { AuthUser } from '../../../types/auth.types';
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-const STATUS_COLORS: Record<string, 'default' | 'success' | 'warning' | 'error'> = {
-  DRAFT:     'default',
-  APPROVED:  'warning',
-  REJECTED:  'error',
-  FINALIZED: 'success',
+const STATUS_COLORS: Record<string, 'default' | 'success' | 'warning' | 'error' | 'info'> = {
+  DRAFT:                        'default',
+  SUBMITTED:                    'info',
+  ORIGIN_MANAGER_APPROVED:      'warning',
+  DESTINATION_OPERATOR_APPROVED: 'warning',
+  READY_TO_FINALIZE:            'warning',
+  FINALIZED:                    'success',
+  CANCELLED:                    'error',
 };
 
 function fmtDate(d: string | null | undefined): string {
@@ -129,6 +133,40 @@ function ItemDialog({
 }
 
 // ---------------------------------------------------------------------------
+// Confirm Dialog helper
+// ---------------------------------------------------------------------------
+function ConfirmDialog({
+  open,
+  title,
+  body,
+  confirmLabel,
+  confirmColor,
+  onConfirm,
+  onClose,
+}: {
+  open: boolean;
+  title: string;
+  body: React.ReactNode;
+  confirmLabel: string;
+  confirmColor?: 'success' | 'error' | 'warning' | 'primary';
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogTitle>{title}</DialogTitle>
+      <DialogContent>{body}</DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" color={confirmColor ?? 'primary'} onClick={onConfirm}>
+          {confirmLabel}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Detail Page
 // ---------------------------------------------------------------------------
 export default function StockTransferDetailPage() {
@@ -137,18 +175,17 @@ export default function StockTransferDetailPage() {
   const queryClient = useQueryClient();
 
   const currentUser = getCurrentUser();
-  // Manager and admin can approve/reject/finalize
-  const canManage = currentUser?.isAdmin === true;
-  // We treat any non-null user as potentially a manager; actual enforcement is server-side.
-  // The UI shows approve/reject for any logged-in user; server returns 403 if unauthorized.
-  // For a cleaner UX, we show these buttons only for admins — operators won't see them.
-  // (Role data beyond isAdmin is not in the JWT, so we rely on server-side enforcement.)
+  const isAdmin     = currentUser?.isAdmin === true;
+  const userId      = currentUser?.id ?? '';
 
-  const [itemDialogOpen,  setItemDialogOpen]  = useState(false);
-  const [editingItem,     setEditingItem]     = useState<TransferItem | null>(null);
-  const [confirmFinalize, setConfirmFinalize] = useState(false);
-  const [confirmApprove,  setConfirmApprove]  = useState(false);
-  const [confirmReject,   setConfirmReject]   = useState(false);
+  const [itemDialogOpen, setItemDialogOpen] = useState(false);
+  const [editingItem,    setEditingItem]    = useState<TransferItem | null>(null);
+
+  // Confirm dialogs
+  const [confirmAction, setConfirmAction] = useState<
+    'submit' | 'approveOrigin' | 'approveDestination' | 'finalize' | 'cancel' | 'delete' | null
+  >(null);
+
   const [snack, setSnack] = useState<{ msg: string; severity: 'success' | 'error' } | null>(null);
 
   const { data: reqData, isLoading, error } = useQuery({
@@ -164,28 +201,18 @@ export default function StockTransferDetailPage() {
     queryClient.invalidateQueries({ queryKey: ['stock-transfers'] });
   };
 
+  // --- Item mutations ---
   const addItemMutation = useMutation({
     mutationFn: (payload: AddItemPayload) => stockTransfersService.addItem(id!, payload),
-    onSuccess: () => {
-      invalidate();
-      setItemDialogOpen(false);
-      setSnack({ msg: 'Item added', severity: 'success' });
-    },
-    onError: (e: any) =>
-      setSnack({ msg: e?.response?.data?.error?.message ?? 'Failed to add item', severity: 'error' }),
+    onSuccess: () => { invalidate(); setItemDialogOpen(false); setSnack({ msg: 'Item added', severity: 'success' }); },
+    onError: (e: any) => setSnack({ msg: e?.response?.data?.error?.message ?? 'Failed to add item', severity: 'error' }),
   });
 
   const updateItemMutation = useMutation({
     mutationFn: ({ itemId, payload }: { itemId: string; payload: UpdateItemPayload }) =>
       stockTransfersService.updateItem(id!, itemId, payload),
-    onSuccess: () => {
-      invalidate();
-      setItemDialogOpen(false);
-      setEditingItem(null);
-      setSnack({ msg: 'Item updated', severity: 'success' });
-    },
-    onError: (e: any) =>
-      setSnack({ msg: e?.response?.data?.error?.message ?? 'Failed to update item', severity: 'error' }),
+    onSuccess: () => { invalidate(); setItemDialogOpen(false); setEditingItem(null); setSnack({ msg: 'Item updated', severity: 'success' }); },
+    onError: (e: any) => setSnack({ msg: e?.response?.data?.error?.message ?? 'Failed to update item', severity: 'error' }),
   });
 
   const deleteItemMutation = useMutation({
@@ -194,50 +221,89 @@ export default function StockTransferDetailPage() {
     onError: () => setSnack({ msg: 'Failed to remove item', severity: 'error' }),
   });
 
-  const approveMutation = useMutation({
-    mutationFn: () => stockTransfersService.approve(id!),
-    onSuccess: () => {
-      invalidate();
-      setConfirmApprove(false);
-      setSnack({ msg: 'Transfer approved', severity: 'success' });
-    },
-    onError: (e: any) => {
-      setConfirmApprove(false);
-      setSnack({ msg: e?.response?.data?.error?.message ?? 'Approve failed', severity: 'error' });
-    },
+  // --- Workflow mutations ---
+  const mkWorkflowMutation = (
+    mutFn: () => Promise<any>,
+    successMsg: string,
+  ) => useMutation({
+    mutationFn: mutFn,
+    onSuccess: () => { invalidate(); setConfirmAction(null); setSnack({ msg: successMsg, severity: 'success' }); },
+    onError: (e: any) => { setConfirmAction(null); setSnack({ msg: e?.response?.data?.error?.message ?? 'Operation failed', severity: 'error' }); },
   });
 
-  const rejectMutation = useMutation({
-    mutationFn: () => stockTransfersService.reject(id!),
-    onSuccess: () => {
-      invalidate();
-      setConfirmReject(false);
-      setSnack({ msg: 'Transfer rejected', severity: 'success' });
-    },
-    onError: (e: any) => {
-      setConfirmReject(false);
-      setSnack({ msg: e?.response?.data?.error?.message ?? 'Reject failed', severity: 'error' });
-    },
-  });
+  const submitMutation          = mkWorkflowMutation(() => stockTransfersService.submit(id!), 'Transfer submitted');
+  const approveOriginMutation   = mkWorkflowMutation(() => stockTransfersService.approveOrigin(id!), 'Origin approved');
+  const approveDestMutation     = mkWorkflowMutation(() => stockTransfersService.approveDestination(id!), 'Destination approved — ready to finalize');
+  const finalizeMutation        = mkWorkflowMutation(() => stockTransfersService.finalize(id!), 'Transfer finalized — stock moved');
+  const cancelMutation          = mkWorkflowMutation(() => stockTransfersService.cancel(id!), 'Transfer cancelled');
 
-  const finalizeMutation = useMutation({
-    mutationFn: () => stockTransfersService.finalize(id!),
-    onSuccess: () => {
-      invalidate();
-      setConfirmFinalize(false);
-      setSnack({ msg: 'Transfer finalized — stock moved', severity: 'success' });
-    },
-    onError: (e: any) => {
-      setConfirmFinalize(false);
-      setSnack({ msg: e?.response?.data?.error?.message ?? 'Finalize failed', severity: 'error' });
-    },
+  const deleteMutation = useMutation({
+    mutationFn: () => stockTransfersService.deleteRequest(id!),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['stock-transfers'] }); navigate('/stock-transfers'); },
+    onError: (e: any) => { setConfirmAction(null); setSnack({ msg: e?.response?.data?.error?.message ?? 'Delete failed', severity: 'error' }); },
   });
-
-  const isDraft    = req?.status === 'DRAFT';
-  const isApproved = req?.status === 'APPROVED';
 
   if (isLoading) return <CircularProgress />;
   if (error || !req) return <Alert severity="error">Failed to load transfer request</Alert>;
+
+  const status      = req.status;
+  const isDraft     = status === 'DRAFT';
+  const isSubmitted = status === 'SUBMITTED';
+  const isOriginApproved = status === 'ORIGIN_MANAGER_APPROVED';
+  const isReady     = status === 'READY_TO_FINALIZE';
+  const isTerminal  = status === 'FINALIZED' || status === 'CANCELLED';
+
+  const isCreator = req.createdById === userId;
+  const canCancel = !isTerminal && (isAdmin || isCreator);
+  const canDelete = isDraft && (isAdmin || isCreator);
+
+  // Workflow action confirmation config
+  const actionConfig: Record<string, { title: string; body: React.ReactNode; label: string; color: 'success' | 'error' | 'warning' | 'primary'; onConfirm: () => void }> = {
+    submit: {
+      title: 'Submit Transfer',
+      body: <Alert severity="info" sx={{ mt: 1 }}>Submitting will send this request for origin manager approval.</Alert>,
+      label: 'Confirm Submit',
+      color: 'primary',
+      onConfirm: () => submitMutation.mutate(),
+    },
+    approveOrigin: {
+      title: 'Approve at Origin',
+      body: <Alert severity="info" sx={{ mt: 1 }}>Approving at origin confirms the source location has stock available.</Alert>,
+      label: 'Confirm Approve',
+      color: 'success',
+      onConfirm: () => approveOriginMutation.mutate(),
+    },
+    approveDestination: {
+      title: 'Approve at Destination',
+      body: <Alert severity="info" sx={{ mt: 1 }}>Approving at destination confirms the receiving location accepts the stock. The request will move to READY TO FINALIZE.</Alert>,
+      label: 'Confirm Approve',
+      color: 'success',
+      onConfirm: () => approveDestMutation.mutate(),
+    },
+    finalize: {
+      title: 'Finalize Transfer',
+      body: <Alert severity="warning" sx={{ mt: 1 }}>Finalizing will move stock between locations. This cannot be undone.</Alert>,
+      label: 'Confirm Finalize',
+      color: 'warning',
+      onConfirm: () => finalizeMutation.mutate(),
+    },
+    cancel: {
+      title: 'Cancel Transfer',
+      body: <Alert severity="warning" sx={{ mt: 1 }}>Cancelling this transfer request cannot be undone.</Alert>,
+      label: 'Confirm Cancel',
+      color: 'error',
+      onConfirm: () => cancelMutation.mutate(),
+    },
+    delete: {
+      title: 'Delete Transfer',
+      body: <Alert severity="error" sx={{ mt: 1 }}>This will permanently delete the DRAFT request and all its items.</Alert>,
+      label: 'Confirm Delete',
+      color: 'error',
+      onConfirm: () => deleteMutation.mutate(),
+    },
+  };
+
+  const activeConfirm = confirmAction ? actionConfig[confirmAction] : null;
 
   return (
     <Box>
@@ -247,7 +313,7 @@ export default function StockTransferDetailPage() {
         <Typography variant="h5" fontWeight={600} sx={{ flexGrow: 1 }}>
           {req.requestNumber}
         </Typography>
-        <Chip label={req.status} color={STATUS_COLORS[req.status] ?? 'default'} />
+        <Chip label={req.status.replace(/_/g, ' ')} color={STATUS_COLORS[req.status] as any} />
       </Box>
 
       {/* Meta */}
@@ -269,10 +335,34 @@ export default function StockTransferDetailPage() {
             <Typography variant="caption" color="text.secondary">Created At</Typography>
             <Typography>{fmtDate(req.createdAt)}</Typography>
           </Box>
+          {req.submittedAt && (
+            <Box>
+              <Typography variant="caption" color="text.secondary">Submitted At</Typography>
+              <Typography>{fmtDate(req.submittedAt)}</Typography>
+            </Box>
+          )}
+          {req.originApprovedAt && (
+            <Box>
+              <Typography variant="caption" color="text.secondary">Origin Approved By</Typography>
+              <Typography>{userLabel(req.originApprovedBy)} — {fmtDate(req.originApprovedAt)}</Typography>
+            </Box>
+          )}
+          {req.destinationApprovedAt && (
+            <Box>
+              <Typography variant="caption" color="text.secondary">Destination Approved By</Typography>
+              <Typography>{userLabel(req.destinationApprovedBy)} — {fmtDate(req.destinationApprovedAt)}</Typography>
+            </Box>
+          )}
           {req.finalizedAt && (
             <Box>
               <Typography variant="caption" color="text.secondary">Finalized At</Typography>
               <Typography>{fmtDate(req.finalizedAt)}</Typography>
+            </Box>
+          )}
+          {req.cancelledAt && (
+            <Box>
+              <Typography variant="caption" color="text.secondary">Cancelled By</Typography>
+              <Typography>{userLabel(req.cancelledBy)} — {fmtDate(req.cancelledAt)}</Typography>
             </Box>
           )}
           {req.notes && (
@@ -350,42 +440,82 @@ export default function StockTransferDetailPage() {
       </Paper>
 
       {/* Workflow Actions */}
-      {(isDraft || isApproved) && (
+      {!isTerminal && (
         <>
           <Divider sx={{ mb: 2 }} />
           <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-            {/* Operator sees nothing special on DRAFT — they just edit items.
-                Manager/Admin can approve or reject a DRAFT request. */}
-            {isDraft && canManage && (
-              <>
-                <Button
-                  variant="contained"
-                  color="success"
-                  startIcon={<CheckCircleOutlineIcon />}
-                  disabled={req.items.length === 0}
-                  onClick={() => setConfirmApprove(true)}
-                >
-                  Approve
-                </Button>
-                <Button
-                  variant="outlined"
-                  color="error"
-                  startIcon={<CancelOutlinedIcon />}
-                  onClick={() => setConfirmReject(true)}
-                >
-                  Reject
-                </Button>
-              </>
+
+            {/* DRAFT: Submit (creator/admin) */}
+            {isDraft && (isAdmin || isCreator) && (
+              <Button
+                variant="contained"
+                color="primary"
+                startIcon={<SendIcon />}
+                disabled={req.items.length === 0}
+                onClick={() => setConfirmAction('submit')}
+              >
+                Submit for Approval
+              </Button>
             )}
-            {/* Manager/Admin can finalize an APPROVED request */}
-            {isApproved && canManage && (
+
+            {/* DRAFT: Delete (creator/admin) */}
+            {canDelete && (
+              <Button
+                variant="outlined"
+                color="error"
+                startIcon={<DeleteIcon />}
+                onClick={() => setConfirmAction('delete')}
+              >
+                Delete Request
+              </Button>
+            )}
+
+            {/* SUBMITTED: Approve at Origin (manager/admin with source access) */}
+            {isSubmitted && isAdmin && (
+              <Button
+                variant="contained"
+                color="success"
+                startIcon={<CheckCircleOutlineIcon />}
+                disabled={req.items.length === 0}
+                onClick={() => setConfirmAction('approveOrigin')}
+              >
+                Approve (Origin Manager)
+              </Button>
+            )}
+
+            {/* ORIGIN_MANAGER_APPROVED: Approve at Destination (user with dest access / admin) */}
+            {isOriginApproved && isAdmin && (
+              <Button
+                variant="contained"
+                color="success"
+                startIcon={<CheckCircleOutlineIcon />}
+                onClick={() => setConfirmAction('approveDestination')}
+              >
+                Approve (Destination)
+              </Button>
+            )}
+
+            {/* READY_TO_FINALIZE: Finalize (admin or source access) */}
+            {isReady && isAdmin && (
               <Button
                 variant="contained"
                 color="warning"
                 disabled={req.items.length === 0}
-                onClick={() => setConfirmFinalize(true)}
+                onClick={() => setConfirmAction('finalize')}
               >
                 Finalize Transfer
+              </Button>
+            )}
+
+            {/* Cancel — any non-terminal state, creator or admin */}
+            {canCancel && (
+              <Button
+                variant="outlined"
+                color="error"
+                startIcon={<CancelOutlinedIcon />}
+                onClick={() => setConfirmAction('cancel')}
+              >
+                Cancel
               </Button>
             )}
           </Box>
@@ -407,57 +537,18 @@ export default function StockTransferDetailPage() {
         initial={editingItem}
       />
 
-      {/* Confirm Approve Dialog */}
-      <Dialog open={confirmApprove} onClose={() => setConfirmApprove(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>Approve Transfer</DialogTitle>
-        <DialogContent>
-          <Alert severity="info" sx={{ mt: 1 }}>
-            Approving will allow this transfer to be finalized and stock moved.
-          </Alert>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirmApprove(false)}>Cancel</Button>
-          <Button variant="contained" color="success" onClick={() => approveMutation.mutate()}>
-            Confirm Approve
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Confirm Reject Dialog */}
-      <Dialog open={confirmReject} onClose={() => setConfirmReject(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>Reject Transfer</DialogTitle>
-        <DialogContent>
-          <Alert severity="warning" sx={{ mt: 1 }}>
-            Rejecting this transfer request cannot be undone.
-          </Alert>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirmReject(false)}>Cancel</Button>
-          <Button variant="contained" color="error" onClick={() => rejectMutation.mutate()}>
-            Confirm Reject
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Confirm Finalize Dialog */}
-      <Dialog open={confirmFinalize} onClose={() => setConfirmFinalize(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>Finalize Transfer</DialogTitle>
-        <DialogContent>
-          <Alert severity="warning" sx={{ mt: 1 }}>
-            Finalizing will move stock between locations and cannot be undone.
-          </Alert>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirmFinalize(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            color="warning"
-            onClick={() => finalizeMutation.mutate()}
-          >
-            Confirm Finalize
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {/* Dynamic Confirm Dialog */}
+      {activeConfirm && (
+        <ConfirmDialog
+          open={!!confirmAction}
+          title={activeConfirm.title}
+          body={activeConfirm.body}
+          confirmLabel={activeConfirm.label}
+          confirmColor={activeConfirm.color}
+          onConfirm={activeConfirm.onConfirm}
+          onClose={() => setConfirmAction(null)}
+        />
+      )}
 
       <Snackbar
         open={!!snack}

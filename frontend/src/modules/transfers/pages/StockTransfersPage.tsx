@@ -19,11 +19,14 @@ import stockService from '../../../services/stock.service';
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-const STATUS_COLORS: Record<TransferRequestStatus, 'default' | 'success' | 'warning' | 'error'> = {
-  DRAFT:     'default',
-  APPROVED:  'warning',
-  REJECTED:  'error',
-  FINALIZED: 'success',
+const STATUS_COLORS: Record<TransferRequestStatus, 'default' | 'success' | 'warning' | 'error' | 'info'> = {
+  DRAFT:                        'default',
+  SUBMITTED:                    'info',
+  ORIGIN_MANAGER_APPROVED:      'warning',
+  DESTINATION_OPERATOR_APPROVED: 'warning',
+  READY_TO_FINALIZE:            'warning',
+  FINALIZED:                    'success',
+  CANCELLED:                    'error',
 };
 
 function fmtDate(d: string | null | undefined): string {
@@ -54,12 +57,21 @@ function CreateTransferDialog({
   const [destinationLocationId, setDestinationLocationId] = useState('');
   const [notes, setNotes] = useState('');
 
-  const { data: locationsRes } = useQuery({
-    queryKey: ['locations-simple'],
+  // Source: only locations the user has access to
+  const { data: sourceLocationsRes } = useQuery({
+    queryKey: ['locations-mine'],
     queryFn:  () => stockService.getVisibleLocations(),
     enabled:  open,
   });
-  const locations: SimpleLocation[] = locationsRes ?? [];
+  const sourceLocations: SimpleLocation[] = sourceLocationsRes ?? [];
+
+  // Destination: all active locations (any warehouse can receive)
+  const { data: allLocationsRes } = useQuery({
+    queryKey: ['locations-all'],
+    queryFn:  () => stockService.getAllLocations(),
+    enabled:  open,
+  });
+  const allLocations: SimpleLocation[] = allLocationsRes ?? [];
 
   const handleCreate = () => {
     if (!sourceLocationId || !destinationLocationId) return;
@@ -81,7 +93,7 @@ function CreateTransferDialog({
               value={sourceLocationId}
               onChange={(e) => setSourceLocationId(e.target.value)}
             >
-              {locations.map((l: SimpleLocation) => (
+              {sourceLocations.map((l: SimpleLocation) => (
                 <MenuItem key={l.id} value={l.id}>{l.code} — {l.name}</MenuItem>
               ))}
             </Select>
@@ -93,7 +105,7 @@ function CreateTransferDialog({
               value={destinationLocationId}
               onChange={(e) => setDestinationLocationId(e.target.value)}
             >
-              {locations
+              {allLocations
                 .filter((l) => l.id !== sourceLocationId)
                 .map((l: SimpleLocation) => (
                   <MenuItem key={l.id} value={l.id}>{l.code} — {l.name}</MenuItem>
@@ -186,8 +198,8 @@ export default function StockTransfersPage() {
               onChange={(e) => setStatusFilter(e.target.value as TransferRequestStatus | '')}
             >
               <MenuItem value="">All</MenuItem>
-              {(['DRAFT', 'APPROVED', 'REJECTED', 'FINALIZED'] as TransferRequestStatus[]).map((s) => (
-                <MenuItem key={s} value={s}>{s}</MenuItem>
+              {(['DRAFT', 'SUBMITTED', 'ORIGIN_MANAGER_APPROVED', 'DESTINATION_OPERATOR_APPROVED', 'READY_TO_FINALIZE', 'FINALIZED', 'CANCELLED'] as TransferRequestStatus[]).map((s) => (
+                <MenuItem key={s} value={s}>{s.replace(/_/g, ' ')}</MenuItem>
               ))}
             </Select>
           </FormControl>
@@ -262,7 +274,7 @@ export default function StockTransfersPage() {
                     <TableCell>{r.sourceLocation?.code} — {r.sourceLocation?.name}</TableCell>
                     <TableCell>{r.destinationLocation?.code} — {r.destinationLocation?.name}</TableCell>
                     <TableCell>
-                      <Chip label={r.status} color={STATUS_COLORS[r.status]} size="small" />
+                      <Chip label={r.status.replace(/_/g, ' ')} color={STATUS_COLORS[r.status] as any} size="small" />
                     </TableCell>
                     <TableCell>{userLabel(r.createdBy)}</TableCell>
                     <TableCell>{fmtDate(r.createdAt)}</TableCell>

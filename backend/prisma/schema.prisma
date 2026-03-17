@@ -25,7 +25,10 @@ model User {
   adjustmentsCreated    StockAdjustmentRequest[] @relation("AdjustmentCreatedBy")
   adjustmentsApproved   StockAdjustmentRequest[] @relation("AdjustmentApprovedBy")
   adjustmentsFinalized  StockAdjustmentRequest[] @relation("AdjustmentFinalizedBy")
-  transfersCreated      StockTransferRequest[]   @relation("TransferCreatedBy")
+  transfersCreated              StockTransferRequest[] @relation("TransferCreatedBy")
+  transfersOriginApproved       StockTransferRequest[] @relation("TransferOriginApprovedBy")
+  transfersDestinationApproved  StockTransferRequest[] @relation("TransferDestinationApprovedBy")
+  transfersCancelled            StockTransferRequest[] @relation("TransferCancelledBy")
 }
 
 model Location {
@@ -225,27 +228,40 @@ model AuditLog {
 
 enum TransferRequestStatus {
   DRAFT
-  APPROVED
-  REJECTED
+  SUBMITTED
+  ORIGIN_MANAGER_APPROVED
+  DESTINATION_OPERATOR_APPROVED
+  READY_TO_FINALIZE
   FINALIZED
+  CANCELLED
 }
 
 model StockTransferRequest {
-  id                    String                @id @default(uuid())
-  requestNumber         String                @unique
-  status                TransferRequestStatus @default(DRAFT)
-  sourceLocationId      String
-  destinationLocationId String
-  notes                 String?               @db.Text
-  createdById           String
-  finalizedAt           DateTime?
-  createdAt             DateTime              @default(now())
-  updatedAt             DateTime              @updatedAt
+  id                      String                @id @default(uuid())
+  requestNumber           String                @unique
+  status                  TransferRequestStatus @default(DRAFT)
+  sourceLocationId        String
+  destinationLocationId   String
+  notes                   String?               @db.Text
+  createdById             String
+  submittedAt             DateTime?
+  originApprovedById      String?
+  originApprovedAt        DateTime?
+  destinationApprovedById String?
+  destinationApprovedAt   DateTime?
+  finalizedAt             DateTime?
+  cancelledById           String?
+  cancelledAt             DateTime?
+  createdAt               DateTime              @default(now())
+  updatedAt               DateTime              @updatedAt
 
-  createdBy           User                @relation("TransferCreatedBy",          fields: [createdById],           references: [id])
-  sourceLocation      Location            @relation("TransferSourceLocation",      fields: [sourceLocationId],      references: [id])
-  destinationLocation Location            @relation("TransferDestinationLocation", fields: [destinationLocationId], references: [id])
-  items               StockTransferItem[]
+  createdBy             User                @relation("TransferCreatedBy",             fields: [createdById],             references: [id])
+  originApprovedBy      User?               @relation("TransferOriginApprovedBy",      fields: [originApprovedById],      references: [id])
+  destinationApprovedBy User?               @relation("TransferDestinationApprovedBy", fields: [destinationApprovedById], references: [id])
+  cancelledBy           User?               @relation("TransferCancelledBy",           fields: [cancelledById],           references: [id])
+  sourceLocation        Location            @relation("TransferSourceLocation",        fields: [sourceLocationId],        references: [id])
+  destinationLocation   Location            @relation("TransferDestinationLocation",   fields: [destinationLocationId],   references: [id])
+  items                 StockTransferItem[]
 
   @@index([status])
   @@index([createdById])

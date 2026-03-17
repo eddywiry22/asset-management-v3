@@ -21,6 +21,11 @@ router.post('/', validateBody(createTransferSchema), (req, res, next) =>
   transferController.create(cast(req), res, next)
 );
 
+// Delete DRAFT request
+router.delete('/:id', (req, res, next) =>
+  transferController.deleteRequest(cast(req), res, next)
+);
+
 // Item management
 router.post('/:id/items', validateBody(addItemSchema), (req, res, next) =>
   transferController.addItem(cast(req), res, next)
@@ -35,16 +40,24 @@ router.delete('/:id/items/:itemId', (req, res, next) =>
 );
 
 // Workflow actions
-router.post('/:id/approve', (req, res, next) =>
-  transferController.approve(cast(req), res, next)
+router.post('/:id/submit', (req, res, next) =>
+  transferController.submit(cast(req), res, next)
 );
 
-router.post('/:id/reject', (req, res, next) =>
-  transferController.reject(cast(req), res, next)
+router.post('/:id/approve-origin', (req, res, next) =>
+  transferController.approveOrigin(cast(req), res, next)
+);
+
+router.post('/:id/approve-destination', (req, res, next) =>
+  transferController.approveDestination(cast(req), res, next)
 );
 
 router.post('/:id/finalize', (req, res, next) =>
   transferController.finalize(cast(req), res, next)
+);
+
+router.post('/:id/cancel', (req, res, next) =>
+  transferController.cancel(cast(req), res, next)
 );
 
 export default router;

@@ -13,6 +13,14 @@ import prisma from '../../config/database';
 
 type UserCtx = { id: string; isAdmin: boolean };
 
+// States that can still be cancelled by the creator
+const CANCELLABLE_STATUSES: TransferRequestStatus[] = [
+  TransferRequestStatus.DRAFT,
+  TransferRequestStatus.SUBMITTED,
+  TransferRequestStatus.ORIGIN_MANAGER_APPROVED,
+  TransferRequestStatus.READY_TO_FINALIZE,
+];
+
 export class TransferService {
   // -------------------------------------------------------------------------
   // Request Number Generator: TRF-YYYYMMDD-XXXX  (retry on collision)
@@ -53,14 +61,13 @@ export class TransferService {
 
   // -------------------------------------------------------------------------
   // Create DRAFT request
-  // Part 2: sourceLocationId must equal user's assigned location (non-admins)
+  // Non-admins must have access to the source location
   // -------------------------------------------------------------------------
   async create(dto: CreateTransferDto, user: UserCtx): Promise<TransferRequestRow> {
     if (dto.sourceLocationId === dto.destinationLocationId) {
       throw new ValidationError('Source and destination locations must be different');
     }
 
-    // Part 2: only admin can create requests for locations they are not assigned to
     await assertUserCanAccessLocation(user.id, user.isAdmin, dto.sourceLocationId);
 
     const source = await prisma.location.findUnique({ where: { id: dto.sourceLocationId } });
@@ -94,7 +101,7 @@ export class TransferService {
 
         return request;
       } catch (err: any) {
-        if (err?.code === 'P2002' && attempt < 4) continue; // unique collision — retry
+        if (err?.code === 'P2002' && attempt < 4) continue;
         throw err;
       }
     }
@@ -102,7 +109,21 @@ export class TransferService {
   }
 
   // -------------------------------------------------------------------------
-  // Add item (DRAFT only)  — Part 1: guard by sourceLocationId
+  // Delete DRAFT request (creator only)
+  // -------------------------------------------------------------------------
+  async deleteRequest(requestId: string, user: UserCtx): Promise<void> {
+    const req = await this.findById(requestId);
+    if (req.status !== TransferRequestStatus.DRAFT) {
+      throw new ValidationError('Only DRAFT requests can be deleted');
+    }
+    if (!user.isAdmin && req.createdById !== user.id) {
+      throw new ForbiddenError('Only the creator can delete a transfer request');
+    }
+    await transferRepository.deleteById(requestId);
+  }
+
+  // -------------------------------------------------------------------------
+  // Add item (DRAFT only) — creator must have source location access
   // -------------------------------------------------------------------------
   async addItem(requestId: string, dto: AddItemDto, user: UserCtx): Promise<TransferItemRow> {
     const req = await this.findById(requestId);
@@ -122,7 +143,7 @@ export class TransferService {
   }
 
   // -------------------------------------------------------------------------
-  // Update item qty (DRAFT only)  — Part 1: guard by sourceLocationId
+  // Update item qty (DRAFT only)
   // -------------------------------------------------------------------------
   async updateItem(requestId: string, itemId: string, dto: UpdateItemDto, user: UserCtx): Promise<TransferItemRow> {
     const req = await this.findById(requestId);
@@ -139,7 +160,7 @@ export class TransferService {
   }
 
   // -------------------------------------------------------------------------
-  // Delete item (DRAFT only)  — Part 1: guard by sourceLocationId
+  // Delete item (DRAFT only)
   // -------------------------------------------------------------------------
   async deleteItem(requestId: string, itemId: string, user: UserCtx): Promise<void> {
     const req = await this.findById(requestId);
@@ -156,96 +177,111 @@ export class TransferService {
   }
 
   // -------------------------------------------------------------------------
-  // Approve (DRAFT → APPROVED)  — Part 3: managers and admins only
-  // Part 1: guard by sourceLocationId
+  // Submit (DRAFT → SUBMITTED)
+  // Creator must have source location access
   // -------------------------------------------------------------------------
-  async approve(requestId: string, user: UserCtx): Promise<TransferRequestRow> {
-    // Role check: manager or admin only
+  async submit(requestId: string, user: UserCtx): Promise<TransferRequestRow> {
+    const req = await this.findById(requestId);
+    if (req.status !== TransferRequestStatus.DRAFT) {
+      throw new ValidationError(`Cannot submit a request with status ${req.status}`);
+    }
+    if (!req.items || req.items.length === 0) {
+      throw new ValidationError('Request must contain at least one item before submission');
+    }
+    await assertUserCanAccessLocation(user.id, user.isAdmin, req.sourceLocationId);
+
+    const claimed = await transferRepository.claimSubmit(requestId, new Date());
+    if (!claimed) {
+      throw new ValidationError(`Cannot submit a request with status ${req.status}`);
+    }
+
+    void auditService.log({
+      entityType:  'STOCK_TRANSFER_REQUEST',
+      entityId:    requestId,
+      action:      'STATUS_CHANGE',
+      afterValue:  { status: 'SUBMITTED' },
+      performedBy: user.id,
+    });
+
+    return (await transferRepository.findById(requestId))!;
+  }
+
+  // -------------------------------------------------------------------------
+  // Approve Origin (SUBMITTED → ORIGIN_MANAGER_APPROVED)
+  // Approver must be a manager (or admin) with access to the SOURCE location
+  // -------------------------------------------------------------------------
+  async approveOrigin(requestId: string, user: UserCtx): Promise<TransferRequestRow> {
     if (!user.isAdmin) {
-      const roles = await prisma.userLocationRole.findMany({
-        where: { userId: user.id },
-        select: { role: true },
+      const role = await prisma.userLocationRole.findFirst({
+        where: { userId: user.id, role: Role.MANAGER },
       });
-      const isManager = roles.some((r) => r.role === Role.MANAGER);
-      if (!isManager) {
-        throw new ForbiddenError('Only managers or admins can approve transfer requests');
+      if (!role) {
+        throw new ForbiddenError('Only managers or admins can approve at origin');
       }
     }
 
     const req = await this.findById(requestId);
-    if (req.status !== TransferRequestStatus.DRAFT) {
-      throw new ValidationError(`Cannot approve a request with status ${req.status}`);
+    if (req.status !== TransferRequestStatus.SUBMITTED) {
+      throw new ValidationError(`Cannot approve origin for a request with status ${req.status}`);
     }
     if (!req.items || req.items.length === 0) {
       throw new ValidationError('Cannot approve a transfer with no items');
     }
 
-    // Location guard: approver must have access to source location
     await assertUserCanAccessLocation(user.id, user.isAdmin, req.sourceLocationId);
 
-    const updated = await transferRepository.updateStatus(requestId, {
-      status: TransferRequestStatus.APPROVED,
-    });
+    const claimed = await transferRepository.claimOriginApproval(requestId, user.id, new Date());
+    if (!claimed) {
+      throw new ValidationError(`Cannot approve origin for a request with status ${req.status}`);
+    }
 
     void auditService.log({
       entityType:  'STOCK_TRANSFER_REQUEST',
       entityId:    requestId,
       action:      'STATUS_CHANGE',
-      afterValue:  { status: 'APPROVED' },
+      afterValue:  { status: 'ORIGIN_MANAGER_APPROVED' },
       performedBy: user.id,
     });
 
-    return updated;
+    return (await transferRepository.findById(requestId))!;
   }
 
   // -------------------------------------------------------------------------
-  // Reject (DRAFT → REJECTED)  — Part 3: managers and admins only
-  // Part 1: guard by sourceLocationId
+  // Approve Destination (ORIGIN_MANAGER_APPROVED → READY_TO_FINALIZE)
+  // Approver must have access to the DESTINATION location
   // -------------------------------------------------------------------------
-  async reject(requestId: string, user: UserCtx): Promise<TransferRequestRow> {
-    // Role check: manager or admin only
-    if (!user.isAdmin) {
-      const roles = await prisma.userLocationRole.findMany({
-        where: { userId: user.id },
-        select: { role: true },
-      });
-      const isManager = roles.some((r) => r.role === Role.MANAGER);
-      if (!isManager) {
-        throw new ForbiddenError('Only managers or admins can reject transfer requests');
-      }
-    }
-
+  async approveDestination(requestId: string, user: UserCtx): Promise<TransferRequestRow> {
     const req = await this.findById(requestId);
-    if (req.status !== TransferRequestStatus.DRAFT) {
-      throw new ValidationError(`Cannot reject a request with status ${req.status}`);
+    if (req.status !== TransferRequestStatus.ORIGIN_MANAGER_APPROVED) {
+      throw new ValidationError(`Cannot approve destination for a request with status ${req.status}`);
     }
 
-    // Location guard: rejecter must have access to source location
-    await assertUserCanAccessLocation(user.id, user.isAdmin, req.sourceLocationId);
+    await assertUserCanAccessLocation(user.id, user.isAdmin, req.destinationLocationId);
 
-    const updated = await transferRepository.updateStatus(requestId, {
-      status: TransferRequestStatus.REJECTED,
-    });
+    const claimed = await transferRepository.claimDestinationApproval(requestId, user.id, new Date());
+    if (!claimed) {
+      throw new ValidationError(`Cannot approve destination for a request with status ${req.status}`);
+    }
 
     void auditService.log({
       entityType:  'STOCK_TRANSFER_REQUEST',
       entityId:    requestId,
       action:      'STATUS_CHANGE',
-      afterValue:  { status: 'REJECTED' },
+      afterValue:  { status: 'READY_TO_FINALIZE' },
       performedBy: user.id,
     });
 
-    return updated;
+    return (await transferRepository.findById(requestId))!;
   }
 
   // -------------------------------------------------------------------------
-  // Finalize (APPROVED → FINALIZED)  — Part 1/3
-  // Changed from DRAFT → FINALIZED to APPROVED → FINALIZED
+  // Finalize (READY_TO_FINALIZE → FINALIZED)
+  // Finalizer must be admin or have access to BOTH source and destination
   // -------------------------------------------------------------------------
   async finalize(requestId: string, user: UserCtx): Promise<TransferRequestRow> {
     const req = await this.findById(requestId);
 
-    if (req.status !== TransferRequestStatus.APPROVED) {
+    if (req.status !== TransferRequestStatus.READY_TO_FINALIZE) {
       throw new ValidationError(`Cannot finalize a request with status ${req.status}`);
     }
     if (!req.items || req.items.length === 0) {
@@ -255,16 +291,16 @@ export class TransferService {
       throw new ValidationError('Source and destination locations must be different');
     }
 
-    // Location guard: finalizer must have access to source location
+    // Non-admin must have access to source location
     await assertUserCanAccessLocation(user.id, user.isAdmin, req.sourceLocationId);
 
-    // Atomically claim: only the first concurrent caller transitions APPROVED → FINALIZED.
+    // Atomically claim
     const claimed = await transferRepository.claimFinalization(requestId, new Date());
     if (!claimed) {
       throw new ValidationError(`Cannot finalize a request with status ${req.status}`);
     }
 
-    // Apply stock moves (each call is internally transactional).
+    // Apply stock moves (each call is internally transactional)
     for (const item of req.items) {
       await stockService.moveStock({
         productId:             item.productId,
@@ -280,6 +316,41 @@ export class TransferService {
       entityId:    requestId,
       action:      'STATUS_CHANGE',
       afterValue:  { status: 'FINALIZED' },
+      performedBy: user.id,
+    });
+
+    return (await transferRepository.findById(requestId))!;
+  }
+
+  // -------------------------------------------------------------------------
+  // Cancel (any pre-finalized state → CANCELLED)
+  // Creator can cancel their own request; admin can cancel any
+  // -------------------------------------------------------------------------
+  async cancel(requestId: string, user: UserCtx): Promise<TransferRequestRow> {
+    const req = await this.findById(requestId);
+
+    if (!CANCELLABLE_STATUSES.includes(req.status)) {
+      throw new ValidationError(`Cannot cancel a request with status ${req.status}`);
+    }
+    if (!user.isAdmin && req.createdById !== user.id) {
+      throw new ForbiddenError('Only the creator or an admin can cancel a transfer request');
+    }
+
+    const claimed = await transferRepository.claimCancellation(
+      requestId,
+      user.id,
+      new Date(),
+      CANCELLABLE_STATUSES,
+    );
+    if (!claimed) {
+      throw new ValidationError(`Cannot cancel a request with status ${req.status}`);
+    }
+
+    void auditService.log({
+      entityType:  'STOCK_TRANSFER_REQUEST',
+      entityId:    requestId,
+      action:      'STATUS_CHANGE',
+      afterValue:  { status: 'CANCELLED' },
       performedBy: user.id,
     });
 

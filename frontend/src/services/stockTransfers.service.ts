@@ -1,6 +1,13 @@
 import apiClient from '../api/client';
 
-export type TransferRequestStatus = 'DRAFT' | 'APPROVED' | 'REJECTED' | 'FINALIZED';
+export type TransferRequestStatus =
+  | 'DRAFT'
+  | 'SUBMITTED'
+  | 'ORIGIN_MANAGER_APPROVED'
+  | 'DESTINATION_OPERATOR_APPROVED'
+  | 'READY_TO_FINALIZE'
+  | 'FINALIZED'
+  | 'CANCELLED';
 
 export type TransferUser = {
   id: string;
@@ -25,10 +32,20 @@ export type TransferRequest = {
   destinationLocationId: string;
   notes: string | null;
   createdById: string;
+  submittedAt: string | null;
+  originApprovedById: string | null;
+  originApprovedAt: string | null;
+  destinationApprovedById: string | null;
+  destinationApprovedAt: string | null;
   finalizedAt: string | null;
+  cancelledById: string | null;
+  cancelledAt: string | null;
   createdAt: string;
   updatedAt: string;
   createdBy: TransferUser;
+  originApprovedBy: TransferUser | null;
+  destinationApprovedBy: TransferUser | null;
+  cancelledBy: TransferUser | null;
   sourceLocation: { id: string; code: string; name: string };
   destinationLocation: { id: string; code: string; name: string };
   items: TransferItem[];
@@ -80,6 +97,10 @@ const stockTransfersService = {
     return apiClient.post('stock-transfers', payload).then((r) => r.data);
   },
 
+  deleteRequest(id: string): Promise<void> {
+    return apiClient.delete(`stock-transfers/${id}`).then(() => undefined);
+  },
+
   addItem(requestId: string, payload: AddItemPayload): Promise<{ success: boolean; data: TransferItem }> {
     return apiClient.post(`stock-transfers/${requestId}/items`, payload).then((r) => r.data);
   },
@@ -92,16 +113,24 @@ const stockTransfersService = {
     return apiClient.delete(`stock-transfers/${requestId}/items/${itemId}`).then(() => undefined);
   },
 
-  approve(requestId: string): Promise<{ success: boolean; data: TransferRequest }> {
-    return apiClient.post(`stock-transfers/${requestId}/approve`).then((r) => r.data);
+  submit(requestId: string): Promise<{ success: boolean; data: TransferRequest }> {
+    return apiClient.post(`stock-transfers/${requestId}/submit`).then((r) => r.data);
   },
 
-  reject(requestId: string): Promise<{ success: boolean; data: TransferRequest }> {
-    return apiClient.post(`stock-transfers/${requestId}/reject`).then((r) => r.data);
+  approveOrigin(requestId: string): Promise<{ success: boolean; data: TransferRequest }> {
+    return apiClient.post(`stock-transfers/${requestId}/approve-origin`).then((r) => r.data);
+  },
+
+  approveDestination(requestId: string): Promise<{ success: boolean; data: TransferRequest }> {
+    return apiClient.post(`stock-transfers/${requestId}/approve-destination`).then((r) => r.data);
   },
 
   finalize(requestId: string): Promise<{ success: boolean; data: TransferRequest }> {
     return apiClient.post(`stock-transfers/${requestId}/finalize`).then((r) => r.data);
+  },
+
+  cancel(requestId: string): Promise<{ success: boolean; data: TransferRequest }> {
+    return apiClient.post(`stock-transfers/${requestId}/cancel`).then((r) => r.data);
   },
 };
 

@@ -32,6 +32,19 @@ export class StockController {
       next(err);
     }
   }
+  async getAllLocations(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const locations = await prisma.location.findMany({
+        where:   { isActive: true },
+        select:  { id: true, code: true, name: true },
+        orderBy: { code: 'asc' },
+      });
+      res.status(200).json({ success: true, data: locations });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async getStockOverview(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const parsed = stockQuerySchema.safeParse(req.query);

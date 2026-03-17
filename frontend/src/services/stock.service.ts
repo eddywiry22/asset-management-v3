@@ -65,6 +65,13 @@ const stockService = {
     return res.data.data;
   },
 
+  async getAllLocations(): Promise<VisibleLocation[]> {
+    const res = await apiClient.get<{ success: boolean; data: VisibleLocation[] }>(
+      'stock/all-locations',
+    );
+    return res.data.data;
+  },
+
   async getStockOverview(params: StockQueryParams = {}): Promise<PaginatedResponse<StockOverviewItem>> {
     const query = new URLSearchParams();
     if (params.locationId) query.set('locationId', params.locationId);

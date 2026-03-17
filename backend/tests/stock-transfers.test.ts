@@ -1,14 +1,14 @@
 /**
- * Stock Transfer Requests — Stage 6 Tests
+ * Stock Transfer Requests — Stage 6 Tests (7-state workflow)
  *
- * Covers: auth enforcement, create request, request number format,
- * add/edit/delete items, qty validation (> 0), cannot modify after finalize,
- * cannot finalize with no items, cannot finalize if locations same,
- * finalization creates TWO ledger entries per item (TRANSFER_OUT + TRANSFER_IN),
- * stock decreases at source, stock increases at destination,
- * concurrency finalize protection.
+ * Workflow: DRAFT → SUBMITTED → ORIGIN_MANAGER_APPROVED → READY_TO_FINALIZE → FINALIZED
+ *           Any pre-terminal state can be → CANCELLED
+ *           DRAFT can also be → deleted (DELETE /:id)
  *
- * Uses mocked Prisma and JWT (no live database required).
+ * Covers: auth enforcement, create, request number format, add/edit/delete items,
+ * submit, approve-origin, approve-destination, finalize (stock moves, ledger),
+ * cancel, delete DRAFT, location authorization, same-location guard,
+ * no-items guard, concurrency protection.
  */
 
 import request from 'supertest';
@@ -40,6 +40,7 @@ jest.mock('../src/config/database', () => {
     update:     jest.fn(),
     updateMany: jest.fn(),
     delete:     jest.fn(),
+    deleteMany: jest.fn(),
     count:      jest.fn(),
     groupBy:    jest.fn(),
     upsert:     jest.fn(),
@@ -78,9 +79,9 @@ const SRC_LOC_ID  = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 const DST_LOC_ID  = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
 const USER_ID     = 'user-id';
 
-const fakeUser        = { id: USER_ID, email: 'user@example.com', phone: null };
-const fakeSourceLoc   = { id: SRC_LOC_ID, code: 'WH-A', name: 'Warehouse A' };
-const fakeDestLoc     = { id: DST_LOC_ID, code: 'ST-B', name: 'Store B' };
+const fakeUser      = { id: USER_ID, email: 'user@example.com', phone: null };
+const fakeSourceLoc = { id: SRC_LOC_ID, code: 'WH-A', name: 'Warehouse A' };
+const fakeDestLoc   = { id: DST_LOC_ID, code: 'ST-B', name: 'Store B' };
 
 const fakeItem = {
   id:        ITEM_ID,
@@ -93,19 +94,29 @@ const fakeItem = {
 
 function makeFakeRequest(status = 'DRAFT', items: any[] = []) {
   return {
-    id:                    REQ_ID,
-    requestNumber:         'TRF-20260310-0001',
+    id:                      REQ_ID,
+    requestNumber:           'TRF-20260317-0001',
     status,
-    sourceLocationId:      SRC_LOC_ID,
-    destinationLocationId: DST_LOC_ID,
-    notes:                 null,
-    createdById:           USER_ID,
-    finalizedAt:           null,
-    createdAt:             new Date().toISOString(),
-    updatedAt:             new Date().toISOString(),
-    createdBy:             fakeUser,
-    sourceLocation:        fakeSourceLoc,
-    destinationLocation:   fakeDestLoc,
+    sourceLocationId:        SRC_LOC_ID,
+    destinationLocationId:   DST_LOC_ID,
+    notes:                   null,
+    createdById:             USER_ID,
+    submittedAt:             null,
+    originApprovedById:      null,
+    originApprovedAt:        null,
+    destinationApprovedById: null,
+    destinationApprovedAt:   null,
+    finalizedAt:             null,
+    cancelledById:           null,
+    cancelledAt:             null,
+    createdAt:               new Date().toISOString(),
+    updatedAt:               new Date().toISOString(),
+    createdBy:               fakeUser,
+    originApprovedBy:        null,
+    destinationApprovedBy:   null,
+    cancelledBy:             null,
+    sourceLocation:          fakeSourceLoc,
+    destinationLocation:     fakeDestLoc,
     items,
   };
 }
@@ -119,7 +130,10 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-  jest.clearAllMocks();
+  // resetAllMocks clears instances/calls/results AND the mockResolvedValueOnce queue,
+  // preventing leftover Once values from previous tests polluting subsequent tests.
+  jest.resetAllMocks();
+
   (authService.verifyAccessToken as jest.Mock).mockReturnValue({
     sub:     USER_ID,
     email:   'user@example.com',
@@ -143,13 +157,26 @@ beforeEach(() => {
   db.stockBalance.update.mockResolvedValue({ id: 'bal', productId: PRODUCT_ID, locationId: SRC_LOC_ID, onHandQty: '90', reservedQty: '0' });
   db.stockLedger.create.mockResolvedValue({});
 
-  // Claim finalization succeeds by default
+  // Claim operations succeed by default
   db.stockTransferRequest.updateMany.mockResolvedValue({ count: 1 });
+  db.stockTransferItem.deleteMany.mockResolvedValue({ count: 0 });
+  db.stockTransferRequest.delete.mockResolvedValue({});
 
-  // Default: user has access to source location (satisfies assertUserCanAccessLocation)
-  db.userLocationRole.findFirst.mockResolvedValue({ id: 'role-1', userId: USER_ID, locationId: SRC_LOC_ID, role: 'OPERATOR' });
-  // Default: user has no MANAGER role (findMany returns empty; overridden per-test for approve/reject)
-  db.userLocationRole.findMany.mockResolvedValue([]);
+  // Default: user is a MANAGER with access to source location.
+  // Uses argument-based implementation so role-check calls and location-check calls
+  // can be differentiated without relying on Once queue ordering.
+  db.userLocationRole.findFirst.mockImplementation(({ where }: any) => {
+    // Manager role check: { userId, role: 'MANAGER' }
+    if (where.role === 'MANAGER') {
+      return Promise.resolve({ id: 'role-1', userId: USER_ID, role: 'MANAGER' });
+    }
+    // Location access check: { userId, locationId }
+    if (where.locationId) {
+      return Promise.resolve({ id: 'role-1', userId: USER_ID, locationId: where.locationId, role: 'MANAGER' });
+    }
+    return Promise.resolve(null);
+  });
+  db.userLocationRole.findMany.mockResolvedValue([{ role: 'MANAGER' }]);
 });
 
 // ===========================================================================
@@ -172,6 +199,11 @@ describe('Auth enforcement on stock-transfers routes', () => {
     const res = await request(app).post(`/v1/stock-transfers/${REQ_ID}/finalize`);
     expect(res.status).toBe(401);
   });
+
+  it('returns 401 without token on POST /v1/stock-transfers/:id/submit', async () => {
+    const res = await request(app).post(`/v1/stock-transfers/${REQ_ID}/submit`);
+    expect(res.status).toBe(401);
+  });
 });
 
 // ===========================================================================
@@ -192,7 +224,7 @@ describe('POST /v1/stock-transfers — create request', () => {
     expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
     expect(res.body.data.status).toBe('DRAFT');
-    expect(res.body.data.requestNumber).toBe('TRF-20260310-0001');
+    expect(res.body.data.requestNumber).toBe('TRF-20260317-0001');
   });
 
   it('creates request with notes', async () => {
@@ -314,6 +346,16 @@ describe('GET /v1/stock-transfers — list', () => {
     expect(callArgs.where.status).toBe('DRAFT');
   });
 
+  it('filters by status=SUBMITTED', async () => {
+    db.stockTransferRequest.findMany.mockResolvedValue([makeFakeRequest('SUBMITTED')]);
+    db.stockTransferRequest.count.mockResolvedValue(1);
+
+    const res = await request(app).get('/v1/stock-transfers?status=SUBMITTED').set(AUTH);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data[0].status).toBe('SUBMITTED');
+  });
+
   it('returns 400 for invalid status filter', async () => {
     const res = await request(app).get('/v1/stock-transfers?status=INVALID').set(AUTH);
     expect(res.status).toBe(400);
@@ -394,7 +436,7 @@ describe('POST /v1/stock-transfers/:id/items — add item', () => {
   });
 
   it('cannot add items when request is not DRAFT', async () => {
-    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('FINALIZED'));
+    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('SUBMITTED'));
 
     const res = await request(app)
       .post(`/v1/stock-transfers/${REQ_ID}/items`)
@@ -501,19 +543,216 @@ describe('DELETE /v1/stock-transfers/:id/items/:itemId — delete item', () => {
 });
 
 // ===========================================================================
-// 9. FINALIZE — main scenario
+// 9. SUBMIT
+// ===========================================================================
+
+describe('POST /v1/stock-transfers/:id/submit', () => {
+  it('submits a DRAFT request → status SUBMITTED', async () => {
+    db.stockTransferRequest.findUnique
+      .mockResolvedValueOnce(makeFakeRequest('DRAFT', [fakeItem]))
+      .mockResolvedValueOnce(makeFakeRequest('SUBMITTED', [fakeItem]));
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/submit`)
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe('SUBMITTED');
+  });
+
+  it('returns 400 when trying to submit a SUBMITTED request', async () => {
+    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('SUBMITTED', [fakeItem]));
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/submit`)
+      .set(AUTH);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/Cannot submit/);
+  });
+
+  it('returns 400 when submitting a DRAFT with no items', async () => {
+    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('DRAFT', []));
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/submit`)
+      .set(AUTH);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/at least one item/);
+  });
+
+  it('returns 403 when user has no access to source location', async () => {
+    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('DRAFT', [fakeItem]));
+    db.userLocationRole.findFirst.mockResolvedValue(null);
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/submit`)
+      .set(AUTH);
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toMatch(/You do not have access to this location/);
+  });
+});
+
+// ===========================================================================
+// 10. APPROVE ORIGIN
+// ===========================================================================
+
+describe('POST /v1/stock-transfers/:id/approve-origin', () => {
+  it('manager can approve origin (SUBMITTED → ORIGIN_MANAGER_APPROVED)', async () => {
+    db.stockTransferRequest.findUnique
+      .mockResolvedValueOnce(makeFakeRequest('SUBMITTED', [fakeItem]))
+      .mockResolvedValueOnce(makeFakeRequest('ORIGIN_MANAGER_APPROVED', [fakeItem]));
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/approve-origin`)
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe('ORIGIN_MANAGER_APPROVED');
+  });
+
+  it('admin can approve origin without location assignment', async () => {
+    (authService.verifyAccessToken as jest.Mock).mockReturnValue({
+      sub: USER_ID, email: 'admin@example.com', phone: null, isAdmin: true,
+    });
+    db.stockTransferRequest.findUnique
+      .mockResolvedValueOnce(makeFakeRequest('SUBMITTED', [fakeItem]))
+      .mockResolvedValueOnce(makeFakeRequest('ORIGIN_MANAGER_APPROVED', [fakeItem]));
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/approve-origin`)
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe('ORIGIN_MANAGER_APPROVED');
+  });
+
+  it('operator cannot approve origin (no MANAGER role) → 403', async () => {
+    // Override: findFirst always returns null (no manager role, no location access)
+    db.userLocationRole.findFirst.mockResolvedValue(null);
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/approve-origin`)
+      .set(AUTH);
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toMatch(/Only managers or admins/);
+  });
+
+  it('returns 400 when request is not SUBMITTED', async () => {
+    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('DRAFT', [fakeItem]));
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/approve-origin`)
+      .set(AUTH);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/Cannot approve origin/);
+  });
+
+  it('manager without source location access cannot approve origin → 403', async () => {
+    // Manager role check passes, but location access check fails
+    db.userLocationRole.findFirst.mockImplementation(({ where }: any) => {
+      if (where.role === 'MANAGER') return Promise.resolve({ role: 'MANAGER' });
+      return Promise.resolve(null); // no location access
+    });
+    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('SUBMITTED', [fakeItem]));
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/approve-origin`)
+      .set(AUTH);
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toMatch(/You do not have access to this location/);
+  });
+
+  it('returns 400 when trying to approve origin with no items', async () => {
+    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('SUBMITTED', []));
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/approve-origin`)
+      .set(AUTH);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/no items/);
+  });
+});
+
+// ===========================================================================
+// 11. APPROVE DESTINATION
+// ===========================================================================
+
+describe('POST /v1/stock-transfers/:id/approve-destination', () => {
+  it('user with destination access can approve (ORIGIN_MANAGER_APPROVED → READY_TO_FINALIZE)', async () => {
+    db.stockTransferRequest.findUnique
+      .mockResolvedValueOnce(makeFakeRequest('ORIGIN_MANAGER_APPROVED', [fakeItem]))
+      .mockResolvedValueOnce(makeFakeRequest('READY_TO_FINALIZE', [fakeItem]));
+    // assertUserCanAccessLocation checks DST_LOC_ID
+    db.userLocationRole.findFirst.mockResolvedValue({ role: 'OPERATOR', locationId: DST_LOC_ID });
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/approve-destination`)
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe('READY_TO_FINALIZE');
+  });
+
+  it('admin can approve destination without location assignment', async () => {
+    (authService.verifyAccessToken as jest.Mock).mockReturnValue({
+      sub: USER_ID, email: 'admin@example.com', phone: null, isAdmin: true,
+    });
+    db.stockTransferRequest.findUnique
+      .mockResolvedValueOnce(makeFakeRequest('ORIGIN_MANAGER_APPROVED', [fakeItem]))
+      .mockResolvedValueOnce(makeFakeRequest('READY_TO_FINALIZE', [fakeItem]));
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/approve-destination`)
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe('READY_TO_FINALIZE');
+  });
+
+  it('user without destination location access cannot approve → 403', async () => {
+    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('ORIGIN_MANAGER_APPROVED', [fakeItem]));
+    // Override: no location access at all
+    db.userLocationRole.findFirst.mockImplementation(() => Promise.resolve(null));
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/approve-destination`)
+      .set(AUTH);
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toMatch(/You do not have access to this location/);
+  });
+
+  it('returns 400 when request is not ORIGIN_MANAGER_APPROVED', async () => {
+    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('SUBMITTED', [fakeItem]));
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/approve-destination`)
+      .set(AUTH);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/Cannot approve destination/);
+  });
+});
+
+// ===========================================================================
+// 12. FINALIZE — main scenario
 // ===========================================================================
 
 describe('POST /v1/stock-transfers/:id/finalize', () => {
-  it('finalizes an APPROVED request and creates TWO ledger entries per item (TRANSFER_OUT + TRANSFER_IN)', async () => {
+  it('finalizes a READY_TO_FINALIZE request and creates TWO ledger entries per item', async () => {
     db.stockTransferRequest.findUnique
-      .mockResolvedValueOnce(makeFakeRequest('APPROVED', [fakeItem]))
+      .mockResolvedValueOnce(makeFakeRequest('READY_TO_FINALIZE', [fakeItem]))
       .mockResolvedValueOnce(makeFakeRequest('FINALIZED', [fakeItem]));
 
     db.$transaction.mockImplementation(async (cb: Function) => await cb(db));
-    db.stockBalance.upsert.mockResolvedValue({
-      id: 'bal', productId: PRODUCT_ID, locationId: SRC_LOC_ID, onHandQty: '100', reservedQty: '0',
-    });
+    db.stockBalance.upsert.mockResolvedValue({ id: 'bal', productId: PRODUCT_ID, locationId: SRC_LOC_ID, onHandQty: '100', reservedQty: '0' });
     db.$queryRaw.mockResolvedValue([{ onHandQty: '100', reservedQty: '0' }]);
     db.stockBalance.update
       .mockResolvedValueOnce({ id: 'bal', productId: PRODUCT_ID, locationId: SRC_LOC_ID, onHandQty: '90', reservedQty: '0' })
@@ -535,7 +774,7 @@ describe('POST /v1/stock-transfers/:id/finalize', () => {
 
   it('creates TRANSFER_OUT ledger entry for source location', async () => {
     db.stockTransferRequest.findUnique
-      .mockResolvedValueOnce(makeFakeRequest('APPROVED', [fakeItem]))
+      .mockResolvedValueOnce(makeFakeRequest('READY_TO_FINALIZE', [fakeItem]))
       .mockResolvedValueOnce(makeFakeRequest('FINALIZED', [fakeItem]));
 
     db.$transaction.mockImplementation(async (cb: Function) => await cb(db));
@@ -555,7 +794,7 @@ describe('POST /v1/stock-transfers/:id/finalize', () => {
 
   it('creates TRANSFER_IN ledger entry for destination location', async () => {
     db.stockTransferRequest.findUnique
-      .mockResolvedValueOnce(makeFakeRequest('APPROVED', [fakeItem]))
+      .mockResolvedValueOnce(makeFakeRequest('READY_TO_FINALIZE', [fakeItem]))
       .mockResolvedValueOnce(makeFakeRequest('FINALIZED', [fakeItem]));
 
     db.$transaction.mockImplementation(async (cb: Function) => await cb(db));
@@ -577,7 +816,7 @@ describe('POST /v1/stock-transfers/:id/finalize', () => {
 
   it('stock decreases at source and increases at destination', async () => {
     db.stockTransferRequest.findUnique
-      .mockResolvedValueOnce(makeFakeRequest('APPROVED', [fakeItem]))
+      .mockResolvedValueOnce(makeFakeRequest('READY_TO_FINALIZE', [fakeItem]))
       .mockResolvedValueOnce(makeFakeRequest('FINALIZED', [fakeItem]));
 
     db.$transaction.mockImplementation(async (cb: Function) => await cb(db));
@@ -591,10 +830,8 @@ describe('POST /v1/stock-transfers/:id/finalize', () => {
     const res = await request(app).post(`/v1/stock-transfers/${REQ_ID}/finalize`).set(AUTH);
 
     expect(res.status).toBe(200);
-    // Verify decrement was called (source) and increment was called (destination)
     const updateCalls = db.stockBalance.update.mock.calls;
     expect(updateCalls).toHaveLength(2);
-    // First call is decrement (source — qty should be negative or decrement op)
     const sourceDecrement = updateCalls[0][0].data;
     const destIncrement   = updateCalls[1][0].data;
     expect(sourceDecrement.onHandQty?.decrement || sourceDecrement.onHandQty?.increment).toBeDefined();
@@ -606,7 +843,7 @@ describe('POST /v1/stock-transfers/:id/finalize', () => {
     const itemB = { ...fakeItem, id: 'item-b', productId: 'prod-b', qty: { toString: () => '3' } };
 
     db.stockTransferRequest.findUnique
-      .mockResolvedValueOnce(makeFakeRequest('APPROVED', [itemA, itemB]))
+      .mockResolvedValueOnce(makeFakeRequest('READY_TO_FINALIZE', [itemA, itemB]))
       .mockResolvedValueOnce(makeFakeRequest('FINALIZED', [itemA, itemB]));
 
     db.$transaction.mockImplementation(async (cb: Function) => await cb(db));
@@ -626,12 +863,12 @@ describe('POST /v1/stock-transfers/:id/finalize', () => {
 });
 
 // ===========================================================================
-// 10. CANNOT FINALIZE WITH NO ITEMS
+// 13. CANNOT FINALIZE WITH NO ITEMS
 // ===========================================================================
 
 describe('Cannot finalize transfer with no items', () => {
-  it('returns 400 when trying to finalize an APPROVED request with no items', async () => {
-    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('APPROVED', []));
+  it('returns 400 when trying to finalize a READY_TO_FINALIZE request with no items', async () => {
+    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('READY_TO_FINALIZE', []));
 
     const res = await request(app)
       .post(`/v1/stock-transfers/${REQ_ID}/finalize`)
@@ -643,11 +880,33 @@ describe('Cannot finalize transfer with no items', () => {
 });
 
 // ===========================================================================
-// 11. CANNOT FINALIZE ALREADY-FINALIZED REQUEST
+// 14. CANNOT FINALIZE UNLESS READY_TO_FINALIZE STATUS
 // ===========================================================================
 
-describe('Cannot finalize twice', () => {
-  it('returns 400 when request is already FINALIZED', async () => {
+describe('Finalize requires READY_TO_FINALIZE status', () => {
+  it('returns 400 when trying to finalize a DRAFT request', async () => {
+    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('DRAFT', [fakeItem]));
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/finalize`)
+      .set(AUTH);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/Cannot finalize a request with status DRAFT/);
+  });
+
+  it('returns 400 when trying to finalize a SUBMITTED request', async () => {
+    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('SUBMITTED', [fakeItem]));
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/finalize`)
+      .set(AUTH);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/Cannot finalize a request with status SUBMITTED/);
+  });
+
+  it('returns 400 when trying to finalize an already FINALIZED request', async () => {
     db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('FINALIZED', [fakeItem]));
 
     const res = await request(app)
@@ -657,17 +916,27 @@ describe('Cannot finalize twice', () => {
     expect(res.status).toBe(400);
     expect(res.body.error.message).toMatch(/Cannot finalize/);
   });
+
+  it('returns 400 when trying to finalize a CANCELLED request', async () => {
+    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('CANCELLED', [fakeItem]));
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/finalize`)
+      .set(AUTH);
+
+    expect(res.status).toBe(400);
+  });
 });
 
 // ===========================================================================
-// 12. CANNOT FINALIZE WHEN SOURCE AND DESTINATION ARE THE SAME
+// 15. CANNOT FINALIZE WHEN SOURCE AND DESTINATION ARE THE SAME
 // ===========================================================================
 
 describe('Cannot finalize when source and destination locations are identical', () => {
   it('returns 400 when sourceLocationId === destinationLocationId', async () => {
     const sameLocId = SRC_LOC_ID;
     db.stockTransferRequest.findUnique.mockResolvedValue({
-      ...makeFakeRequest('APPROVED', [fakeItem]),
+      ...makeFakeRequest('READY_TO_FINALIZE', [fakeItem]),
       sourceLocationId:      sameLocId,
       destinationLocationId: sameLocId,
     });
@@ -682,12 +951,12 @@ describe('Cannot finalize when source and destination locations are identical', 
 });
 
 // ===========================================================================
-// 13. CONCURRENCY FINALIZE PROTECTION
+// 16. CONCURRENCY PROTECTION
 // ===========================================================================
 
 describe('Concurrency — finalize protection', () => {
   it('returns 400 when updateMany claim returns count=0 (concurrent finalization)', async () => {
-    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('APPROVED', [fakeItem]));
+    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('READY_TO_FINALIZE', [fakeItem]));
     // Simulate race: another process already finalized it
     db.stockTransferRequest.updateMany.mockResolvedValue({ count: 0 });
 
@@ -700,12 +969,12 @@ describe('Concurrency — finalize protection', () => {
 });
 
 // ===========================================================================
-// 14. CANNOT ADD/EDIT/DELETE ITEMS ON FINALIZED REQUEST
+// 17. CANNOT ADD/EDIT/DELETE ITEMS AFTER SUBMISSION
 // ===========================================================================
 
-describe('Cannot modify items after finalization', () => {
-  it('cannot add item to FINALIZED request', async () => {
-    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('FINALIZED'));
+describe('Cannot modify items after submission', () => {
+  it('cannot add item to SUBMITTED request', async () => {
+    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('SUBMITTED'));
 
     const res = await request(app)
       .post(`/v1/stock-transfers/${REQ_ID}/items`)
@@ -728,8 +997,8 @@ describe('Cannot modify items after finalization', () => {
     expect(res.body.error.message).toMatch(/DRAFT/);
   });
 
-  it('cannot delete item on FINALIZED request', async () => {
-    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('FINALIZED', [fakeItem]));
+  it('cannot delete item on CANCELLED request', async () => {
+    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('CANCELLED', [fakeItem]));
 
     const res = await request(app)
       .delete(`/v1/stock-transfers/${REQ_ID}/items/${ITEM_ID}`)
@@ -741,7 +1010,7 @@ describe('Cannot modify items after finalization', () => {
 });
 
 // ===========================================================================
-// 15. QTY VALIDATION
+// 18. QTY VALIDATION
 // ===========================================================================
 
 describe('Qty validation', () => {
@@ -768,7 +1037,7 @@ describe('Qty validation', () => {
 });
 
 // ===========================================================================
-// 15. DATE FILTER VALIDATION
+// 19. DATE FILTER VALIDATION
 // ===========================================================================
 
 describe('Date filter validation', () => {
@@ -786,136 +1055,146 @@ describe('Date filter validation', () => {
 });
 
 // ===========================================================================
-// 16. APPROVAL WORKFLOW — APPROVE
+// 20. CANCEL
 // ===========================================================================
 
-describe('POST /v1/stock-transfers/:id/approve', () => {
-  it('manager can approve a DRAFT request → status APPROVED', async () => {
-    // User is a MANAGER
-    db.userLocationRole.findMany.mockResolvedValue([{ role: 'MANAGER' }]);
-    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('DRAFT', [fakeItem]));
-    db.stockTransferRequest.update.mockResolvedValue(makeFakeRequest('APPROVED', [fakeItem]));
+describe('POST /v1/stock-transfers/:id/cancel', () => {
+  it('creator can cancel a DRAFT request → status CANCELLED', async () => {
+    db.stockTransferRequest.findUnique
+      .mockResolvedValueOnce(makeFakeRequest('DRAFT', [fakeItem]))
+      .mockResolvedValueOnce(makeFakeRequest('CANCELLED', [fakeItem]));
 
     const res = await request(app)
-      .post(`/v1/stock-transfers/${REQ_ID}/approve`)
+      .post(`/v1/stock-transfers/${REQ_ID}/cancel`)
       .set(AUTH);
 
     expect(res.status).toBe(200);
-    expect(res.body.data.status).toBe('APPROVED');
+    expect(res.body.data.status).toBe('CANCELLED');
   });
 
-  it('admin can approve a DRAFT request', async () => {
-    (authService.verifyAccessToken as jest.Mock).mockReturnValue({
-      sub: USER_ID, email: 'admin@example.com', phone: null, isAdmin: true,
-    });
-    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('DRAFT', [fakeItem]));
-    db.stockTransferRequest.update.mockResolvedValue(makeFakeRequest('APPROVED', [fakeItem]));
+  it('creator can cancel a SUBMITTED request', async () => {
+    db.stockTransferRequest.findUnique
+      .mockResolvedValueOnce(makeFakeRequest('SUBMITTED', [fakeItem]))
+      .mockResolvedValueOnce(makeFakeRequest('CANCELLED', [fakeItem]));
 
     const res = await request(app)
-      .post(`/v1/stock-transfers/${REQ_ID}/approve`)
+      .post(`/v1/stock-transfers/${REQ_ID}/cancel`)
       .set(AUTH);
 
     expect(res.status).toBe(200);
-    expect(res.body.data.status).toBe('APPROVED');
   });
 
-  it('operator cannot approve → 403', async () => {
-    // findMany returns OPERATOR only
-    db.userLocationRole.findMany.mockResolvedValue([{ role: 'OPERATOR' }]);
-    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('DRAFT', [fakeItem]));
+  it('creator can cancel an ORIGIN_MANAGER_APPROVED request', async () => {
+    db.stockTransferRequest.findUnique
+      .mockResolvedValueOnce(makeFakeRequest('ORIGIN_MANAGER_APPROVED', [fakeItem]))
+      .mockResolvedValueOnce(makeFakeRequest('CANCELLED', [fakeItem]));
 
     const res = await request(app)
-      .post(`/v1/stock-transfers/${REQ_ID}/approve`)
-      .set(AUTH);
-
-    expect(res.status).toBe(403);
-    expect(res.body.error.message).toMatch(/Only managers or admins/);
-  });
-
-  it('returns 400 when request is already APPROVED', async () => {
-    db.userLocationRole.findMany.mockResolvedValue([{ role: 'MANAGER' }]);
-    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('APPROVED', [fakeItem]));
-
-    const res = await request(app)
-      .post(`/v1/stock-transfers/${REQ_ID}/approve`)
-      .set(AUTH);
-
-    expect(res.status).toBe(400);
-    expect(res.body.error.message).toMatch(/Cannot approve/);
-  });
-
-  it('returns 400 when approving a request with no items', async () => {
-    db.userLocationRole.findMany.mockResolvedValue([{ role: 'MANAGER' }]);
-    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('DRAFT', []));
-
-    const res = await request(app)
-      .post(`/v1/stock-transfers/${REQ_ID}/approve`)
-      .set(AUTH);
-
-    expect(res.status).toBe(400);
-    expect(res.body.error.message).toMatch(/no items/);
-  });
-
-  it('manager cannot approve request from another location → 403', async () => {
-    db.userLocationRole.findMany.mockResolvedValue([{ role: 'MANAGER' }]);
-    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('DRAFT', [fakeItem]));
-    // User has no role at SRC_LOC_ID
-    db.userLocationRole.findFirst.mockResolvedValue(null);
-
-    const res = await request(app)
-      .post(`/v1/stock-transfers/${REQ_ID}/approve`)
-      .set(AUTH);
-
-    expect(res.status).toBe(403);
-    expect(res.body.error.message).toMatch(/You do not have access to this location/);
-  });
-});
-
-// ===========================================================================
-// 17. APPROVAL WORKFLOW — REJECT
-// ===========================================================================
-
-describe('POST /v1/stock-transfers/:id/reject', () => {
-  it('manager can reject a DRAFT request → status REJECTED', async () => {
-    db.userLocationRole.findMany.mockResolvedValue([{ role: 'MANAGER' }]);
-    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('DRAFT', [fakeItem]));
-    db.stockTransferRequest.update.mockResolvedValue(makeFakeRequest('REJECTED', [fakeItem]));
-
-    const res = await request(app)
-      .post(`/v1/stock-transfers/${REQ_ID}/reject`)
+      .post(`/v1/stock-transfers/${REQ_ID}/cancel`)
       .set(AUTH);
 
     expect(res.status).toBe(200);
-    expect(res.body.data.status).toBe('REJECTED');
   });
 
-  it('operator cannot reject → 403', async () => {
-    db.userLocationRole.findMany.mockResolvedValue([{ role: 'OPERATOR' }]);
-    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('DRAFT', [fakeItem]));
-
-    const res = await request(app)
-      .post(`/v1/stock-transfers/${REQ_ID}/reject`)
-      .set(AUTH);
-
-    expect(res.status).toBe(403);
-    expect(res.body.error.message).toMatch(/Only managers or admins/);
-  });
-
-  it('returns 400 when request is already FINALIZED', async () => {
-    db.userLocationRole.findMany.mockResolvedValue([{ role: 'MANAGER' }]);
+  it('returns 400 when trying to cancel an already FINALIZED request', async () => {
     db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('FINALIZED', [fakeItem]));
 
     const res = await request(app)
-      .post(`/v1/stock-transfers/${REQ_ID}/reject`)
+      .post(`/v1/stock-transfers/${REQ_ID}/cancel`)
       .set(AUTH);
 
     expect(res.status).toBe(400);
-    expect(res.body.error.message).toMatch(/Cannot reject/);
+    expect(res.body.error.message).toMatch(/Cannot cancel/);
+  });
+
+  it('non-creator cannot cancel another user\'s request → 403', async () => {
+    const otherUsersRequest = { ...makeFakeRequest('DRAFT', [fakeItem]), createdById: 'other-user-id' };
+    db.stockTransferRequest.findUnique.mockResolvedValue(otherUsersRequest);
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/cancel`)
+      .set(AUTH);
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toMatch(/Only the creator or an admin/);
+  });
+
+  it('admin can cancel any request regardless of creator', async () => {
+    (authService.verifyAccessToken as jest.Mock).mockReturnValue({
+      sub: USER_ID, email: 'admin@example.com', phone: null, isAdmin: true,
+    });
+    const otherUsersRequest = { ...makeFakeRequest('SUBMITTED', [fakeItem]), createdById: 'other-user-id' };
+    db.stockTransferRequest.findUnique
+      .mockResolvedValueOnce(otherUsersRequest)
+      .mockResolvedValueOnce(makeFakeRequest('CANCELLED', [fakeItem]));
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/cancel`)
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
   });
 });
 
 // ===========================================================================
-// 18. LOCATION AUTHORIZATION — OPERATOR CANNOT ACCESS OTHER WAREHOUSE
+// 21. DELETE DRAFT REQUEST
+// ===========================================================================
+
+describe('DELETE /v1/stock-transfers/:id — delete DRAFT request', () => {
+  it('creator can delete a DRAFT request', async () => {
+    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('DRAFT', [fakeItem]));
+    db.stockTransferItem.deleteMany.mockResolvedValue({ count: 1 });
+    db.stockTransferRequest.delete.mockResolvedValue({});
+
+    const res = await request(app)
+      .delete(`/v1/stock-transfers/${REQ_ID}`)
+      .set(AUTH);
+
+    expect(res.status).toBe(204);
+  });
+
+  it('returns 400 when trying to delete a SUBMITTED request', async () => {
+    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('SUBMITTED', [fakeItem]));
+
+    const res = await request(app)
+      .delete(`/v1/stock-transfers/${REQ_ID}`)
+      .set(AUTH);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/Only DRAFT/);
+  });
+
+  it('non-creator cannot delete another user\'s DRAFT → 403', async () => {
+    const otherUsersRequest = { ...makeFakeRequest('DRAFT', [fakeItem]), createdById: 'other-user-id' };
+    db.stockTransferRequest.findUnique.mockResolvedValue(otherUsersRequest);
+
+    const res = await request(app)
+      .delete(`/v1/stock-transfers/${REQ_ID}`)
+      .set(AUTH);
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toMatch(/Only the creator/);
+  });
+
+  it('admin can delete any DRAFT request', async () => {
+    (authService.verifyAccessToken as jest.Mock).mockReturnValue({
+      sub: USER_ID, email: 'admin@example.com', phone: null, isAdmin: true,
+    });
+    const otherUsersRequest = { ...makeFakeRequest('DRAFT', [fakeItem]), createdById: 'other-user-id' };
+    db.stockTransferRequest.findUnique.mockResolvedValue(otherUsersRequest);
+    db.stockTransferItem.deleteMany.mockResolvedValue({ count: 1 });
+    db.stockTransferRequest.delete.mockResolvedValue({});
+
+    const res = await request(app)
+      .delete(`/v1/stock-transfers/${REQ_ID}`)
+      .set(AUTH);
+
+    expect(res.status).toBe(204);
+  });
+});
+
+// ===========================================================================
+// 22. LOCATION AUTHORIZATION — CROSS-WAREHOUSE ACCESS DENIED
 // ===========================================================================
 
 describe('Location authorization — cross-warehouse access denied', () => {
@@ -936,7 +1215,6 @@ describe('Location authorization — cross-warehouse access denied', () => {
   it('operator cannot delete item from request at another warehouse → 403', async () => {
     db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('DRAFT', [fakeItem]));
     db.stockTransferItem.findUnique.mockResolvedValue(fakeItem);
-    // User has NO role at source location
     db.userLocationRole.findFirst.mockResolvedValue(null);
 
     const res = await request(app)
@@ -948,8 +1226,7 @@ describe('Location authorization — cross-warehouse access denied', () => {
   });
 
   it('operator cannot finalize request from another warehouse → 403', async () => {
-    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('APPROVED', [fakeItem]));
-    // User has NO role at source location
+    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('READY_TO_FINALIZE', [fakeItem]));
     db.userLocationRole.findFirst.mockResolvedValue(null);
 
     const res = await request(app)
@@ -965,7 +1242,7 @@ describe('Location authorization — cross-warehouse access denied', () => {
       sub: USER_ID, email: 'admin@example.com', phone: null, isAdmin: true,
     });
     db.stockTransferRequest.findUnique
-      .mockResolvedValueOnce(makeFakeRequest('APPROVED', [fakeItem]))
+      .mockResolvedValueOnce(makeFakeRequest('READY_TO_FINALIZE', [fakeItem]))
       .mockResolvedValueOnce(makeFakeRequest('FINALIZED', [fakeItem]));
     db.$transaction.mockImplementation(async (cb: Function) => await cb(db));
     db.stockBalance.upsert.mockResolvedValue({ id: 'b', onHandQty: '100', reservedQty: '0' });
@@ -984,12 +1261,11 @@ describe('Location authorization — cross-warehouse access denied', () => {
 });
 
 // ===========================================================================
-// 19. SOURCE LOCATION OWNERSHIP — PART 2
+// 23. SOURCE LOCATION OWNERSHIP ON CREATE
 // ===========================================================================
 
 describe('Source location ownership on create', () => {
   it('returns 403 when non-admin user has no role at sourceLocationId', async () => {
-    // User has no role at SRC_LOC_ID
     db.userLocationRole.findFirst.mockResolvedValue(null);
 
     const res = await request(app)
@@ -1014,33 +1290,5 @@ describe('Source location ownership on create', () => {
       .send({ sourceLocationId: SRC_LOC_ID, destinationLocationId: DST_LOC_ID });
 
     expect(res.status).toBe(201);
-  });
-});
-
-// ===========================================================================
-// 20. FINALIZE REQUIRES APPROVED STATUS
-// ===========================================================================
-
-describe('Finalize requires APPROVED status (not DRAFT)', () => {
-  it('returns 400 when trying to finalize a DRAFT request directly', async () => {
-    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('DRAFT', [fakeItem]));
-
-    const res = await request(app)
-      .post(`/v1/stock-transfers/${REQ_ID}/finalize`)
-      .set(AUTH);
-
-    expect(res.status).toBe(400);
-    expect(res.body.error.message).toMatch(/Cannot finalize a request with status DRAFT/);
-  });
-
-  it('returns 400 when trying to finalize a REJECTED request', async () => {
-    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('REJECTED', [fakeItem]));
-
-    const res = await request(app)
-      .post(`/v1/stock-transfers/${REQ_ID}/finalize`)
-      .set(AUTH);
-
-    expect(res.status).toBe(400);
-    expect(res.body.error.message).toMatch(/Cannot finalize a request with status REJECTED/);
   });
 });

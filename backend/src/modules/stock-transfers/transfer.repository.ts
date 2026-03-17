@@ -18,10 +18,20 @@ export type TransferRequestRow = {
   destinationLocationId: string;
   notes: string | null;
   createdById: string;
+  submittedAt: Date | null;
+  originApprovedById: string | null;
+  originApprovedAt: Date | null;
+  destinationApprovedById: string | null;
+  destinationApprovedAt: Date | null;
   finalizedAt: Date | null;
+  cancelledById: string | null;
+  cancelledAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
   createdBy: { id: string; email: string | null; phone: string | null };
+  originApprovedBy: { id: string; email: string | null; phone: string | null } | null;
+  destinationApprovedBy: { id: string; email: string | null; phone: string | null } | null;
+  cancelledBy: { id: string; email: string | null; phone: string | null } | null;
   sourceLocation: { id: string; code: string; name: string };
   destinationLocation: { id: string; code: string; name: string };
   items: TransferItemRow[];
@@ -34,9 +44,12 @@ const ITEM_INCLUDE = {
 };
 
 const REQUEST_INCLUDE = {
-  createdBy:           USER_SELECT,
-  sourceLocation:      { select: { id: true, code: true, name: true } },
-  destinationLocation: { select: { id: true, code: true, name: true } },
+  createdBy:            USER_SELECT,
+  originApprovedBy:     USER_SELECT,
+  destinationApprovedBy: USER_SELECT,
+  cancelledBy:          USER_SELECT,
+  sourceLocation:       { select: { id: true, code: true, name: true } },
+  destinationLocation:  { select: { id: true, code: true, name: true } },
   items: { include: ITEM_INCLUDE, orderBy: { createdAt: 'asc' as const } },
 };
 
@@ -100,6 +113,12 @@ export class TransferRepository {
     }) as Promise<TransferRequestRow>;
   }
 
+  async deleteById(id: string): Promise<void> {
+    // Delete items first (no cascade), then the request
+    await prisma.stockTransferItem.deleteMany({ where: { requestId: id } });
+    await prisma.stockTransferRequest.delete({ where: { id } });
+  }
+
   async addItem(data: {
     requestId: string;
     productId: string;
@@ -136,22 +155,55 @@ export class TransferRepository {
     });
   }
 
-  // Update status (approve, reject, etc.)
-  async updateStatus(id: string, data: {
-    status: TransferRequestStatus;
-  }): Promise<TransferRequestRow> {
-    return prisma.stockTransferRequest.update({
-      where: { id },
-      data,
-      include: REQUEST_INCLUDE,
-    }) as Promise<TransferRequestRow>;
+  // Atomically transition DRAFT → SUBMITTED
+  async claimSubmit(id: string, now: Date): Promise<boolean> {
+    const result = await prisma.stockTransferRequest.updateMany({
+      where: { id, status: TransferRequestStatus.DRAFT },
+      data:  { status: TransferRequestStatus.SUBMITTED, submittedAt: now },
+    });
+    return result.count > 0;
   }
 
-  // C1: Atomically transition APPROVED → FINALIZED; returns true if claim succeeded.
+  // Atomically transition SUBMITTED → ORIGIN_MANAGER_APPROVED
+  async claimOriginApproval(id: string, approvedById: string, now: Date): Promise<boolean> {
+    const result = await prisma.stockTransferRequest.updateMany({
+      where: { id, status: TransferRequestStatus.SUBMITTED },
+      data:  {
+        status:            TransferRequestStatus.ORIGIN_MANAGER_APPROVED,
+        originApprovedById: approvedById,
+        originApprovedAt:   now,
+      },
+    });
+    return result.count > 0;
+  }
+
+  // Atomically transition ORIGIN_MANAGER_APPROVED → READY_TO_FINALIZE
+  async claimDestinationApproval(id: string, approvedById: string, now: Date): Promise<boolean> {
+    const result = await prisma.stockTransferRequest.updateMany({
+      where: { id, status: TransferRequestStatus.ORIGIN_MANAGER_APPROVED },
+      data:  {
+        status:                  TransferRequestStatus.READY_TO_FINALIZE,
+        destinationApprovedById: approvedById,
+        destinationApprovedAt:   now,
+      },
+    });
+    return result.count > 0;
+  }
+
+  // Atomically transition READY_TO_FINALIZE → FINALIZED
   async claimFinalization(id: string, now: Date): Promise<boolean> {
     const result = await prisma.stockTransferRequest.updateMany({
-      where: { id, status: TransferRequestStatus.APPROVED },
+      where: { id, status: TransferRequestStatus.READY_TO_FINALIZE },
       data:  { status: TransferRequestStatus.FINALIZED, finalizedAt: now },
+    });
+    return result.count > 0;
+  }
+
+  // Cancel: any pre-finalized state → CANCELLED (atomic)
+  async claimCancellation(id: string, cancelledById: string, now: Date, allowedStatuses: TransferRequestStatus[]): Promise<boolean> {
+    const result = await prisma.stockTransferRequest.updateMany({
+      where: { id, status: { in: allowedStatuses } },
+      data:  { status: TransferRequestStatus.CANCELLED, cancelledById, cancelledAt: now },
     });
     return result.count > 0;
   }
