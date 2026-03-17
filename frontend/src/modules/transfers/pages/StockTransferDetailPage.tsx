@@ -302,7 +302,7 @@ export default function StockTransferDetailPage() {
   const hasLocationAccess = isAdmin || srcRole !== '' || dstRole !== '';
   const approveRejectVisible = (isSubmitted && isManagerAtSource) || (isOriginApproved && isOperatorAtDestination);
   const canCancel = !isDraft && !isTerminal && !approveRejectVisible && (isAdmin || isCreator || hasLocationAccess);
-  const canDelete = isDraft && (isAdmin || isCreator);
+  const canDelete = isDraft && isCreator;
 
   // Workflow action confirmation config
   const actionConfig: Record<string, { title: string; body: React.ReactNode; label: string; color: 'success' | 'error' | 'warning' | 'primary'; onConfirm: () => void }> = {
