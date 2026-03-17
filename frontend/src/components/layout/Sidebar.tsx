@@ -12,6 +12,7 @@ import BusinessIcon from '@mui/icons-material/Business';
 import ScaleIcon from '@mui/icons-material/Scale';
 import InventoryIcon from '@mui/icons-material/Inventory';
 import WarehouseIcon from '@mui/icons-material/Warehouse';
+import TuneIcon from '@mui/icons-material/Tune';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 
@@ -31,7 +32,8 @@ export default function Sidebar({ open }: SidebarProps) {
       label: 'General',
       items: [
         { label: 'Dashboard', path: '/dashboard', icon: <DashboardIcon /> },
-        { label: 'Stock',     path: '/stock',     icon: <WarehouseIcon /> },
+        { label: 'Stock',              path: '/stock',              icon: <WarehouseIcon /> },
+        { label: 'Stock Adjustments', path: '/stock-adjustments',  icon: <TuneIcon /> },
       ],
     },
     ...(isAdmin ? [{
