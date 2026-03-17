@@ -120,8 +120,8 @@ function LedgerModal({ open, onClose, productId, locationId, productSku, locatio
 export default function StockDashboardPage() {
   // Filters
   const [filterLocationId, setFilterLocationId] = useState('');
-  const [filterStartDate,  setFilterStartDate]  = useState('');
-  const [filterEndDate,    setFilterEndDate]     = useState('');
+  const [startDate, setStartDate] = useState<string | null>(null);
+  const [endDate,   setEndDate]   = useState<string | null>(null);
   const [page, setPage]  = useState(0);
   const [limit]          = useState(20);
 
@@ -163,24 +163,18 @@ export default function StockDashboardPage() {
 
   function applyFilters() {
     setPage(0);
-    let endDateIso: string | undefined;
-    if (filterEndDate) {
-      const d = new Date(filterEndDate);
-      d.setHours(23, 59, 59, 999);
-      endDateIso = d.toISOString();
-    }
     setAppliedFilters({
       locationId: filterLocationId || undefined,
-      startDate:  filterStartDate ? new Date(filterStartDate).toISOString() : undefined,
-      endDate:    endDateIso,
+      startDate:  startDate ?? undefined,
+      endDate:    endDate   ?? undefined,
     });
     setApplyVersion((v) => v + 1);
   }
 
   function clearFilters() {
     setFilterLocationId('');
-    setFilterStartDate('');
-    setFilterEndDate('');
+    setStartDate(null);
+    setEndDate(null);
     setPage(0);
     setAppliedFilters({});
   }
@@ -219,19 +213,19 @@ export default function StockDashboardPage() {
 
           <TextField
             label="Period Start"
-            type="datetime-local"
+            type="date"
             size="small"
             InputLabelProps={{ shrink: true }}
-            value={filterStartDate}
-            onChange={(e) => setFilterStartDate(e.target.value)}
+            value={startDate ?? ''}
+            onChange={(e) => setStartDate(e.target.value || null)}
           />
           <TextField
             label="Period End"
-            type="datetime-local"
+            type="date"
             size="small"
             InputLabelProps={{ shrink: true }}
-            value={filterEndDate}
-            onChange={(e) => setFilterEndDate(e.target.value)}
+            value={endDate ?? ''}
+            onChange={(e) => setEndDate(e.target.value || null)}
           />
           <Button variant="contained" startIcon={<FilterListIcon />} onClick={applyFilters}>
             Apply
