@@ -85,14 +85,15 @@ export class StockService {
       balances.map(async (b: any) => {
         const onHand     = Number(b.onHandQty);
         const reserved   = Number(b.reservedQty);
-        const available  = Math.max(0, onHand - reserved);
 
         // Compute period sums from ledger
-        let startingQty  = 0;
-        let inboundQty   = 0;
-        let outboundQty  = 0;
+        let startingQty = 0;
+        let inboundQty  = 0;
+        let outboundQty = 0;
 
-        if (startDate || endDate) {
+        const periodActive = startDate != null || endDate != null;
+
+        if (periodActive) {
           const sums = await stockLedgerRepository.sumBySourceType({
             locationId: b.locationId,
             productId:  b.productId,
@@ -101,11 +102,18 @@ export class StockService {
           });
 
           for (const s of sums) {
-            if (s.sourceType === LedgerSourceType.ADJUSTMENT || s.sourceType === LedgerSourceType.MOVEMENT_IN || s.sourceType === LedgerSourceType.SEED) {
-              if (s.total > 0) inboundQty  += s.total;
-              else             outboundQty -= s.total;
-            } else if (s.sourceType === LedgerSourceType.MOVEMENT_OUT) {
-              outboundQty += Math.abs(s.total);
+            switch (s.sourceType) {
+              case LedgerSourceType.SEED:
+              case LedgerSourceType.ADJUSTMENT:
+              case LedgerSourceType.MOVEMENT_IN:
+              case LedgerSourceType.TRANSFER_IN:
+                if (s.total > 0) inboundQty  += s.total;
+                else             outboundQty -= s.total;
+                break;
+              case LedgerSourceType.MOVEMENT_OUT:
+              case LedgerSourceType.TRANSFER_OUT:
+                outboundQty += Math.abs(s.total);
+                break;
             }
           }
 
@@ -116,18 +124,19 @@ export class StockService {
               startDate,
             );
           }
-        } else {
-          // No period filter — return current state
-          startingQty = onHand;
-          inboundQty  = 0;
-          outboundQty = 0;
         }
 
-        // Use computed period metrics whenever any date filter is active;
-        // fall back to current onHand only when no period is specified.
-        const finalQty = (startDate || endDate)
+        // When a period filter is active, derive finalQty purely from ledger math
+        // so results reflect stock state as of endDate, not current state.
+        // Without a filter, return current onHand (no historical context requested).
+        const finalQty = periodActive
           ? startingQty + inboundQty - outboundQty
           : onHand;
+
+        // onHandQty and availableQty reflect the historical balance when a period
+        // filter is in use; otherwise they show current stock balance state.
+        const displayOnHand    = periodActive ? finalQty : onHand;
+        const displayAvailable = periodActive ? Math.max(0, finalQty) : Math.max(0, onHand - reserved);
 
         return {
           productId:      b.productId,
@@ -137,14 +146,14 @@ export class StockService {
           locationId:     b.locationId,
           locationCode:   b.location.code,
           locationName:   b.location.name,
-          onHandQty:      onHand,
+          onHandQty:      displayOnHand,
           reservedQty:    reserved,
-          availableQty:   available,
+          availableQty:   displayAvailable,
           startingQty,
           inboundQty,
           outboundQty,
           finalQty,
-          pendingInbound:  0, // populated by adjustment/movement services in later stages
+          pendingInbound:  0,
           pendingOutbound: reserved,
         };
       }),
