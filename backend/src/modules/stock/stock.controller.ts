@@ -6,6 +6,14 @@ import { ValidationError } from '../../utils/errors';
 
 import prisma from '../../config/database';
 
+// Accepts YYYY-MM-DD or full ISO; always returns UTC start-of-day / end-of-day.
+function parseStartDate(s: string): Date {
+  return s.includes('T') ? new Date(s) : new Date(s + 'T00:00:00.000Z');
+}
+function parseEndDate(s: string): Date {
+  return s.includes('T') ? new Date(s) : new Date(s + 'T23:59:59.999Z');
+}
+
 export class StockController {
   async getVisibleLocations(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
@@ -55,19 +63,13 @@ export class StockController {
 
       const { locationId, page, limit, startDate, endDate } = parsed.data;
 
-      let parsedEndDate: Date | undefined;
-      if (endDate) {
-        parsedEndDate = new Date(endDate);
-        parsedEndDate.setHours(23, 59, 59, 999);
-      }
-
       const { data, total } = await stockService.getStockOverview(
         {
           locationId,
           page,
           limit,
-          startDate: startDate ? new Date(startDate) : undefined,
-          endDate:   parsedEndDate,
+          startDate: startDate ? parseStartDate(startDate) : undefined,
+          endDate:   endDate   ? parseEndDate(endDate)     : undefined,
         },
         req.user.id,
         req.user.isAdmin,
@@ -93,18 +95,12 @@ export class StockController {
 
       const { productId, locationId, startDate, endDate, page, limit } = parsed.data;
 
-      let parsedLedgerEndDate: Date | undefined;
-      if (endDate) {
-        parsedLedgerEndDate = new Date(endDate);
-        parsedLedgerEndDate.setHours(23, 59, 59, 999);
-      }
-
       const { data, total } = await stockService.getLedger(
         {
           productId,
           locationId,
-          startDate: startDate ? new Date(startDate) : undefined,
-          endDate:   parsedLedgerEndDate,
+          startDate: startDate ? parseStartDate(startDate) : undefined,
+          endDate:   endDate   ? parseEndDate(endDate)     : undefined,
           page,
           limit,
         },
