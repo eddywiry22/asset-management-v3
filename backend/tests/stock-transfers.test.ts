@@ -655,7 +655,29 @@ describe('Cannot finalize twice', () => {
 });
 
 // ===========================================================================
-// 12. CONCURRENCY FINALIZE PROTECTION
+// 12. CANNOT FINALIZE WHEN SOURCE AND DESTINATION ARE THE SAME
+// ===========================================================================
+
+describe('Cannot finalize when source and destination locations are identical', () => {
+  it('returns 400 when sourceLocationId === destinationLocationId', async () => {
+    const sameLocId = SRC_LOC_ID;
+    db.stockTransferRequest.findUnique.mockResolvedValue({
+      ...makeFakeRequest('DRAFT', [fakeItem]),
+      sourceLocationId:      sameLocId,
+      destinationLocationId: sameLocId,
+    });
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/finalize`)
+      .set(AUTH);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/Source and destination locations must be different/);
+  });
+});
+
+// ===========================================================================
+// 13. CONCURRENCY FINALIZE PROTECTION
 // ===========================================================================
 
 describe('Concurrency — finalize protection', () => {
@@ -673,7 +695,7 @@ describe('Concurrency — finalize protection', () => {
 });
 
 // ===========================================================================
-// 13. CANNOT ADD/EDIT/DELETE ITEMS ON FINALIZED REQUEST
+// 14. CANNOT ADD/EDIT/DELETE ITEMS ON FINALIZED REQUEST
 // ===========================================================================
 
 describe('Cannot modify items after finalization', () => {
@@ -714,7 +736,7 @@ describe('Cannot modify items after finalization', () => {
 });
 
 // ===========================================================================
-// 14. QTY VALIDATION
+// 15. QTY VALIDATION
 // ===========================================================================
 
 describe('Qty validation', () => {

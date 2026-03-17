@@ -1,6 +1,6 @@
 import prisma from '../config/database';
 
-export type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE' | 'STATUS_CHANGE';
+export type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE' | 'STATUS_CHANGE' | 'TRANSFER_CREATE';
 export type AuditEntityType = 'CATEGORY' | 'VENDOR' | 'UOM' | 'GOODS' | 'PRODUCT' | 'STOCK_ADJUSTMENT_REQUEST' | 'STOCK_TRANSFER_REQUEST';
 
 export interface CreateAuditLogInput {

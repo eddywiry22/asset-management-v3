@@ -65,13 +65,27 @@ export class TransferService {
     for (let attempt = 0; attempt < 5; attempt++) {
       const requestNumber = await this.generateRequestNumber();
       try {
-        return await transferRepository.create({
+        const request = await transferRepository.create({
           requestNumber,
           sourceLocationId:      dto.sourceLocationId,
           destinationLocationId: dto.destinationLocationId,
           createdById:           userId,
           notes:                 dto.notes,
         });
+
+        void auditService.log({
+          entityType:  'STOCK_TRANSFER_REQUEST',
+          entityId:    request.id,
+          action:      'TRANSFER_CREATE',
+          performedBy: userId,
+          afterValue: {
+            status:                'DRAFT',
+            sourceLocationId:      request.sourceLocationId,
+            destinationLocationId: request.destinationLocationId,
+          },
+        });
+
+        return request;
       } catch (err: any) {
         if (err?.code === 'P2002' && attempt < 4) continue; // unique collision — retry
         throw err;

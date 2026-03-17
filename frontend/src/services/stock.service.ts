@@ -25,7 +25,7 @@ export type StockLedgerEntry = {
   locationId: string;
   changeQty: number;
   balanceAfter: number;
-  sourceType: 'ADJUSTMENT' | 'MOVEMENT_IN' | 'MOVEMENT_OUT' | 'SEED';
+  sourceType: 'ADJUSTMENT' | 'MOVEMENT_IN' | 'MOVEMENT_OUT' | 'SEED' | 'TRANSFER_IN' | 'TRANSFER_OUT';
   sourceId: string;
   createdAt: string;
   product: { id: string; sku: string; name: string };
@@ -60,7 +60,7 @@ export type VisibleLocation = { id: string; code: string; name: string };
 const stockService = {
   async getVisibleLocations(): Promise<VisibleLocation[]> {
     const res = await apiClient.get<{ success: boolean; data: VisibleLocation[] }>(
-      '/v1/stock/locations',
+      'stock/locations',
     );
     return res.data.data;
   },
@@ -73,7 +73,7 @@ const stockService = {
     if (params.startDate)  query.set('startDate',  params.startDate);
     if (params.endDate)    query.set('endDate',    params.endDate);
     const res = await apiClient.get<PaginatedResponse<StockOverviewItem>>(
-      `/v1/stock?${query.toString()}`,
+      `stock?${query.toString()}`,
     );
     return res.data;
   },
@@ -87,7 +87,7 @@ const stockService = {
     if (params.startDate)  query.set('startDate',  params.startDate);
     if (params.endDate)    query.set('endDate',    params.endDate);
     const res = await apiClient.get<PaginatedResponse<StockLedgerEntry>>(
-      `/v1/stock/ledger?${query.toString()}`,
+      `stock/ledger?${query.toString()}`,
     );
     return res.data;
   },

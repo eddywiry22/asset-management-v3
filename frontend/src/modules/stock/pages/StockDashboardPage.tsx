@@ -20,10 +20,12 @@ function fmtQty(n: number): string {
 
 function sourceTypeChip(t: StockLedgerEntry['sourceType']) {
   const map: Record<string, { label: string; color: 'success' | 'info' | 'error' | 'default' }> = {
-    SEED:         { label: 'Seed',       color: 'default'  },
-    ADJUSTMENT:   { label: 'Adjustment', color: 'info'     },
-    MOVEMENT_IN:  { label: 'In',         color: 'success'  },
-    MOVEMENT_OUT: { label: 'Out',        color: 'error'    },
+    SEED:         { label: 'Seed',        color: 'default'  },
+    ADJUSTMENT:   { label: 'Adjustment',  color: 'info'     },
+    MOVEMENT_IN:  { label: 'In',          color: 'success'  },
+    MOVEMENT_OUT: { label: 'Out',         color: 'error'    },
+    TRANSFER_IN:  { label: 'Transfer In', color: 'success'  },
+    TRANSFER_OUT: { label: 'Transfer Out', color: 'error'   },
   };
   const cfg = map[t] ?? { label: t, color: 'default' };
   return <Chip label={cfg.label} color={cfg.color} size="small" />;
