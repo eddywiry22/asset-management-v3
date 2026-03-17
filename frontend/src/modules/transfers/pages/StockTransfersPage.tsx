@@ -9,23 +9,26 @@ import AddIcon from '@mui/icons-material/Add';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import stockAdjustmentsService, {
-  AdjustmentRequest,
-  AdjustmentRequestStatus,
-} from '../../../services/stockAdjustments.service';
+import stockTransfersService, {
+  TransferRequest,
+  TransferRequestStatus,
+  CreateTransferPayload,
+} from '../../../services/stockTransfers.service';
 import stockService from '../../../services/stock.service';
 import { useAuth } from '../../../context/AuthContext';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-const STATUS_COLORS: Record<AdjustmentRequestStatus, 'default' | 'warning' | 'info' | 'success' | 'error'> = {
-  DRAFT:     'default',
-  SUBMITTED: 'warning',
-  APPROVED:  'info',
-  REJECTED:  'error',
-  FINALIZED: 'success',
-  CANCELLED: 'error',
+const STATUS_COLORS: Record<TransferRequestStatus, 'default' | 'success' | 'warning' | 'error' | 'info'> = {
+  DRAFT:                        'default',
+  SUBMITTED:                    'info',
+  ORIGIN_MANAGER_APPROVED:      'warning',
+  DESTINATION_OPERATOR_APPROVED: 'warning',
+  READY_TO_FINALIZE:            'warning',
+  FINALIZED:                    'success',
+  CANCELLED:                    'error',
+  REJECTED:                     'error',
 };
 
 function fmtDate(d: string | null | undefined): string {
@@ -35,39 +38,99 @@ function fmtDate(d: string | null | undefined): string {
 
 function userLabel(u: { email: string | null; phone: string | null } | null | undefined): string {
   if (!u) return '—';
-  return u.email ?? u.phone ?? u.email ?? '(unknown)';
+  return u.email ?? u.phone ?? '(unknown)';
 }
 
+type SimpleLocation = { id: string; code: string; name: string };
+
 // ---------------------------------------------------------------------------
-// Create Request Dialog
+// Create Transfer Dialog
 // ---------------------------------------------------------------------------
-function CreateRequestDialog({
+function CreateTransferDialog({
   open,
   onClose,
   onCreate,
 }: {
   open: boolean;
   onClose: () => void;
-  onCreate: (notes: string) => void;
+  onCreate: (payload: CreateTransferPayload) => void;
 }) {
+  const [sourceLocationId,      setSourceLocationId]      = useState('');
+  const [destinationLocationId, setDestinationLocationId] = useState('');
   const [notes, setNotes] = useState('');
+
+  // Source: only locations the user has access to
+  const { data: sourceLocationsRes } = useQuery({
+    queryKey: ['locations-mine'],
+    queryFn:  () => stockService.getVisibleLocations(),
+    enabled:  open,
+  });
+  const sourceLocations: SimpleLocation[] = sourceLocationsRes ?? [];
+
+  // Destination: all active locations (any warehouse can receive)
+  const { data: allLocationsRes } = useQuery({
+    queryKey: ['locations-all'],
+    queryFn:  () => stockService.getAllLocations(),
+    enabled:  open,
+  });
+  const allLocations: SimpleLocation[] = allLocationsRes ?? [];
+
+  const handleCreate = () => {
+    if (!sourceLocationId || !destinationLocationId) return;
+    onCreate({ sourceLocationId, destinationLocationId, notes: notes || undefined });
+    setSourceLocationId('');
+    setDestinationLocationId('');
+    setNotes('');
+  };
+
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>New Adjustment Request</DialogTitle>
+      <DialogTitle>New Stock Transfer</DialogTitle>
       <DialogContent>
-        <TextField
-          label="Notes (optional)"
-          fullWidth
-          multiline
-          rows={3}
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          sx={{ mt: 1 }}
-        />
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+          <FormControl fullWidth size="small">
+            <InputLabel>Source Location</InputLabel>
+            <Select
+              label="Source Location"
+              value={sourceLocationId}
+              onChange={(e) => setSourceLocationId(e.target.value)}
+            >
+              {sourceLocations.map((l: SimpleLocation) => (
+                <MenuItem key={l.id} value={l.id}>{l.code} — {l.name}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <FormControl fullWidth size="small">
+            <InputLabel>Destination Location</InputLabel>
+            <Select
+              label="Destination Location"
+              value={destinationLocationId}
+              onChange={(e) => setDestinationLocationId(e.target.value)}
+            >
+              {allLocations
+                .filter((l) => l.id !== sourceLocationId)
+                .map((l: SimpleLocation) => (
+                  <MenuItem key={l.id} value={l.id}>{l.code} — {l.name}</MenuItem>
+                ))}
+            </Select>
+          </FormControl>
+          <TextField
+            label="Notes (optional)"
+            fullWidth
+            multiline
+            rows={2}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
+        </Box>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" onClick={() => { onCreate(notes); setNotes(''); }}>
+        <Button
+          variant="contained"
+          disabled={!sourceLocationId || !destinationLocationId || sourceLocationId === destinationLocationId}
+          onClick={handleCreate}
+        >
           Create
         </Button>
       </DialogActions>
@@ -78,31 +141,31 @@ function CreateRequestDialog({
 // ---------------------------------------------------------------------------
 // Main Page
 // ---------------------------------------------------------------------------
-export default function StockAdjustmentsPage() {
-  const navigate     = useNavigate();
-  const queryClient  = useQueryClient();
-  const { isAdmin }  = useAuth();
+export default function StockTransfersPage() {
+  const navigate    = useNavigate();
+  const queryClient = useQueryClient();
+  const { isAdmin } = useAuth();
 
-  const [page, setPage]             = useState(0);
+  const [page, setPage]               = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(20);
-  const [statusFilter, setStatusFilter] = useState<AdjustmentRequestStatus | ''>('');
-  const [startDate, setStartDate]   = useState('');
-  const [endDate, setEndDate]       = useState('');
+  const [statusFilter, setStatusFilter] = useState<TransferRequestStatus | ''>('');
+  const [startDate, setStartDate]     = useState('');
+  const [endDate, setEndDate]         = useState('');
   const [locationFilter, setLocationFilter] = useState('');
-  const [appliedFilters, setAppliedFilters] = useState({ status: '' as AdjustmentRequestStatus | '', startDate: '', endDate: '', locationId: '' });
-  const [createOpen, setCreateOpen] = useState(false);
-  const [snack, setSnack]           = useState<{ msg: string; severity: 'success' | 'error' } | null>(null);
+  const [appliedFilters, setAppliedFilters] = useState({ status: '' as TransferRequestStatus | '', startDate: '', endDate: '', locationId: '' });
+  const [createOpen, setCreateOpen]   = useState(false);
+  const [snack, setSnack]             = useState<{ msg: string; severity: 'success' | 'error' } | null>(null);
 
   const { data: allLocationsRes } = useQuery({
     queryKey: ['locations-all'],
     queryFn:  () => stockService.getAllLocations(),
     enabled:  isAdmin,
   });
-  const allLocations: { id: string; code: string; name: string }[] = allLocationsRes ?? [];
+  const allLocations: SimpleLocation[] = allLocationsRes ?? [];
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['stock-adjustments', appliedFilters, page, rowsPerPage],
-    queryFn:  () => stockAdjustmentsService.getAll({
+    queryKey: ['stock-transfers', appliedFilters, page, rowsPerPage],
+    queryFn:  () => stockTransfersService.getAll({
       ...(appliedFilters.status     ? { status:     appliedFilters.status     } : {}),
       ...(appliedFilters.startDate  ? { startDate:  appliedFilters.startDate  } : {}),
       ...(appliedFilters.endDate    ? { endDate:    appliedFilters.endDate    } : {}),
@@ -113,25 +176,26 @@ export default function StockAdjustmentsPage() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (notes: string) => stockAdjustmentsService.create({ notes: notes || undefined }),
+    mutationFn: (payload: CreateTransferPayload) => stockTransfersService.create(payload),
     onSuccess: (res) => {
-      queryClient.invalidateQueries({ queryKey: ['stock-adjustments'] });
+      queryClient.invalidateQueries({ queryKey: ['stock-transfers'] });
       setCreateOpen(false);
       setSnack({ msg: `Created ${res.data.requestNumber}`, severity: 'success' });
-      navigate(`/stock-adjustments/${res.data.id}`);
+      navigate(`/stock-transfers/${res.data.id}`);
     },
-    onError: () => setSnack({ msg: 'Failed to create request', severity: 'error' }),
+    onError: (e: any) =>
+      setSnack({ msg: e?.response?.data?.error?.message ?? 'Failed to create transfer', severity: 'error' }),
   });
 
-  const rows   = data?.data  ?? [];
-  const total  = data?.meta?.total ?? 0;
+  const rows  = data?.data  ?? [];
+  const total = data?.meta?.total ?? 0;
 
   return (
     <Box>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Typography variant="h5" fontWeight={600}>Stock Adjustment Requests</Typography>
+        <Typography variant="h5" fontWeight={600}>Stock Transfers</Typography>
         <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreateOpen(true)}>
-          New Request
+          New Transfer
         </Button>
       </Box>
 
@@ -143,11 +207,11 @@ export default function StockAdjustmentsPage() {
             <Select
               label="Status"
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as AdjustmentRequestStatus | '')}
+              onChange={(e) => setStatusFilter(e.target.value as TransferRequestStatus | '')}
             >
               <MenuItem value="">All</MenuItem>
-              {(['DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED', 'FINALIZED', 'CANCELLED'] as AdjustmentRequestStatus[]).map((s) => (
-                <MenuItem key={s} value={s}>{s}</MenuItem>
+              {(['DRAFT', 'SUBMITTED', 'ORIGIN_MANAGER_APPROVED', 'DESTINATION_OPERATOR_APPROVED', 'READY_TO_FINALIZE', 'FINALIZED', 'CANCELLED', 'REJECTED'] as TransferRequestStatus[]).map((s) => (
+                <MenuItem key={s} value={s}>{s.replace(/_/g, ' ')}</MenuItem>
               ))}
             </Select>
           </FormControl>
@@ -204,7 +268,7 @@ export default function StockAdjustmentsPage() {
 
       {/* Table */}
       {isLoading && <CircularProgress />}
-      {error    && <Alert severity="error">Failed to load requests</Alert>}
+      {error    && <Alert severity="error">Failed to load transfers</Alert>}
       {!isLoading && !error && (
         <Paper>
           <TableContainer>
@@ -212,36 +276,36 @@ export default function StockAdjustmentsPage() {
               <TableHead>
                 <TableRow>
                   <TableCell>Request #</TableCell>
+                  <TableCell>Source</TableCell>
+                  <TableCell>Destination</TableCell>
                   <TableCell>Status</TableCell>
                   <TableCell>Created By</TableCell>
                   <TableCell>Created At</TableCell>
-                  <TableCell>Approved At</TableCell>
                   <TableCell>Finalized At</TableCell>
-                  <TableCell align="center">Items</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {rows.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} align="center">No requests found.</TableCell>
+                    <TableCell colSpan={7} align="center">No transfers found.</TableCell>
                   </TableRow>
                 )}
-                {rows.map((r: AdjustmentRequest) => (
+                {rows.map((r: TransferRequest) => (
                   <TableRow
                     key={r.id}
                     hover
                     sx={{ cursor: 'pointer' }}
-                    onClick={() => navigate(`/stock-adjustments/${r.id}`)}
+                    onClick={() => navigate(`/stock-transfers/${r.id}`)}
                   >
                     <TableCell sx={{ fontWeight: 600 }}>{r.requestNumber}</TableCell>
+                    <TableCell>{r.sourceLocation?.code} — {r.sourceLocation?.name}</TableCell>
+                    <TableCell>{r.destinationLocation?.code} — {r.destinationLocation?.name}</TableCell>
                     <TableCell>
-                      <Chip label={r.status} color={STATUS_COLORS[r.status]} size="small" />
+                      <Chip label={r.status.replace(/_/g, ' ')} color={STATUS_COLORS[r.status] as any} size="small" />
                     </TableCell>
                     <TableCell>{userLabel(r.createdBy)}</TableCell>
                     <TableCell>{fmtDate(r.createdAt)}</TableCell>
-                    <TableCell>{fmtDate(r.approvedAt)}</TableCell>
                     <TableCell>{fmtDate(r.finalizedAt)}</TableCell>
-                    <TableCell align="center">{r.items?.length ?? 0}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -260,10 +324,10 @@ export default function StockAdjustmentsPage() {
       )}
 
       {/* Create dialog */}
-      <CreateRequestDialog
+      <CreateTransferDialog
         open={createOpen}
         onClose={() => setCreateOpen(false)}
-        onCreate={(notes) => createMutation.mutate(notes)}
+        onCreate={(payload) => createMutation.mutate(payload)}
       />
 
       <Snackbar

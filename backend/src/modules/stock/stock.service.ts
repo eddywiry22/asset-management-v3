@@ -123,7 +123,9 @@ export class StockService {
           outboundQty = 0;
         }
 
-        const finalQty = startDate
+        // Use computed period metrics whenever any date filter is active;
+        // fall back to current onHand only when no period is specified.
+        const finalQty = (startDate || endDate)
           ? startingQty + inboundQty - outboundQty
           : onHand;
 
@@ -298,6 +300,63 @@ export class StockService {
         changeQty:    qty,
         balanceAfter: Number(updated.onHandQty),
         sourceType:   LedgerSourceType.MOVEMENT_IN,
+        sourceId,
+      });
+    });
+  }
+
+  /**
+   * Move stock between two locations (called by transfer finalizer — Stage 6).
+   * Records TRANSFER_OUT at source and TRANSFER_IN at destination.
+   */
+  async moveStock(params: {
+    productId: string;
+    sourceLocationId: string;
+    destinationLocationId: string;
+    qty: number;
+    sourceId: string;
+  }): Promise<void> {
+    const { productId, sourceLocationId, destinationLocationId, qty, sourceId } = params;
+
+    // Decrease stock at source (TRANSFER_OUT)
+    await prisma.$transaction(async (tx) => {
+      await stockBalanceRepository.upsertZero(tx as any, productId, sourceLocationId);
+
+      const locked    = await this.lockBalanceRow(tx as any, productId, sourceLocationId);
+      const available = Number(locked.onHandQty) - Number(locked.reservedQty);
+
+      if (available < qty) {
+        throw new ValidationError(
+          `Insufficient available stock at source. Available: ${available}, required: ${qty}`,
+        );
+      }
+
+      const updated = await stockBalanceRepository.decrement(tx as any, productId, sourceLocationId, qty);
+
+      await stockLedgerRepository.create(tx as any, {
+        productId,
+        locationId:   sourceLocationId,
+        changeQty:    -qty,
+        balanceAfter: Number(updated.onHandQty),
+        sourceType:   LedgerSourceType.TRANSFER_OUT,
+        sourceId,
+      });
+    });
+
+    // Increase stock at destination (TRANSFER_IN)
+    await prisma.$transaction(async (tx) => {
+      await stockBalanceRepository.upsertZero(tx as any, productId, destinationLocationId);
+
+      await this.lockBalanceRow(tx as any, productId, destinationLocationId);
+
+      const updated = await stockBalanceRepository.increment(tx as any, productId, destinationLocationId, qty);
+
+      await stockLedgerRepository.create(tx as any, {
+        productId,
+        locationId:   destinationLocationId,
+        changeQty:    qty,
+        balanceAfter: Number(updated.onHandQty),
+        sourceType:   LedgerSourceType.TRANSFER_IN,
         sourceId,
       });
     });

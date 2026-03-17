@@ -20,10 +20,12 @@ function fmtQty(n: number): string {
 
 function sourceTypeChip(t: StockLedgerEntry['sourceType']) {
   const map: Record<string, { label: string; color: 'success' | 'info' | 'error' | 'default' }> = {
-    SEED:         { label: 'Seed',       color: 'default'  },
-    ADJUSTMENT:   { label: 'Adjustment', color: 'info'     },
-    MOVEMENT_IN:  { label: 'In',         color: 'success'  },
-    MOVEMENT_OUT: { label: 'Out',        color: 'error'    },
+    SEED:         { label: 'Seed',        color: 'default'  },
+    ADJUSTMENT:   { label: 'Adjustment',  color: 'info'     },
+    MOVEMENT_IN:  { label: 'In',          color: 'success'  },
+    MOVEMENT_OUT: { label: 'Out',         color: 'error'    },
+    TRANSFER_IN:  { label: 'Transfer In', color: 'success'  },
+    TRANSFER_OUT: { label: 'Transfer Out', color: 'error'   },
   };
   const cfg = map[t] ?? { label: t, color: 'default' };
   return <Chip label={cfg.label} color={cfg.color} size="small" />;
@@ -144,7 +146,14 @@ export default function StockDashboardPage() {
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['stock-overview', appliedFilters, page, limit],
-    queryFn:  () => stockService.getStockOverview({ ...appliedFilters, page: page + 1, limit }),
+    queryFn:  () => {
+      const { locationId, startDate, endDate } = appliedFilters;
+      console.log('[StockDashboard] fetch', { startDate, endDate, locationId });
+      return stockService.getStockOverview({ ...appliedFilters, page: page + 1, limit });
+    },
+    // staleTime: 0 ensures a fresh fetch every time the queryKey changes (e.g. new date filter)
+    // regardless of the global 30 s default set in App.tsx
+    staleTime: 0,
   });
 
   const rows  = data?.data ?? [];
@@ -152,10 +161,16 @@ export default function StockDashboardPage() {
 
   function applyFilters() {
     setPage(0);
+    let endDateIso: string | undefined;
+    if (filterEndDate) {
+      const d = new Date(filterEndDate);
+      d.setHours(23, 59, 59, 999);
+      endDateIso = d.toISOString();
+    }
     setAppliedFilters({
       locationId: filterLocationId || undefined,
       startDate:  filterStartDate ? new Date(filterStartDate).toISOString() : undefined,
-      endDate:    filterEndDate   ? new Date(filterEndDate).toISOString()   : undefined,
+      endDate:    endDateIso,
     });
   }
 

@@ -25,6 +25,13 @@ model User {
   adjustmentsCreated    StockAdjustmentRequest[] @relation("AdjustmentCreatedBy")
   adjustmentsApproved   StockAdjustmentRequest[] @relation("AdjustmentApprovedBy")
   adjustmentsFinalized  StockAdjustmentRequest[] @relation("AdjustmentFinalizedBy")
+  adjustmentsCancelled  StockAdjustmentRequest[] @relation("AdjustmentCancelledBy")
+  adjustmentsRejected   StockAdjustmentRequest[] @relation("AdjustmentRejectedBy")
+  transfersCreated              StockTransferRequest[] @relation("TransferCreatedBy")
+  transfersOriginApproved       StockTransferRequest[] @relation("TransferOriginApprovedBy")
+  transfersDestinationApproved  StockTransferRequest[] @relation("TransferDestinationApprovedBy")
+  transfersCancelled            StockTransferRequest[] @relation("TransferCancelledBy")
+  transfersRejected             StockTransferRequest[] @relation("TransferRejectedBy")
 }
 
 model Location {
@@ -36,10 +43,12 @@ model Location {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  userRoles       UserLocationRole[]
-  stockBalances   StockBalance[]
-  stockLedgers    StockLedger[]
-  adjustmentItems StockAdjustmentItem[]
+  userRoles              UserLocationRole[]
+  stockBalances          StockBalance[]
+  stockLedgers           StockLedger[]
+  adjustmentItems        StockAdjustmentItem[]
+  transfersAsSource      StockTransferRequest[] @relation("TransferSourceLocation")
+  transfersAsDestination StockTransferRequest[] @relation("TransferDestinationLocation")
 }
 
 model UserLocationRole {
@@ -105,6 +114,7 @@ model Product {
   stockBalances    StockBalance[]
   stockLedgers     StockLedger[]
   adjustmentItems  StockAdjustmentItem[]
+  transferItems    StockTransferItem[]
 }
 
 // ---------------------------------------------------------------------------
@@ -148,6 +158,8 @@ enum LedgerSourceType {
   MOVEMENT_IN
   MOVEMENT_OUT
   SEED
+  TRANSFER_IN
+  TRANSFER_OUT
 }
 
 // ---------------------------------------------------------------------------
@@ -160,24 +172,33 @@ enum AdjustmentRequestStatus {
   APPROVED
   REJECTED
   FINALIZED
+  CANCELLED
 }
 
 model StockAdjustmentRequest {
   id            String                   @id @default(uuid())
   requestNumber String                   @unique
   status        AdjustmentRequestStatus  @default(DRAFT)
-  notes         String?  @db.Text
-  createdById   String
-  approvedById  String?
-  finalizedById String?
-  approvedAt    DateTime?
-  finalizedAt   DateTime?
-  createdAt     DateTime                 @default(now())
-  updatedAt     DateTime                 @updatedAt
+  notes              String?  @db.Text
+  createdById        String
+  approvedById       String?
+  finalizedById      String?
+  cancelledById      String?
+  rejectedById       String?
+  approvedAt         DateTime?
+  finalizedAt        DateTime?
+  cancelledAt        DateTime?
+  rejectedAt         DateTime?
+  rejectionReason    String?  @db.Text
+  cancellationReason String?  @db.Text
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
 
   createdBy   User                   @relation("AdjustmentCreatedBy",   fields: [createdById],   references: [id])
   approvedBy  User?                  @relation("AdjustmentApprovedBy",  fields: [approvedById],  references: [id])
   finalizedBy User?                  @relation("AdjustmentFinalizedBy", fields: [finalizedById], references: [id])
+  cancelledBy User?                  @relation("AdjustmentCancelledBy", fields: [cancelledById], references: [id])
+  rejectedBy  User?                  @relation("AdjustmentRejectedBy",  fields: [rejectedById],  references: [id])
   items       StockAdjustmentItem[]
 
   @@index([status])
@@ -211,4 +232,70 @@ model AuditLog {
   timestamp   DateTime @default(now())
 
   user User @relation(fields: [performedBy], references: [id])
+}
+
+// ---------------------------------------------------------------------------
+// Stage 6: Stock Transfer Requests
+// ---------------------------------------------------------------------------
+
+enum TransferRequestStatus {
+  DRAFT
+  SUBMITTED
+  ORIGIN_MANAGER_APPROVED
+  DESTINATION_OPERATOR_APPROVED
+  READY_TO_FINALIZE
+  FINALIZED
+  CANCELLED
+  REJECTED
+}
+
+model StockTransferRequest {
+  id                      String                @id @default(uuid())
+  requestNumber           String                @unique
+  status                  TransferRequestStatus @default(DRAFT)
+  sourceLocationId        String
+  destinationLocationId   String
+  notes                   String?               @db.Text
+  createdById             String
+  submittedAt             DateTime?
+  originApprovedById      String?
+  originApprovedAt        DateTime?
+  destinationApprovedById String?
+  destinationApprovedAt   DateTime?
+  finalizedAt             DateTime?
+  cancelledById           String?
+  cancelledAt             DateTime?
+  cancellationReason      String?               @db.Text
+  rejectedById            String?
+  rejectedAt              DateTime?
+  rejectionReason         String?               @db.Text
+  createdAt               DateTime              @default(now())
+  updatedAt               DateTime              @updatedAt
+
+  createdBy             User                @relation("TransferCreatedBy",             fields: [createdById],             references: [id])
+  originApprovedBy      User?               @relation("TransferOriginApprovedBy",      fields: [originApprovedById],      references: [id])
+  destinationApprovedBy User?               @relation("TransferDestinationApprovedBy", fields: [destinationApprovedById], references: [id])
+  cancelledBy           User?               @relation("TransferCancelledBy",           fields: [cancelledById],           references: [id])
+  rejectedBy            User?               @relation("TransferRejectedBy",            fields: [rejectedById],            references: [id])
+  sourceLocation        Location            @relation("TransferSourceLocation",        fields: [sourceLocationId],        references: [id])
+  destinationLocation   Location            @relation("TransferDestinationLocation",   fields: [destinationLocationId],   references: [id])
+  items                 StockTransferItem[]
+
+  @@index([status])
+  @@index([createdById])
+  @@index([sourceLocationId])
+  @@index([destinationLocationId])
+}
+
+model StockTransferItem {
+  id        String   @id @default(uuid())
+  requestId String
+  productId String
+  qty       Decimal  @db.Decimal(15, 4)
+  createdAt DateTime @default(now())
+
+  request StockTransferRequest @relation(fields: [requestId], references: [id])
+  product Product              @relation(fields: [productId], references: [id])
+
+  @@index([requestId])
 }

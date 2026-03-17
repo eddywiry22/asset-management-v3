@@ -89,20 +89,28 @@ const fakeItem = {
 
 function makeFakeRequest(status = 'DRAFT', items: any[] = []) {
   return {
-    id:            REQ_ID,
-    requestNumber: 'ADJ-20260310-0001',
+    id:                 REQ_ID,
+    requestNumber:      'ADJ-20260310-WH-001-0001',
     status,
-    notes:         null,
-    createdById:   USER_ID,
-    approvedById:  null,
-    finalizedById: null,
-    approvedAt:    null,
-    finalizedAt:   null,
-    createdAt:     new Date().toISOString(),
-    updatedAt:     new Date().toISOString(),
-    createdBy:     fakeUser,
-    approvedBy:    null,
-    finalizedBy:   null,
+    notes:              null,
+    createdById:        USER_ID,
+    approvedById:       null,
+    finalizedById:      null,
+    cancelledById:      null,
+    rejectedById:       null,
+    approvedAt:         null,
+    finalizedAt:        null,
+    cancelledAt:        null,
+    rejectedAt:         null,
+    rejectionReason:    null,
+    cancellationReason: null,
+    createdAt:          new Date().toISOString(),
+    updatedAt:          new Date().toISOString(),
+    createdBy:          fakeUser,
+    approvedBy:         null,
+    finalizedBy:        null,
+    cancelledBy:        null,
+    rejectedBy:         null,
     items,
   };
 }
@@ -126,6 +134,9 @@ beforeEach(() => {
   });
   // User has MANAGER role
   db.userLocationRole.findMany.mockResolvedValue([{ locationId: LOCATION_ID, role: 'MANAGER' }]);
+  // User has access to LOCATION_ID (satisfies assertUserCanAccessLocation)
+  // Include `location` so that create() can extract location code for the request number
+  db.userLocationRole.findFirst.mockResolvedValue({ id: 'role-1', userId: USER_ID, locationId: LOCATION_ID, role: 'MANAGER', location: { code: 'WH-001' } });
   // W3: default product/location lookups succeed
   db.product.findUnique.mockResolvedValue({ id: PRODUCT_ID, sku: 'ELEC-001', name: 'Laptop' });
   db.location.findUnique.mockResolvedValue({ id: LOCATION_ID, code: 'WH-001', name: 'Main Warehouse' });
@@ -173,7 +184,7 @@ describe('POST /v1/stock-adjustments — create request', () => {
     expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
     expect(res.body.data.status).toBe('DRAFT');
-    expect(res.body.data.requestNumber).toMatch(/^ADJ-\d{8}-\d{4}$/);
+    expect(res.body.data.requestNumber).toMatch(/^ADJ-\d{8}-WH-001-\d{4}$/);
   });
 
   it('creates request with notes', async () => {
@@ -204,7 +215,7 @@ describe('POST /v1/stock-adjustments — create request', () => {
       .send({});
 
     expect(res.status).toBe(201);
-    expect(res.body.data.requestNumber).toMatch(/^ADJ-\d{8}-0004$/);
+    expect(res.body.data.requestNumber).toMatch(/^ADJ-\d{8}-WH-001-0004$/);
   });
 });
 
@@ -425,16 +436,27 @@ describe('POST /v1/stock-adjustments/:id/approve', () => {
 
 describe('POST /v1/stock-adjustments/:id/reject', () => {
   it('rejects a SUBMITTED request as manager', async () => {
-    db.stockAdjustmentRequest.findUnique.mockResolvedValue(makeFakeRequest('SUBMITTED', [fakeItem]));
-    db.stockAdjustmentRequest.update.mockResolvedValue(makeFakeRequest('REJECTED', [fakeItem]));
+    db.stockAdjustmentRequest.findUnique
+      .mockResolvedValueOnce(makeFakeRequest('SUBMITTED', [fakeItem]))
+      .mockResolvedValueOnce(makeFakeRequest('REJECTED', [fakeItem]));
 
     const res = await request(app)
       .post(`/v1/stock-adjustments/${REQ_ID}/reject`)
       .set(AUTH)
-      .send({ notes: 'Wrong quantities' });
+      .send({ reason: 'Wrong quantities' });
 
     expect(res.status).toBe(200);
     expect(res.body.data.status).toBe('REJECTED');
+  });
+
+  it('returns 400 when no rejection reason is provided', async () => {
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/reject`)
+      .set(AUTH)
+      .send({});
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/rejection reason is required/i);
   });
 
   it('returns 403 when operator tries to reject', async () => {
@@ -443,7 +465,8 @@ describe('POST /v1/stock-adjustments/:id/reject', () => {
 
     const res = await request(app)
       .post(`/v1/stock-adjustments/${REQ_ID}/reject`)
-      .set(AUTH);
+      .set(AUTH)
+      .send({ reason: 'test reason' });
 
     expect(res.status).toBe(403);
   });
@@ -588,7 +611,7 @@ describe('Request number generation', () => {
       .send({});
 
     expect(res.status).toBe(201);
-    expect(res.body.data.requestNumber).toMatch(/^ADJ-\d{8}-\d{4}$/);
+    expect(res.body.data.requestNumber).toMatch(/^ADJ-\d{8}-WH-001-\d{4}$/);
   });
 });
 
@@ -648,5 +671,289 @@ describe('W13 — finalize APPROVED request with no items', () => {
     expect(res.status).toBe(200);
     expect(res.body.data.status).toBe('FINALIZED');
     expect(db.$transaction).not.toHaveBeenCalled();
+  });
+});
+
+// ===========================================================================
+// CANCEL
+// ===========================================================================
+
+describe('POST /v1/stock-adjustments/:id/cancel', () => {
+  it('returns 400 when no cancellation reason is provided', async () => {
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/cancel`)
+      .set(AUTH)
+      .send({});
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/cancellation reason is required/i);
+  });
+
+  it('creator can cancel a DRAFT request → 200 (CANCELLED)', async () => {
+    db.stockAdjustmentRequest.findUnique
+      .mockResolvedValueOnce(makeFakeRequest('DRAFT', [fakeItem]))
+      .mockResolvedValueOnce(makeFakeRequest('CANCELLED', [fakeItem]));
+
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/cancel`)
+      .set(AUTH)
+      .send({ reason: 'No longer needed' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe('CANCELLED');
+  });
+
+  it('creator can cancel a SUBMITTED request → 200', async () => {
+    db.stockAdjustmentRequest.findUnique
+      .mockResolvedValueOnce(makeFakeRequest('SUBMITTED', [fakeItem]))
+      .mockResolvedValueOnce(makeFakeRequest('CANCELLED', [fakeItem]));
+
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/cancel`)
+      .set(AUTH)
+      .send({ reason: 'No longer needed' });
+
+    expect(res.status).toBe(200);
+  });
+
+  it('creator can cancel an APPROVED request → 200', async () => {
+    db.stockAdjustmentRequest.findUnique
+      .mockResolvedValueOnce(makeFakeRequest('APPROVED', [fakeItem]))
+      .mockResolvedValueOnce(makeFakeRequest('CANCELLED', [fakeItem]));
+
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/cancel`)
+      .set(AUTH)
+      .send({ reason: 'No longer needed' });
+
+    expect(res.status).toBe(200);
+  });
+
+  it('cannot cancel a FINALIZED request → 400', async () => {
+    db.stockAdjustmentRequest.findUnique.mockResolvedValue(makeFakeRequest('FINALIZED', [fakeItem]));
+
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/cancel`)
+      .set(AUTH)
+      .send({ reason: 'test reason' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/Cannot cancel a request with status FINALIZED/);
+  });
+
+  it('cannot cancel an already CANCELLED request → 400', async () => {
+    db.stockAdjustmentRequest.findUnique.mockResolvedValue(makeFakeRequest('CANCELLED', [fakeItem]));
+
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/cancel`)
+      .set(AUTH)
+      .send({ reason: 'test reason' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/Cannot cancel a request with status CANCELLED/);
+  });
+
+  it('manager at item location can cancel another user\'s request → 200', async () => {
+    const otherUserReq = { ...makeFakeRequest('SUBMITTED', [fakeItem]), createdById: 'other-user-id' };
+    db.stockAdjustmentRequest.findUnique
+      .mockResolvedValueOnce(otherUserReq)
+      .mockResolvedValueOnce(makeFakeRequest('CANCELLED', [fakeItem]));
+    // Default findFirst returns MANAGER role at LOCATION_ID
+
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/cancel`)
+      .set(AUTH)
+      .send({ reason: 'No longer needed' });
+
+    expect(res.status).toBe(200);
+  });
+
+  it('non-manager without item location access cannot cancel → 403', async () => {
+    const otherUserReq = { ...makeFakeRequest('SUBMITTED', [fakeItem]), createdById: 'other-user-id' };
+    db.stockAdjustmentRequest.findUnique.mockResolvedValue(otherUserReq);
+    // No MANAGER role at item location
+    db.userLocationRole.findFirst.mockResolvedValue(null);
+
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/cancel`)
+      .set(AUTH)
+      .send({ reason: 'test reason' });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toMatch(/Only the creator, a manager at the item location, or an admin/);
+  });
+
+  it('admin can cancel any request regardless of creator → 200', async () => {
+    (authService.verifyAccessToken as jest.Mock).mockReturnValue({
+      sub: USER_ID, email: 'admin@example.com', phone: null, isAdmin: true,
+    });
+    const otherUserReq = { ...makeFakeRequest('APPROVED', [fakeItem]), createdById: 'other-user-id' };
+    db.stockAdjustmentRequest.findUnique
+      .mockResolvedValueOnce(otherUserReq)
+      .mockResolvedValueOnce(makeFakeRequest('CANCELLED', [fakeItem]));
+
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/cancel`)
+      .set(AUTH)
+      .send({ reason: 'Admin override' });
+
+    expect(res.status).toBe(200);
+  });
+});
+
+// ===========================================================================
+// CANCELLED STATUS FILTER
+// ===========================================================================
+
+describe('GET /v1/stock-adjustments?status=CANCELLED', () => {
+  it('can filter by CANCELLED status', async () => {
+    db.stockAdjustmentRequest.findMany.mockResolvedValue([makeFakeRequest('CANCELLED', [fakeItem])]);
+    db.stockAdjustmentRequest.count.mockResolvedValue(1);
+
+    const res = await request(app)
+      .get('/v1/stock-adjustments?status=CANCELLED')
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data[0].status).toBe('CANCELLED');
+    const findArgs = db.stockAdjustmentRequest.findMany.mock.calls[0][0];
+    expect(findArgs.where.status).toBe('CANCELLED');
+  });
+});
+
+// ===========================================================================
+// LIST FILTERING — LOCATION VISIBILITY
+// ===========================================================================
+
+describe('GET /v1/stock-adjustments — location-based filtering', () => {
+  it('non-admin only sees requests for their locations', async () => {
+    // Override findMany to return role with locationId
+    db.userLocationRole.findMany.mockResolvedValue([{ locationId: LOCATION_ID, role: 'MANAGER' }]);
+    db.stockAdjustmentRequest.findMany.mockResolvedValue([makeFakeRequest('DRAFT', [fakeItem])]);
+    db.stockAdjustmentRequest.count.mockResolvedValue(1);
+
+    const res = await request(app)
+      .get('/v1/stock-adjustments')
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+    // Verify the repository was called with a locationIds filter (items.some constraint)
+    const findManyCall = db.stockAdjustmentRequest.findMany.mock.calls[0][0];
+    expect(findManyCall.where.items).toBeDefined();
+    expect(findManyCall.where.items.some.locationId.in).toContain(LOCATION_ID);
+  });
+
+  it('admin sees all requests with no location filter', async () => {
+    (authService.verifyAccessToken as jest.Mock).mockReturnValue({
+      sub: USER_ID, email: 'admin@example.com', phone: null, isAdmin: true,
+    });
+    db.stockAdjustmentRequest.findMany.mockResolvedValue([]);
+    db.stockAdjustmentRequest.count.mockResolvedValue(0);
+
+    const res = await request(app)
+      .get('/v1/stock-adjustments')
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+    // No items filter for admin
+    const findManyCall = db.stockAdjustmentRequest.findMany.mock.calls[0][0];
+    expect(findManyCall.where.items).toBeUndefined();
+  });
+});
+
+// ===========================================================================
+// DRAFT OWNERSHIP — only the creator can edit/submit
+// ===========================================================================
+
+describe('Draft ownership enforcement', () => {
+  const OTHER_USER_ID = 'other-user-id';
+  const otherUserDraft = () => ({ ...makeFakeRequest('DRAFT', [fakeItem]), createdById: OTHER_USER_ID });
+
+  it('non-creator cannot add items to another user\'s DRAFT → 403', async () => {
+    // Current user is USER_ID (not the creator)
+    db.stockAdjustmentRequest.findUnique.mockResolvedValue(otherUserDraft());
+
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/items`)
+      .set(AUTH)
+      .send({ productId: PRODUCT_ID, locationId: LOCATION_ID, qtyChange: 5 });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toMatch(/Only the creator/);
+  });
+
+  it('admin cannot add items to another user\'s DRAFT → 403', async () => {
+    (authService.verifyAccessToken as jest.Mock).mockReturnValue({
+      sub: USER_ID, email: 'admin@example.com', phone: null, isAdmin: true,
+    });
+    db.stockAdjustmentRequest.findUnique.mockResolvedValue(otherUserDraft());
+
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/items`)
+      .set(AUTH)
+      .send({ productId: PRODUCT_ID, locationId: LOCATION_ID, qtyChange: 5 });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toMatch(/Only the creator/);
+  });
+
+  it('non-creator cannot update items in another user\'s DRAFT → 403', async () => {
+    db.stockAdjustmentRequest.findUnique.mockResolvedValue(otherUserDraft());
+
+    const res = await request(app)
+      .put(`/v1/stock-adjustments/${REQ_ID}/items/${ITEM_ID}`)
+      .set(AUTH)
+      .send({ qtyChange: 10 });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toMatch(/Only the creator/);
+  });
+
+  it('non-creator cannot delete items from another user\'s DRAFT → 403', async () => {
+    db.stockAdjustmentRequest.findUnique.mockResolvedValue(otherUserDraft());
+
+    const res = await request(app)
+      .delete(`/v1/stock-adjustments/${REQ_ID}/items/${ITEM_ID}`)
+      .set(AUTH);
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toMatch(/Only the creator/);
+  });
+
+  it('non-creator cannot submit another user\'s DRAFT → 403', async () => {
+    db.stockAdjustmentRequest.findUnique.mockResolvedValue(
+      { ...otherUserDraft(), items: [fakeItem] },
+    );
+
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/submit`)
+      .set(AUTH);
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toMatch(/Only the creator/);
+  });
+
+  it('creator can add items to their own DRAFT → 201', async () => {
+    db.stockAdjustmentRequest.findUnique.mockResolvedValue(makeFakeRequest('DRAFT'));
+    db.stockAdjustmentItem.create.mockResolvedValue(fakeItem);
+
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/items`)
+      .set(AUTH)
+      .send({ productId: PRODUCT_ID, locationId: LOCATION_ID, qtyChange: 5 });
+
+    expect(res.status).toBe(201);
+  });
+
+  it('creator can submit their own DRAFT → 200', async () => {
+    db.stockAdjustmentRequest.findUnique.mockResolvedValue(makeFakeRequest('DRAFT', [fakeItem]));
+    db.stockAdjustmentRequest.update.mockResolvedValue(makeFakeRequest('SUBMITTED', [fakeItem]));
+
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/submit`)
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe('SUBMITTED');
   });
 });

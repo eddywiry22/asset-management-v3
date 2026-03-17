@@ -9,7 +9,7 @@ import prisma from '../../config/database';
 export class StockController {
   async getVisibleLocations(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-      let locations: Array<{ id: string; code: string; name: string }>;
+      let locations: Array<{ id: string; code: string; name: string; role?: string }>;
 
       if (req.user.isAdmin) {
         locations = await prisma.location.findMany({
@@ -23,7 +23,7 @@ export class StockController {
           include: { location: { select: { id: true, code: true, name: true } } },
         });
         locations = roles
-          .map((r) => r.location)
+          .map((r) => ({ ...r.location, role: r.role }))
           .sort((a, b) => a.code.localeCompare(b.code));
       }
 
@@ -32,6 +32,19 @@ export class StockController {
       next(err);
     }
   }
+  async getAllLocations(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const locations = await prisma.location.findMany({
+        where:   { isActive: true },
+        select:  { id: true, code: true, name: true },
+        orderBy: { code: 'asc' },
+      });
+      res.status(200).json({ success: true, data: locations });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async getStockOverview(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const parsed = stockQuerySchema.safeParse(req.query);
@@ -42,13 +55,19 @@ export class StockController {
 
       const { locationId, page, limit, startDate, endDate } = parsed.data;
 
+      let parsedEndDate: Date | undefined;
+      if (endDate) {
+        parsedEndDate = new Date(endDate);
+        parsedEndDate.setHours(23, 59, 59, 999);
+      }
+
       const { data, total } = await stockService.getStockOverview(
         {
           locationId,
           page,
           limit,
           startDate: startDate ? new Date(startDate) : undefined,
-          endDate:   endDate   ? new Date(endDate)   : undefined,
+          endDate:   parsedEndDate,
         },
         req.user.id,
         req.user.isAdmin,
@@ -74,12 +93,18 @@ export class StockController {
 
       const { productId, locationId, startDate, endDate, page, limit } = parsed.data;
 
+      let parsedLedgerEndDate: Date | undefined;
+      if (endDate) {
+        parsedLedgerEndDate = new Date(endDate);
+        parsedLedgerEndDate.setHours(23, 59, 59, 999);
+      }
+
       const { data, total } = await stockService.getLedger(
         {
           productId,
           locationId,
           startDate: startDate ? new Date(startDate) : undefined,
-          endDate:   endDate   ? new Date(endDate)   : undefined,
+          endDate:   parsedLedgerEndDate,
           page,
           limit,
         },
