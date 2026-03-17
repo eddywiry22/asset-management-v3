@@ -155,6 +155,13 @@ export default function StockAdjustmentDetailPage() {
     enabled:  !!id,
   });
 
+  const { data: myLocations } = useQuery({
+    queryKey: ['locations-mine'],
+    queryFn:  () => stockService.getVisibleLocations(),
+    enabled:  !isAdmin,
+  });
+  const isManager = isAdmin || (myLocations ?? []).some((l) => l.role === 'MANAGER');
+
   const req: AdjustmentRequest | undefined = reqData?.data;
 
   const invalidate = () => {
@@ -328,7 +335,7 @@ export default function StockAdjustmentDetailPage() {
             Submit for Approval
           </Button>
         )}
-        {isSubmitted && isAdmin && (
+        {isSubmitted && isManager && (
           <>
             <Button variant="contained" color="success" onClick={() => setConfirmAction('approve')}>
               Approve

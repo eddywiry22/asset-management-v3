@@ -9,7 +9,7 @@ import prisma from '../../config/database';
 export class StockController {
   async getVisibleLocations(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-      let locations: Array<{ id: string; code: string; name: string }>;
+      let locations: Array<{ id: string; code: string; name: string; role?: string }>;
 
       if (req.user.isAdmin) {
         locations = await prisma.location.findMany({
@@ -23,7 +23,7 @@ export class StockController {
           include: { location: { select: { id: true, code: true, name: true } } },
         });
         locations = roles
-          .map((r) => r.location)
+          .map((r) => ({ ...r.location, role: r.role }))
           .sort((a, b) => a.code.localeCompare(b.code));
       }
 

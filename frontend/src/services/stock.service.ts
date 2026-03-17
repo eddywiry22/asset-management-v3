@@ -55,7 +55,7 @@ export type LedgerQueryParams = {
   endDate?: string;
 };
 
-export type VisibleLocation = { id: string; code: string; name: string };
+export type VisibleLocation = { id: string; code: string; name: string; role?: string };
 
 const stockService = {
   async getVisibleLocations(): Promise<VisibleLocation[]> {
