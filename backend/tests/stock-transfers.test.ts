@@ -629,8 +629,10 @@ describe('POST /v1/stock-transfers/:id/approve-origin', () => {
     expect(res.body.data.status).toBe('ORIGIN_MANAGER_APPROVED');
   });
 
-  it('operator cannot approve origin (no MANAGER role) → 403', async () => {
-    // Override: findFirst always returns null (no manager role, no location access)
+  it('operator cannot approve origin (no MANAGER role at source) → 403', async () => {
+    // findUnique must return a SUBMITTED request so the role check is reached
+    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('SUBMITTED', [fakeItem]));
+    // findFirst returns null → no MANAGER role at source location
     db.userLocationRole.findFirst.mockResolvedValue(null);
 
     const res = await request(app)
@@ -638,7 +640,7 @@ describe('POST /v1/stock-transfers/:id/approve-origin', () => {
       .set(AUTH);
 
     expect(res.status).toBe(403);
-    expect(res.body.error.message).toMatch(/Only managers or admins/);
+    expect(res.body.error.message).toMatch(/Only a manager at the source location/);
   });
 
   it('returns 400 when request is not SUBMITTED', async () => {
@@ -652,20 +654,18 @@ describe('POST /v1/stock-transfers/:id/approve-origin', () => {
     expect(res.body.error.message).toMatch(/Cannot approve origin/);
   });
 
-  it('manager without source location access cannot approve origin → 403', async () => {
-    // Manager role check passes, but location access check fails
-    db.userLocationRole.findFirst.mockImplementation(({ where }: any) => {
-      if (where.role === 'MANAGER') return Promise.resolve({ role: 'MANAGER' });
-      return Promise.resolve(null); // no location access
-    });
+  it('manager at a different location (not source) cannot approve origin → 403', async () => {
+    // User is MANAGER at DST_LOC_ID only, not at SRC_LOC_ID
     db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('SUBMITTED', [fakeItem]));
+    // Combined query { userId, locationId: SRC_LOC_ID, role: 'MANAGER' } → null
+    db.userLocationRole.findFirst.mockResolvedValue(null);
 
     const res = await request(app)
       .post(`/v1/stock-transfers/${REQ_ID}/approve-origin`)
       .set(AUTH);
 
     expect(res.status).toBe(403);
-    expect(res.body.error.message).toMatch(/You do not have access to this location/);
+    expect(res.body.error.message).toMatch(/Only a manager at the source location/);
   });
 
   it('returns 400 when trying to approve origin with no items', async () => {
@@ -677,6 +677,43 @@ describe('POST /v1/stock-transfers/:id/approve-origin', () => {
 
     expect(res.status).toBe(400);
     expect(res.body.error.message).toMatch(/no items/);
+  });
+
+  it('operator at source location cannot approve origin (OPERATOR not MANAGER) → 403', async () => {
+    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('SUBMITTED', [fakeItem]));
+    // User has OPERATOR role at source — not MANAGER, so combined query returns null
+    db.userLocationRole.findFirst.mockImplementation(({ where }: any) => {
+      // Query is { userId, locationId: SRC_LOC_ID, role: 'MANAGER' } → no match for OPERATOR
+      if (where.role === 'MANAGER') return Promise.resolve(null);
+      return Promise.resolve({ id: 'role-1', role: 'OPERATOR' });
+    });
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/approve-origin`)
+      .set(AUTH);
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toMatch(/Only a manager at the source location/);
+  });
+
+  it('manager at source location CAN approve origin (location-specific MANAGER role) → 200', async () => {
+    db.stockTransferRequest.findUnique
+      .mockResolvedValueOnce(makeFakeRequest('SUBMITTED', [fakeItem]))
+      .mockResolvedValueOnce(makeFakeRequest('ORIGIN_MANAGER_APPROVED', [fakeItem]));
+    // Combined query { userId, locationId: SRC_LOC_ID, role: 'MANAGER' } → match
+    db.userLocationRole.findFirst.mockImplementation(({ where }: any) => {
+      if (where.role === 'MANAGER' && where.locationId === SRC_LOC_ID) {
+        return Promise.resolve({ id: 'role-1', userId: USER_ID, locationId: SRC_LOC_ID, role: 'MANAGER' });
+      }
+      return Promise.resolve(null);
+    });
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/approve-origin`)
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe('ORIGIN_MANAGER_APPROVED');
   });
 });
 
@@ -727,6 +764,41 @@ describe('POST /v1/stock-transfers/:id/approve-destination', () => {
 
     expect(res.status).toBe(403);
     expect(res.body.error.message).toMatch(/You do not have access to this location/);
+  });
+
+  it('operator at destination location can approve destination (any role allowed) → 200', async () => {
+    db.stockTransferRequest.findUnique
+      .mockResolvedValueOnce(makeFakeRequest('ORIGIN_MANAGER_APPROVED', [fakeItem]))
+      .mockResolvedValueOnce(makeFakeRequest('READY_TO_FINALIZE', [fakeItem]));
+    // User has OPERATOR role at destination — any role at destination is sufficient
+    db.userLocationRole.findFirst.mockImplementation(({ where }: any) => {
+      if (where.locationId === DST_LOC_ID) {
+        return Promise.resolve({ id: 'role-1', userId: USER_ID, locationId: DST_LOC_ID, role: 'OPERATOR' });
+      }
+      return Promise.resolve(null);
+    });
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/approve-destination`)
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe('READY_TO_FINALIZE');
+  });
+
+  it('user with source access but NO destination access cannot approve destination → 403', async () => {
+    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('ORIGIN_MANAGER_APPROVED', [fakeItem]));
+    // Has access to SRC but not DST
+    db.userLocationRole.findFirst.mockImplementation(({ where }: any) => {
+      if (where.locationId === SRC_LOC_ID) return Promise.resolve({ id: 'role-1', role: 'MANAGER' });
+      return Promise.resolve(null);
+    });
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/approve-destination`)
+      .set(AUTH);
+
+    expect(res.status).toBe(403);
   });
 
   it('returns 400 when request is not ORIGIN_MANAGER_APPROVED', async () => {
@@ -1059,17 +1131,15 @@ describe('Date filter validation', () => {
 // ===========================================================================
 
 describe('POST /v1/stock-transfers/:id/cancel', () => {
-  it('creator can cancel a DRAFT request → status CANCELLED', async () => {
-    db.stockTransferRequest.findUnique
-      .mockResolvedValueOnce(makeFakeRequest('DRAFT', [fakeItem]))
-      .mockResolvedValueOnce(makeFakeRequest('CANCELLED', [fakeItem]));
+  it('cannot cancel a DRAFT request — use Delete instead → 400', async () => {
+    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('DRAFT', [fakeItem]));
 
     const res = await request(app)
       .post(`/v1/stock-transfers/${REQ_ID}/cancel`)
       .set(AUTH);
 
-    expect(res.status).toBe(200);
-    expect(res.body.data.status).toBe('CANCELLED');
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/Cannot cancel/);
   });
 
   it('creator can cancel a SUBMITTED request', async () => {
@@ -1107,8 +1177,9 @@ describe('POST /v1/stock-transfers/:id/cancel', () => {
     expect(res.body.error.message).toMatch(/Cannot cancel/);
   });
 
-  it('non-creator cannot cancel another user\'s request → 403', async () => {
-    const otherUsersRequest = { ...makeFakeRequest('DRAFT', [fakeItem]), createdById: 'other-user-id' };
+  it('non-creator cannot cancel another user\'s SUBMITTED request → 403', async () => {
+    // Use SUBMITTED (not DRAFT) since DRAFT is no longer cancellable — use Delete for DRAFTs
+    const otherUsersRequest = { ...makeFakeRequest('SUBMITTED', [fakeItem]), createdById: 'other-user-id' };
     db.stockTransferRequest.findUnique.mockResolvedValue(otherUsersRequest);
 
     const res = await request(app)
@@ -1228,6 +1299,22 @@ describe('Location authorization — cross-warehouse access denied', () => {
   it('operator cannot finalize request from another warehouse → 403', async () => {
     db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('READY_TO_FINALIZE', [fakeItem]));
     db.userLocationRole.findFirst.mockResolvedValue(null);
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/finalize`)
+      .set(AUTH);
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toMatch(/You do not have access to this location/);
+  });
+
+  it('user with source access only (no destination access) cannot finalize → 403', async () => {
+    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('READY_TO_FINALIZE', [fakeItem]));
+    // Has access to SRC_LOC_ID but not DST_LOC_ID
+    db.userLocationRole.findFirst.mockImplementation(({ where }: any) => {
+      if (where.locationId === SRC_LOC_ID) return Promise.resolve({ id: 'role-1', role: 'MANAGER' });
+      return Promise.resolve(null);
+    });
 
     const res = await request(app)
       .post(`/v1/stock-transfers/${REQ_ID}/finalize`)

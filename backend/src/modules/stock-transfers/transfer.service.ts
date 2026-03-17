@@ -13,9 +13,9 @@ import prisma from '../../config/database';
 
 type UserCtx = { id: string; isAdmin: boolean };
 
-// States that can still be cancelled by the creator
+// States that can still be cancelled by the creator.
+// DRAFT is excluded: a DRAFT request must be deleted (DELETE /:id), not cancelled.
 const CANCELLABLE_STATUSES: TransferRequestStatus[] = [
-  TransferRequestStatus.DRAFT,
   TransferRequestStatus.SUBMITTED,
   TransferRequestStatus.ORIGIN_MANAGER_APPROVED,
   TransferRequestStatus.READY_TO_FINALIZE,
@@ -208,18 +208,9 @@ export class TransferService {
 
   // -------------------------------------------------------------------------
   // Approve Origin (SUBMITTED → ORIGIN_MANAGER_APPROVED)
-  // Approver must be a manager (or admin) with access to the SOURCE location
+  // Approver must have MANAGER role specifically at the SOURCE location (or be admin)
   // -------------------------------------------------------------------------
   async approveOrigin(requestId: string, user: UserCtx): Promise<TransferRequestRow> {
-    if (!user.isAdmin) {
-      const role = await prisma.userLocationRole.findFirst({
-        where: { userId: user.id, role: Role.MANAGER },
-      });
-      if (!role) {
-        throw new ForbiddenError('Only managers or admins can approve at origin');
-      }
-    }
-
     const req = await this.findById(requestId);
     if (req.status !== TransferRequestStatus.SUBMITTED) {
       throw new ValidationError(`Cannot approve origin for a request with status ${req.status}`);
@@ -228,7 +219,15 @@ export class TransferService {
       throw new ValidationError('Cannot approve a transfer with no items');
     }
 
-    await assertUserCanAccessLocation(user.id, user.isAdmin, req.sourceLocationId);
+    if (!user.isAdmin) {
+      // Single query: must have MANAGER role specifically at the source location
+      const role = await prisma.userLocationRole.findFirst({
+        where: { userId: user.id, locationId: req.sourceLocationId, role: Role.MANAGER },
+      });
+      if (!role) {
+        throw new ForbiddenError('Only a manager at the source location can approve at origin');
+      }
+    }
 
     const claimed = await transferRepository.claimOriginApproval(requestId, user.id, new Date());
     if (!claimed) {
@@ -291,8 +290,9 @@ export class TransferService {
       throw new ValidationError('Source and destination locations must be different');
     }
 
-    // Non-admin must have access to source location
+    // Non-admin must have access to BOTH source and destination locations
     await assertUserCanAccessLocation(user.id, user.isAdmin, req.sourceLocationId);
+    await assertUserCanAccessLocation(user.id, user.isAdmin, req.destinationLocationId);
 
     // Atomically claim
     const claimed = await transferRepository.claimFinalization(requestId, new Date());

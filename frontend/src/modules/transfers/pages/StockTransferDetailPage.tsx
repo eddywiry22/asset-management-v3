@@ -20,6 +20,7 @@ import stockTransfersService, {
   AddItemPayload,
   UpdateItemPayload,
 } from '../../../services/stockTransfers.service';
+import stockService from '../../../services/stock.service';
 import apiClient from '../../../api/client';
 import { AuthUser } from '../../../types/auth.types';
 
@@ -196,6 +197,25 @@ export default function StockTransferDetailPage() {
 
   const req: TransferRequest | undefined = reqData?.data;
 
+  // Fetch location-role mapping for the current non-admin user.
+  // Admins bypass all role checks, so we skip this query for them.
+  const { data: myLocations } = useQuery({
+    queryKey: ['locations-mine'],
+    queryFn:  () => stockService.getVisibleLocations(),
+    enabled:  !isAdmin,
+  });
+
+  // Build a Map<locationId, role> from the user's visible locations.
+  const myRoleMap = new Map((myLocations ?? []).map((l) => [l.id, l.role ?? '']));
+
+  // Location-specific permission flags (resolved once req is loaded)
+  const isManagerAtSource       = isAdmin || myRoleMap.get(req?.sourceLocationId ?? '') === 'MANAGER';
+  const isOperatorAtDestination = isAdmin || myRoleMap.has(req?.destinationLocationId ?? '');
+  const hasAccessToBoth         = isAdmin || (
+    myRoleMap.has(req?.sourceLocationId ?? '') &&
+    myRoleMap.has(req?.destinationLocationId ?? '')
+  );
+
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['stock-transfer', id] });
     queryClient.invalidateQueries({ queryKey: ['stock-transfers'] });
@@ -254,7 +274,8 @@ export default function StockTransferDetailPage() {
   const isTerminal  = status === 'FINALIZED' || status === 'CANCELLED';
 
   const isCreator = req.createdById === userId;
-  const canCancel = !isTerminal && (isAdmin || isCreator);
+  // Cancel only applies to SUBMITTED and beyond — DRAFT uses Delete instead
+  const canCancel = !isDraft && !isTerminal && (isAdmin || isCreator);
   const canDelete = isDraft && (isAdmin || isCreator);
 
   // Workflow action confirmation config
@@ -470,8 +491,8 @@ export default function StockTransferDetailPage() {
               </Button>
             )}
 
-            {/* SUBMITTED: Approve at Origin (manager/admin with source access) */}
-            {isSubmitted && isAdmin && (
+            {/* SUBMITTED: Approve at Origin — manager at source location (or admin) */}
+            {isSubmitted && isManagerAtSource && (
               <Button
                 variant="contained"
                 color="success"
@@ -483,8 +504,8 @@ export default function StockTransferDetailPage() {
               </Button>
             )}
 
-            {/* ORIGIN_MANAGER_APPROVED: Approve at Destination (user with dest access / admin) */}
-            {isOriginApproved && isAdmin && (
+            {/* ORIGIN_MANAGER_APPROVED: Approve at Destination — any role at destination (or admin) */}
+            {isOriginApproved && isOperatorAtDestination && (
               <Button
                 variant="contained"
                 color="success"
@@ -495,8 +516,8 @@ export default function StockTransferDetailPage() {
               </Button>
             )}
 
-            {/* READY_TO_FINALIZE: Finalize (admin or source access) */}
-            {isReady && isAdmin && (
+            {/* READY_TO_FINALIZE: Finalize — user with access to BOTH locations (or admin) */}
+            {isReady && hasAccessToBoth && (
               <Button
                 variant="contained"
                 color="warning"
