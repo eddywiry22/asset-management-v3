@@ -33,10 +33,18 @@ export class StockAdjustmentController {
       if (req.query.endDate) {
         endDate = new Date(req.query.endDate as string);
         if (isNaN(endDate.getTime())) throw new ValidationError('Invalid endDate');
+        // Include the full end day
+        endDate.setHours(23, 59, 59, 999);
+      }
+
+      // Admin-only explicit location filter
+      let filterLocationId: string | undefined;
+      if (req.user.isAdmin && req.query.locationId) {
+        filterLocationId = req.query.locationId as string;
       }
 
       const user = { id: req.user.id, isAdmin: req.user.isAdmin };
-      const { data, total } = await stockAdjustmentService.findAll({ status, startDate, endDate, page, limit, user });
+      const { data, total } = await stockAdjustmentService.findAll({ status, startDate, endDate, page, limit, user, filterLocationId });
       res.status(200).json({ success: true, data, meta: { page, limit, total } });
     } catch (err) {
       next(err);

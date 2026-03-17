@@ -13,24 +13,31 @@ import prisma from '../../config/database';
 
 type UserCtx = { id: string; isAdmin: boolean };
 
-// States that can still be cancelled by the creator.
+// States that can still be cancelled.
 // DRAFT is excluded: a DRAFT request must be deleted (DELETE /:id), not cancelled.
+// REJECTED and FINALIZED are terminal — they cannot be cancelled.
 const CANCELLABLE_STATUSES: TransferRequestStatus[] = [
   TransferRequestStatus.SUBMITTED,
   TransferRequestStatus.ORIGIN_MANAGER_APPROVED,
   TransferRequestStatus.READY_TO_FINALIZE,
 ];
 
+// States from which a rejection is allowed
+const REJECTABLE_STATUSES: TransferRequestStatus[] = [
+  TransferRequestStatus.SUBMITTED,
+  TransferRequestStatus.ORIGIN_MANAGER_APPROVED,
+];
+
 export class TransferService {
   // -------------------------------------------------------------------------
-  // Request Number Generator: TRF-YYYYMMDD-XXXX  (retry on collision)
+  // Request Number Generator: TRF-YYYYMMDD-SRCCODE-DSTCODE-XXXX
   // -------------------------------------------------------------------------
-  private async generateRequestNumber(): Promise<string> {
+  private async generateRequestNumber(sourceCode: string, destCode: string): Promise<string> {
     const now    = new Date();
     const y      = now.getFullYear();
     const m      = String(now.getMonth() + 1).padStart(2, '0');
     const d      = String(now.getDate()).padStart(2, '0');
-    const prefix = `TRF-${y}${m}${d}-`;
+    const prefix = `TRF-${y}${m}${d}-${sourceCode}-${destCode}-`;
 
     const count = await transferRepository.countByDatePrefix(prefix);
     const seq   = String(count + 1).padStart(4, '0');
@@ -47,6 +54,7 @@ export class TransferService {
     page: number;
     limit: number;
     user: UserCtx;
+    filterLocationId?: string;
   }): Promise<{ data: TransferRequestRow[]; total: number }> {
     let locationIds: string[] | undefined;
     if (!params.user.isAdmin) {
@@ -84,7 +92,7 @@ export class TransferService {
     if (!dest) throw new NotFoundError(`Destination location not found: ${dto.destinationLocationId}`);
 
     for (let attempt = 0; attempt < 5; attempt++) {
-      const requestNumber = await this.generateRequestNumber();
+      const requestNumber = await this.generateRequestNumber(source.code, dest.code);
       try {
         const request = await transferRepository.create({
           requestNumber,
@@ -281,10 +289,15 @@ export class TransferService {
   }
 
   // -------------------------------------------------------------------------
-  // Reject (SUBMITTED → CANCELLED by source manager)
-  //      (ORIGIN_MANAGER_APPROVED → CANCELLED by destination user)
+  // Reject (SUBMITTED → REJECTED by source manager)
+  //      (ORIGIN_MANAGER_APPROVED → REJECTED by destination user)
+  // Requires a non-empty reason.
   // -------------------------------------------------------------------------
-  async reject(requestId: string, user: UserCtx): Promise<TransferRequestRow> {
+  async reject(requestId: string, user: UserCtx, reason: string): Promise<TransferRequestRow> {
+    if (!reason || !reason.trim()) {
+      throw new ValidationError('A rejection reason is required');
+    }
+
     const req = await this.findById(requestId);
 
     if (req.status === TransferRequestStatus.SUBMITTED) {
@@ -304,11 +317,12 @@ export class TransferService {
       throw new ValidationError(`Cannot reject a request with status ${req.status}`);
     }
 
-    const claimed = await transferRepository.claimCancellation(
+    const claimed = await transferRepository.claimRejection(
       requestId,
       user.id,
       new Date(),
-      [req.status],
+      REJECTABLE_STATUSES,
+      reason.trim(),
     );
     if (!claimed) {
       throw new ValidationError(`Cannot reject a request with status ${req.status}`);
@@ -318,7 +332,7 @@ export class TransferService {
       entityType:  'STOCK_TRANSFER_REQUEST',
       entityId:    requestId,
       action:      'STATUS_CHANGE',
-      afterValue:  { status: 'CANCELLED', rejectedFrom: req.status },
+      afterValue:  { status: 'REJECTED', rejectedFrom: req.status },
       performedBy: user.id,
     });
 

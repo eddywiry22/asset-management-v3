@@ -90,7 +90,7 @@ const fakeItem = {
 function makeFakeRequest(status = 'DRAFT', items: any[] = []) {
   return {
     id:            REQ_ID,
-    requestNumber: 'ADJ-20260310-0001',
+    requestNumber: 'ADJ-20260310-WH-001-0001',
     status,
     notes:         null,
     createdById:   USER_ID,
@@ -130,7 +130,8 @@ beforeEach(() => {
   // User has MANAGER role
   db.userLocationRole.findMany.mockResolvedValue([{ locationId: LOCATION_ID, role: 'MANAGER' }]);
   // User has access to LOCATION_ID (satisfies assertUserCanAccessLocation)
-  db.userLocationRole.findFirst.mockResolvedValue({ id: 'role-1', userId: USER_ID, locationId: LOCATION_ID, role: 'MANAGER' });
+  // Include `location` so that create() can extract location code for the request number
+  db.userLocationRole.findFirst.mockResolvedValue({ id: 'role-1', userId: USER_ID, locationId: LOCATION_ID, role: 'MANAGER', location: { code: 'WH-001' } });
   // W3: default product/location lookups succeed
   db.product.findUnique.mockResolvedValue({ id: PRODUCT_ID, sku: 'ELEC-001', name: 'Laptop' });
   db.location.findUnique.mockResolvedValue({ id: LOCATION_ID, code: 'WH-001', name: 'Main Warehouse' });
@@ -178,7 +179,7 @@ describe('POST /v1/stock-adjustments — create request', () => {
     expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
     expect(res.body.data.status).toBe('DRAFT');
-    expect(res.body.data.requestNumber).toMatch(/^ADJ-\d{8}-\d{4}$/);
+    expect(res.body.data.requestNumber).toMatch(/^ADJ-\d{8}-WH-001-\d{4}$/);
   });
 
   it('creates request with notes', async () => {
@@ -209,7 +210,7 @@ describe('POST /v1/stock-adjustments — create request', () => {
       .send({});
 
     expect(res.status).toBe(201);
-    expect(res.body.data.requestNumber).toMatch(/^ADJ-\d{8}-0004$/);
+    expect(res.body.data.requestNumber).toMatch(/^ADJ-\d{8}-WH-001-0004$/);
   });
 });
 
@@ -593,7 +594,7 @@ describe('Request number generation', () => {
       .send({});
 
     expect(res.status).toBe(201);
-    expect(res.body.data.requestNumber).toMatch(/^ADJ-\d{8}-\d{4}$/);
+    expect(res.body.data.requestNumber).toMatch(/^ADJ-\d{8}-WH-001-\d{4}$/);
   });
 });
 

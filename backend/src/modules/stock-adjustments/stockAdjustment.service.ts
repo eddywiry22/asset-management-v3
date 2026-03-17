@@ -15,14 +15,14 @@ type UserCtx = { id: string; isAdmin: boolean };
 
 export class StockAdjustmentService {
   // -------------------------------------------------------------------------
-  // Request Number Generator: ADJ-YYYYMMDD-XXXX  (C2: retry on collision)
+  // Request Number Generator: ADJ-YYYYMMDD-LOCCODE-XXXX  (C2: retry on collision)
   // -------------------------------------------------------------------------
-  private async generateRequestNumber(): Promise<string> {
+  private async generateRequestNumber(locationCode: string): Promise<string> {
     const now    = new Date();
     const y      = now.getFullYear();
     const m      = String(now.getMonth() + 1).padStart(2, '0');
     const d      = String(now.getDate()).padStart(2, '0');
-    const prefix = `ADJ-${y}${m}${d}-`;
+    const prefix = `ADJ-${y}${m}${d}-${locationCode}-`;
 
     const count = await stockAdjustmentRepository.countByDatePrefix(prefix);
     const seq   = String(count + 1).padStart(4, '0');
@@ -39,6 +39,7 @@ export class StockAdjustmentService {
     page: number;
     limit: number;
     user: UserCtx;
+    filterLocationId?: string;
   }): Promise<{ data: AdjustmentRequestRow[]; total: number }> {
     let locationIds: string[] | undefined;
     if (!params.user.isAdmin) {
@@ -62,8 +63,15 @@ export class StockAdjustmentService {
   // Create request  (C2: retry on unique constraint collision)
   // -------------------------------------------------------------------------
   async create(dto: CreateRequestDto, userId: string): Promise<AdjustmentRequestRow> {
+    // Resolve location code for request number prefix
+    const locationRole = await prisma.userLocationRole.findFirst({
+      where:   { userId },
+      include: { location: { select: { code: true } } },
+    });
+    const locationCode = locationRole?.location?.code ?? 'GEN';
+
     for (let attempt = 0; attempt < 5; attempt++) {
-      const requestNumber = await this.generateRequestNumber();
+      const requestNumber = await this.generateRequestNumber(locationCode);
       try {
         return await stockAdjustmentRepository.create({
           requestNumber,

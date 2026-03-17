@@ -26,12 +26,16 @@ export type TransferRequestRow = {
   finalizedAt: Date | null;
   cancelledById: string | null;
   cancelledAt: Date | null;
+  rejectedById: string | null;
+  rejectedAt: Date | null;
+  rejectionReason: string | null;
   createdAt: Date;
   updatedAt: Date;
   createdBy: { id: string; email: string | null; phone: string | null };
   originApprovedBy: { id: string; email: string | null; phone: string | null } | null;
   destinationApprovedBy: { id: string; email: string | null; phone: string | null } | null;
   cancelledBy: { id: string; email: string | null; phone: string | null } | null;
+  rejectedBy: { id: string; email: string | null; phone: string | null } | null;
   sourceLocation: { id: string; code: string; name: string };
   destinationLocation: { id: string; code: string; name: string };
   items: TransferItemRow[];
@@ -48,6 +52,7 @@ const REQUEST_INCLUDE = {
   originApprovedBy:     USER_SELECT,
   destinationApprovedBy: USER_SELECT,
   cancelledBy:          USER_SELECT,
+  rejectedBy:           USER_SELECT,
   sourceLocation:       { select: { id: true, code: true, name: true } },
   destinationLocation:  { select: { id: true, code: true, name: true } },
   items: { include: ITEM_INCLUDE, orderBy: { createdAt: 'asc' as const } },
@@ -61,8 +66,9 @@ export class TransferRepository {
     page: number;
     limit: number;
     locationIds?: string[];
+    filterLocationId?: string;
   }): Promise<{ data: TransferRequestRow[]; total: number }> {
-    const { status, startDate, endDate, page, limit, locationIds } = params;
+    const { status, startDate, endDate, page, limit, locationIds, filterLocationId } = params;
     const where: Record<string, unknown> = {};
     if (status) where['status'] = status;
     if (startDate || endDate) {
@@ -71,10 +77,18 @@ export class TransferRepository {
         ...(endDate   ? { lte: endDate   } : {}),
       };
     }
+    // Non-admin: scope to accessible locations (from user roles)
     if (locationIds) {
       where['OR'] = [
         { sourceLocationId:      { in: locationIds } },
         { destinationLocationId: { in: locationIds } },
+      ];
+    }
+    // Admin: explicit location filter (from query param)
+    if (filterLocationId) {
+      where['OR'] = [
+        { sourceLocationId:      filterLocationId },
+        { destinationLocationId: filterLocationId },
       ];
     }
 
@@ -121,7 +135,6 @@ export class TransferRepository {
   }
 
   async deleteById(id: string): Promise<void> {
-    // Delete items first (no cascade), then the request
     await prisma.stockTransferItem.deleteMany({ where: { requestId: id } });
     await prisma.stockTransferRequest.delete({ where: { id } });
   }
@@ -211,6 +224,15 @@ export class TransferRepository {
     const result = await prisma.stockTransferRequest.updateMany({
       where: { id, status: { in: allowedStatuses } },
       data:  { status: TransferRequestStatus.CANCELLED, cancelledById, cancelledAt: now },
+    });
+    return result.count > 0;
+  }
+
+  // Reject: SUBMITTED or ORIGIN_MANAGER_APPROVED → REJECTED (atomic)
+  async claimRejection(id: string, rejectedById: string, now: Date, allowedStatuses: TransferRequestStatus[], reason: string): Promise<boolean> {
+    const result = await prisma.stockTransferRequest.updateMany({
+      where: { id, status: { in: allowedStatuses } },
+      data:  { status: TransferRequestStatus.REJECTED, rejectedById, rejectedAt: now, rejectionReason: reason },
     });
     return result.count > 0;
   }

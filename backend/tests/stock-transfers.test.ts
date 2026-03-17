@@ -95,7 +95,7 @@ const fakeItem = {
 function makeFakeRequest(status = 'DRAFT', items: any[] = []) {
   return {
     id:                      REQ_ID,
-    requestNumber:           'TRF-20260317-0001',
+    requestNumber:           'TRF-20260317-WH-A-ST-B-0001',
     status,
     sourceLocationId:        SRC_LOC_ID,
     destinationLocationId:   DST_LOC_ID,
@@ -109,12 +109,16 @@ function makeFakeRequest(status = 'DRAFT', items: any[] = []) {
     finalizedAt:             null,
     cancelledById:           null,
     cancelledAt:             null,
+    rejectedById:            null,
+    rejectedAt:              null,
+    rejectionReason:         null,
     createdAt:               new Date().toISOString(),
     updatedAt:               new Date().toISOString(),
     createdBy:               fakeUser,
     originApprovedBy:        null,
     destinationApprovedBy:   null,
     cancelledBy:             null,
+    rejectedBy:              null,
     sourceLocation:          fakeSourceLoc,
     destinationLocation:     fakeDestLoc,
     items,
@@ -224,7 +228,7 @@ describe('POST /v1/stock-transfers — create request', () => {
     expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
     expect(res.body.data.status).toBe('DRAFT');
-    expect(res.body.data.requestNumber).toBe('TRF-20260317-0001');
+    expect(res.body.data.requestNumber).toMatch(/^TRF-\d{8}-WH-A-ST-B-\d{4}$/);
   });
 
   it('creates request with notes', async () => {
@@ -297,7 +301,7 @@ describe('Request number generation', () => {
       .send({ sourceLocationId: SRC_LOC_ID, destinationLocationId: DST_LOC_ID });
 
     expect(res.status).toBe(201);
-    expect(res.body.data.requestNumber).toMatch(/^TRF-\d{8}-\d{4}$/);
+    expect(res.body.data.requestNumber).toMatch(/^TRF-\d{8}-WH-A-ST-B-\d{4}$/);
   });
 
   it('sequences correctly — 4th request of the day gets 0004', async () => {
@@ -313,7 +317,7 @@ describe('Request number generation', () => {
       .send({ sourceLocationId: SRC_LOC_ID, destinationLocationId: DST_LOC_ID });
 
     expect(res.status).toBe(201);
-    expect(res.body.data.requestNumber).toMatch(/^TRF-\d{8}-0004$/);
+    expect(res.body.data.requestNumber).toMatch(/^TRF-\d{8}-WH-A-ST-B-0004$/);
   });
 });
 
@@ -1387,20 +1391,31 @@ describe('Source location ownership on create', () => {
 // ===========================================================================
 
 describe('POST /v1/stock-transfers/:id/reject', () => {
-  // ── Stage 1 reject: SUBMITTED → CANCELLED by source MANAGER ────────────
+  // ── Stage 1 reject: SUBMITTED → REJECTED by source MANAGER ────────────
 
-  it('source MANAGER can reject a SUBMITTED request → 200 (CANCELLED)', async () => {
+  it('source MANAGER can reject a SUBMITTED request → 200 (REJECTED)', async () => {
     db.stockTransferRequest.findUnique
       .mockResolvedValueOnce(makeFakeRequest('SUBMITTED', [fakeItem]))
-      .mockResolvedValueOnce(makeFakeRequest('CANCELLED', [fakeItem]));
+      .mockResolvedValueOnce(makeFakeRequest('REJECTED', [fakeItem]));
     // Default findFirst mock returns MANAGER role at source location
 
     const res = await request(app)
       .post(`/v1/stock-transfers/${REQ_ID}/reject`)
-      .set(AUTH);
+      .set(AUTH)
+      .send({ reason: 'Stock not available' });
 
     expect(res.status).toBe(200);
-    expect(res.body.data.status).toBe('CANCELLED');
+    expect(res.body.data.status).toBe('REJECTED');
+  });
+
+  it('returns 400 when no reason is provided', async () => {
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/reject`)
+      .set(AUTH)
+      .send({});
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/rejection reason is required/i);
   });
 
   it('user without MANAGER role at source cannot reject SUBMITTED → 403', async () => {
@@ -1410,7 +1425,8 @@ describe('POST /v1/stock-transfers/:id/reject', () => {
 
     const res = await request(app)
       .post(`/v1/stock-transfers/${REQ_ID}/reject`)
-      .set(AUTH);
+      .set(AUTH)
+      .send({ reason: 'test reason' });
 
     expect(res.status).toBe(403);
     expect(res.body.error.message).toMatch(/Only a manager at the source location/);
@@ -1426,7 +1442,8 @@ describe('POST /v1/stock-transfers/:id/reject', () => {
 
     const res = await request(app)
       .post(`/v1/stock-transfers/${REQ_ID}/reject`)
-      .set(AUTH);
+      .set(AUTH)
+      .send({ reason: 'test reason' });
 
     expect(res.status).toBe(403);
     expect(res.body.error.message).toMatch(/Only a manager at the source location/);
@@ -1438,29 +1455,31 @@ describe('POST /v1/stock-transfers/:id/reject', () => {
     });
     db.stockTransferRequest.findUnique
       .mockResolvedValueOnce(makeFakeRequest('SUBMITTED', [fakeItem]))
-      .mockResolvedValueOnce(makeFakeRequest('CANCELLED', [fakeItem]));
+      .mockResolvedValueOnce(makeFakeRequest('REJECTED', [fakeItem]));
 
     const res = await request(app)
       .post(`/v1/stock-transfers/${REQ_ID}/reject`)
-      .set(AUTH);
+      .set(AUTH)
+      .send({ reason: 'test reason' });
 
     expect(res.status).toBe(200);
   });
 
-  // ── Stage 2 reject: ORIGIN_MANAGER_APPROVED → CANCELLED by dest user ───
+  // ── Stage 2 reject: ORIGIN_MANAGER_APPROVED → REJECTED by dest user ───
 
   it('destination user can reject an ORIGIN_MANAGER_APPROVED request → 200', async () => {
     db.stockTransferRequest.findUnique
       .mockResolvedValueOnce(makeFakeRequest('ORIGIN_MANAGER_APPROVED', [fakeItem]))
-      .mockResolvedValueOnce(makeFakeRequest('CANCELLED', [fakeItem]));
+      .mockResolvedValueOnce(makeFakeRequest('REJECTED', [fakeItem]));
     // Default findFirst: returns role at DST_LOC_ID (assertUserCanAccessLocation check)
 
     const res = await request(app)
       .post(`/v1/stock-transfers/${REQ_ID}/reject`)
-      .set(AUTH);
+      .set(AUTH)
+      .send({ reason: 'Cannot accept this transfer' });
 
     expect(res.status).toBe(200);
-    expect(res.body.data.status).toBe('CANCELLED');
+    expect(res.body.data.status).toBe('REJECTED');
   });
 
   it('user without destination access cannot reject ORIGIN_MANAGER_APPROVED → 403', async () => {
@@ -1469,7 +1488,8 @@ describe('POST /v1/stock-transfers/:id/reject', () => {
 
     const res = await request(app)
       .post(`/v1/stock-transfers/${REQ_ID}/reject`)
-      .set(AUTH);
+      .set(AUTH)
+      .send({ reason: 'test reason' });
 
     expect(res.status).toBe(403);
     expect(res.body.error.message).toMatch(/You do not have access to this location/);
@@ -1481,11 +1501,12 @@ describe('POST /v1/stock-transfers/:id/reject', () => {
     });
     db.stockTransferRequest.findUnique
       .mockResolvedValueOnce(makeFakeRequest('ORIGIN_MANAGER_APPROVED', [fakeItem]))
-      .mockResolvedValueOnce(makeFakeRequest('CANCELLED', [fakeItem]));
+      .mockResolvedValueOnce(makeFakeRequest('REJECTED', [fakeItem]));
 
     const res = await request(app)
       .post(`/v1/stock-transfers/${REQ_ID}/reject`)
-      .set(AUTH);
+      .set(AUTH)
+      .send({ reason: 'test reason' });
 
     expect(res.status).toBe(200);
   });
@@ -1497,7 +1518,8 @@ describe('POST /v1/stock-transfers/:id/reject', () => {
 
     const res = await request(app)
       .post(`/v1/stock-transfers/${REQ_ID}/reject`)
-      .set(AUTH);
+      .set(AUTH)
+      .send({ reason: 'test reason' });
 
     expect(res.status).toBe(400);
     expect(res.body.error.message).toMatch(/Cannot reject a request with status FINALIZED/);
@@ -1508,7 +1530,8 @@ describe('POST /v1/stock-transfers/:id/reject', () => {
 
     const res = await request(app)
       .post(`/v1/stock-transfers/${REQ_ID}/reject`)
-      .set(AUTH);
+      .set(AUTH)
+      .send({ reason: 'test reason' });
 
     expect(res.status).toBe(400);
     expect(res.body.error.message).toMatch(/Cannot reject a request with status DRAFT/);
@@ -1519,7 +1542,8 @@ describe('POST /v1/stock-transfers/:id/reject', () => {
 
     const res = await request(app)
       .post(`/v1/stock-transfers/${REQ_ID}/reject`)
-      .set(AUTH);
+      .set(AUTH)
+      .send({ reason: 'test reason' });
 
     expect(res.status).toBe(400);
     expect(res.body.error.message).toMatch(/Cannot reject a request with status READY_TO_FINALIZE/);

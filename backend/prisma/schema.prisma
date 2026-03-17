@@ -30,6 +30,7 @@ model User {
   transfersOriginApproved       StockTransferRequest[] @relation("TransferOriginApprovedBy")
   transfersDestinationApproved  StockTransferRequest[] @relation("TransferDestinationApprovedBy")
   transfersCancelled            StockTransferRequest[] @relation("TransferCancelledBy")
+  transfersRejected             StockTransferRequest[] @relation("TransferRejectedBy")
 }
 
 model Location {
@@ -239,6 +240,7 @@ enum TransferRequestStatus {
   READY_TO_FINALIZE
   FINALIZED
   CANCELLED
+  REJECTED
 }
 
 model StockTransferRequest {
@@ -257,6 +259,9 @@ model StockTransferRequest {
   finalizedAt             DateTime?
   cancelledById           String?
   cancelledAt             DateTime?
+  rejectedById            String?
+  rejectedAt              DateTime?
+  rejectionReason         String?               @db.Text
   createdAt               DateTime              @default(now())
   updatedAt               DateTime              @updatedAt
 
@@ -264,6 +269,7 @@ model StockTransferRequest {
   originApprovedBy      User?               @relation("TransferOriginApprovedBy",      fields: [originApprovedById],      references: [id])
   destinationApprovedBy User?               @relation("TransferDestinationApprovedBy", fields: [destinationApprovedById], references: [id])
   cancelledBy           User?               @relation("TransferCancelledBy",           fields: [cancelledById],           references: [id])
+  rejectedBy            User?               @relation("TransferRejectedBy",            fields: [rejectedById],            references: [id])
   sourceLocation        Location            @relation("TransferSourceLocation",        fields: [sourceLocationId],        references: [id])
   destinationLocation   Location            @relation("TransferDestinationLocation",   fields: [destinationLocationId],   references: [id])
   items                 StockTransferItem[]

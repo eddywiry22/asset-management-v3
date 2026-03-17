@@ -223,9 +223,11 @@ export default function StockAdjustmentDetailPage() {
   const isDraft     = req?.status === 'DRAFT';
   const isSubmitted = req?.status === 'SUBMITTED';
   const isApproved  = req?.status === 'APPROVED';
-  const isTerminal  = req?.status === 'FINALIZED' || req?.status === 'CANCELLED';
+  const isTerminal  = req?.status === 'FINALIZED' || req?.status === 'CANCELLED' || req?.status === 'REJECTED';
   const isCreator   = req?.createdById === (currentUser?.id ?? '');
-  const canCancel   = !isTerminal && (isAdmin || isCreator || isManager);
+  // F3: hide Cancel when Approve/Reject buttons are already shown (when submitted and user is manager)
+  const approveRejectVisible = isSubmitted && isManager;
+  const canCancel   = !isDraft && !isTerminal && !approveRejectVisible && (isAdmin || isCreator || isManager);
 
   if (isLoading) return <CircularProgress />;
   if (error || !req) return <Alert severity="error">Failed to load request</Alert>;

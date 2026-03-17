@@ -35,6 +35,7 @@ const STATUS_COLORS: Record<string, 'default' | 'success' | 'warning' | 'error' 
   READY_TO_FINALIZE:            'warning',
   FINALIZED:                    'success',
   CANCELLED:                    'error',
+  REJECTED:                     'error',
 };
 
 function fmtDate(d: string | null | undefined): string {
@@ -184,8 +185,12 @@ export default function StockTransferDetailPage() {
 
   // Confirm dialogs
   const [confirmAction, setConfirmAction] = useState<
-    'submit' | 'approveOrigin' | 'approveDestination' | 'reject' | 'finalize' | 'cancel' | 'delete' | null
+    'submit' | 'approveOrigin' | 'approveDestination' | 'finalize' | 'cancel' | 'delete' | null
   >(null);
+
+  // Rejection dialog state
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [rejectionReason,  setRejectionReason]  = useState('');
 
   const [snack, setSnack] = useState<{ msg: string; severity: 'success' | 'error' } | null>(null);
 
@@ -262,9 +267,14 @@ export default function StockTransferDetailPage() {
   const submitMutation          = mkWorkflowMutation(() => stockTransfersService.submit(id!), 'Transfer submitted');
   const approveOriginMutation   = mkWorkflowMutation(() => stockTransfersService.approveOrigin(id!), 'Origin approved');
   const approveDestMutation     = mkWorkflowMutation(() => stockTransfersService.approveDestination(id!), 'Destination approved — ready to finalize');
-  const rejectMutation          = mkWorkflowMutation(() => stockTransfersService.reject(id!), 'Transfer rejected');
   const finalizeMutation        = mkWorkflowMutation(() => stockTransfersService.finalize(id!), 'Transfer finalized — stock moved');
   const cancelMutation          = mkWorkflowMutation(() => stockTransfersService.cancel(id!), 'Transfer cancelled');
+
+  const rejectMutation = useMutation({
+    mutationFn: () => stockTransfersService.reject(id!, rejectionReason),
+    onSuccess: () => { invalidate(); setRejectDialogOpen(false); setRejectionReason(''); setSnack({ msg: 'Transfer rejected', severity: 'success' }); },
+    onError: (e: any) => { setRejectDialogOpen(false); setSnack({ msg: e?.response?.data?.error?.message ?? 'Operation failed', severity: 'error' }); },
+  });
 
   const deleteMutation = useMutation({
     mutationFn: () => stockTransfersService.deleteRequest(id!),
@@ -280,12 +290,14 @@ export default function StockTransferDetailPage() {
   const isSubmitted = status === 'SUBMITTED';
   const isOriginApproved = status === 'ORIGIN_MANAGER_APPROVED';
   const isReady     = status === 'READY_TO_FINALIZE';
-  const isTerminal  = status === 'FINALIZED' || status === 'CANCELLED';
+  const isTerminal  = status === 'FINALIZED' || status === 'CANCELLED' || status === 'REJECTED';
 
   const isCreator = req.createdById === userId;
   // Cancel: SUBMITTED+ (DRAFT uses Delete); any participant or creator/admin
+  // F3: hide Cancel when Approve/Reject buttons are already shown to avoid duplicate actions
   const hasLocationAccess = isAdmin || srcRole !== '' || dstRole !== '';
-  const canCancel = !isDraft && !isTerminal && (isAdmin || isCreator || hasLocationAccess);
+  const approveRejectVisible = (isSubmitted && isManagerAtSource) || (isOriginApproved && isOperatorAtDestination);
+  const canCancel = !isDraft && !isTerminal && !approveRejectVisible && (isAdmin || isCreator || hasLocationAccess);
   const canDelete = isDraft && (isAdmin || isCreator);
 
   // Workflow action confirmation config
@@ -310,13 +322,6 @@ export default function StockTransferDetailPage() {
       label: 'Confirm Approve',
       color: 'success',
       onConfirm: () => approveDestMutation.mutate(),
-    },
-    reject: {
-      title: 'Reject Transfer',
-      body: <Alert severity="warning" sx={{ mt: 1 }}>Rejecting will cancel this transfer request. This cannot be undone.</Alert>,
-      label: 'Confirm Reject',
-      color: 'error',
-      onConfirm: () => rejectMutation.mutate(),
     },
     finalize: {
       title: 'Finalize Transfer',
@@ -401,6 +406,18 @@ export default function StockTransferDetailPage() {
             <Box>
               <Typography variant="caption" color="text.secondary">Cancelled By</Typography>
               <Typography>{userLabel(req.cancelledBy)} — {fmtDate(req.cancelledAt)}</Typography>
+            </Box>
+          )}
+          {req.rejectedAt && (
+            <Box>
+              <Typography variant="caption" color="text.secondary">Rejected By</Typography>
+              <Typography>{userLabel(req.rejectedBy)} — {fmtDate(req.rejectedAt)}</Typography>
+            </Box>
+          )}
+          {req.rejectionReason && (
+            <Box sx={{ flexBasis: '100%' }}>
+              <Typography variant="caption" color="text.secondary">Rejection Reason</Typography>
+              <Typography color="error.main">{req.rejectionReason}</Typography>
             </Box>
           )}
           {req.notes && (
@@ -524,7 +541,7 @@ export default function StockTransferDetailPage() {
                   variant="outlined"
                   color="error"
                   startIcon={<CancelOutlinedIcon />}
-                  onClick={() => setConfirmAction('reject')}
+                  onClick={() => { setRejectionReason(''); setRejectDialogOpen(true); }}
                 >
                   Reject
                 </Button>
@@ -546,7 +563,7 @@ export default function StockTransferDetailPage() {
                   variant="outlined"
                   color="error"
                   startIcon={<CancelOutlinedIcon />}
-                  onClick={() => setConfirmAction('reject')}
+                  onClick={() => { setRejectionReason(''); setRejectDialogOpen(true); }}
                 >
                   Reject
                 </Button>
@@ -607,6 +624,37 @@ export default function StockTransferDetailPage() {
           onClose={() => setConfirmAction(null)}
         />
       )}
+
+      {/* Rejection Dialog */}
+      <Dialog open={rejectDialogOpen} onClose={() => setRejectDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Reject Transfer</DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            Rejecting will permanently mark this transfer as REJECTED. This cannot be undone.
+          </Alert>
+          <TextField
+            label="Rejection Reason"
+            multiline
+            rows={3}
+            fullWidth
+            required
+            value={rejectionReason}
+            onChange={(e) => setRejectionReason(e.target.value)}
+            helperText="Required — describe why this transfer is being rejected"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="error"
+            disabled={!rejectionReason.trim() || rejectMutation.isPending}
+            onClick={() => rejectMutation.mutate()}
+          >
+            Confirm Reject
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Snackbar
         open={!!snack}

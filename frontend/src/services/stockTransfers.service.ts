@@ -7,7 +7,8 @@ export type TransferRequestStatus =
   | 'DESTINATION_OPERATOR_APPROVED'
   | 'READY_TO_FINALIZE'
   | 'FINALIZED'
-  | 'CANCELLED';
+  | 'CANCELLED'
+  | 'REJECTED';
 
 export type TransferUser = {
   id: string;
@@ -40,12 +41,16 @@ export type TransferRequest = {
   finalizedAt: string | null;
   cancelledById: string | null;
   cancelledAt: string | null;
+  rejectedById: string | null;
+  rejectedAt: string | null;
+  rejectionReason: string | null;
   createdAt: string;
   updatedAt: string;
   createdBy: TransferUser;
   originApprovedBy: TransferUser | null;
   destinationApprovedBy: TransferUser | null;
   cancelledBy: TransferUser | null;
+  rejectedBy: TransferUser | null;
   sourceLocation: { id: string; code: string; name: string };
   destinationLocation: { id: string; code: string; name: string };
   items: TransferItem[];
@@ -129,8 +134,8 @@ const stockTransfersService = {
     return apiClient.post(`stock-transfers/${requestId}/finalize`).then((r) => r.data);
   },
 
-  reject(requestId: string): Promise<{ success: boolean; data: TransferRequest }> {
-    return apiClient.post(`stock-transfers/${requestId}/reject`).then((r) => r.data);
+  reject(requestId: string, reason: string): Promise<{ success: boolean; data: TransferRequest }> {
+    return apiClient.post(`stock-transfers/${requestId}/reject`, { reason }).then((r) => r.data);
   },
 
   cancel(requestId: string): Promise<{ success: boolean; data: TransferRequest }> {

@@ -57,8 +57,9 @@ export class StockAdjustmentRepository {
     page: number;
     limit: number;
     locationIds?: string[];
+    filterLocationId?: string;
   }): Promise<{ data: AdjustmentRequestRow[]; total: number }> {
-    const { status, startDate, endDate, page, limit, locationIds } = params;
+    const { status, startDate, endDate, page, limit, locationIds, filterLocationId } = params;
     const where: Record<string, unknown> = {};
     if (status)    where['status']    = status;
     if (startDate || endDate) {
@@ -67,8 +68,13 @@ export class StockAdjustmentRepository {
         ...(endDate   ? { lte: endDate   } : {}),
       };
     }
+    // Non-admin: scope to accessible locations
     if (locationIds) {
       where['items'] = { some: { locationId: { in: locationIds } } };
+    }
+    // Admin: explicit location filter (from query param)
+    if (filterLocationId) {
+      where['items'] = { some: { locationId: filterLocationId } };
     }
 
     const skip = (page - 1) * limit;
