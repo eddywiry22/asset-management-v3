@@ -149,6 +149,7 @@ export default function StockDashboardPage() {
     queryKey: ['stock-overview', appliedFilters, page, limit, applyVersion],
     queryFn:  () => {
       const { locationId, startDate, endDate } = appliedFilters;
+      console.log('APPLIED FILTERS', appliedFilters);
       console.log('FETCH', { startDate, endDate, locationId, applyVersion });
       return stockService.getStockOverview({ ...appliedFilters, page: page + 1, limit });
     },
