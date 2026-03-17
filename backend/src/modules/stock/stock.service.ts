@@ -123,7 +123,9 @@ export class StockService {
           outboundQty = 0;
         }
 
-        const finalQty = startDate
+        // Use computed period metrics whenever any date filter is active;
+        // fall back to current onHand only when no period is specified.
+        const finalQty = (startDate || endDate)
           ? startingQty + inboundQty - outboundQty
           : onHand;
 

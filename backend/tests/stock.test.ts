@@ -437,6 +437,139 @@ describe('GET /v1/stock/ledger — location security for multi-role users', () =
 });
 
 // ===========================================================================
+// STOCK DASHBOARD DATE FILTERS — independent of location filter
+// ===========================================================================
+
+describe('GET /v1/stock — date filter works independently of location', () => {
+  it('date filter works without location filter (startDate + endDate)', async () => {
+    db.stockBalance.findMany.mockResolvedValue([fakeBalance]);
+    db.stockBalance.count.mockResolvedValue(1);
+    db.stockLedger.groupBy.mockResolvedValue([
+      {
+        productId:  PRODUCT_ID,
+        locationId: LOCATION_ID,
+        sourceType: 'ADJUSTMENT',
+        _sum:       { changeQty: 20 },
+      },
+    ]);
+    db.stockLedger.findFirst.mockResolvedValue({ balanceAfter: '5' }); // starting balance
+
+    const start = new Date('2024-01-01T00:00:00.000Z').toISOString();
+    const end   = new Date('2024-12-31T23:59:59.999Z').toISOString();
+
+    const res = await request(app)
+      .get(`/v1/stock?startDate=${start}&endDate=${end}`)
+      .set(AUTH); // no locationId param
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    // Period metrics are computed when dates provided
+    expect(res.body.data[0].inboundQty).toBe(20);
+    expect(res.body.data[0].startingQty).toBe(5);
+    expect(res.body.data[0].finalQty).toBe(25); // 5 + 20 - 0
+  });
+
+  it('endDate-only filter computes finalQty from period metrics (not raw onHand)', async () => {
+    db.stockBalance.findMany.mockResolvedValue([fakeBalance]);
+    db.stockBalance.count.mockResolvedValue(1);
+    db.stockLedger.groupBy.mockResolvedValue([
+      {
+        productId:  PRODUCT_ID,
+        locationId: LOCATION_ID,
+        sourceType: 'SEED',
+        _sum:       { changeQty: 10 },
+      },
+    ]);
+    // no findFirst call expected (startDate absent)
+
+    const end = new Date('2024-06-30T23:59:59.999Z').toISOString();
+
+    const res = await request(app)
+      .get(`/v1/stock?endDate=${end}`)
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    // finalQty must use computed value (startingQty=0 + inbound=10 - outbound=0), not raw onHand (10)
+    expect(res.body.data[0].inboundQty).toBe(10);
+    expect(res.body.data[0].startingQty).toBe(0);
+    expect(res.body.data[0].finalQty).toBe(10); // 0 + 10 - 0
+  });
+
+  it('startDate-only filter computes period metrics correctly', async () => {
+    db.stockBalance.findMany.mockResolvedValue([fakeBalance]);
+    db.stockBalance.count.mockResolvedValue(1);
+    db.stockLedger.groupBy.mockResolvedValue([
+      {
+        productId:  PRODUCT_ID,
+        locationId: LOCATION_ID,
+        sourceType: 'MOVEMENT_OUT',
+        _sum:       { changeQty: -3 },
+      },
+    ]);
+    db.stockLedger.findFirst.mockResolvedValue({ balanceAfter: '8' }); // balance before start
+
+    const start = new Date('2024-03-01T00:00:00.000Z').toISOString();
+
+    const res = await request(app)
+      .get(`/v1/stock?startDate=${start}`)
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data[0].startingQty).toBe(8);
+    expect(res.body.data[0].outboundQty).toBe(3);
+    expect(res.body.data[0].finalQty).toBe(5); // 8 + 0 - 3
+  });
+
+  it('date + location filter works together', async () => {
+    db.userLocationRole.findMany.mockResolvedValue([
+      { locationId: LOCATION_ID },
+      { locationId: LOCATION_ID_2 },
+    ]);
+    db.stockBalance.findMany.mockResolvedValue([fakeBalance]);
+    db.stockBalance.count.mockResolvedValue(1);
+    db.stockLedger.groupBy.mockResolvedValue([]);
+    db.stockLedger.findFirst.mockResolvedValue(null);
+
+    const start = new Date('2024-01-01T00:00:00.000Z').toISOString();
+    const end   = new Date('2024-12-31T23:59:59.999Z').toISOString();
+
+    const res = await request(app)
+      .get(`/v1/stock?locationId=${LOCATION_ID}&startDate=${start}&endDate=${end}`)
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data[0].locationCode).toBe('WH-001');
+  });
+
+  it('same-day filter (startDate == endDate) works', async () => {
+    db.stockBalance.findMany.mockResolvedValue([fakeBalance]);
+    db.stockBalance.count.mockResolvedValue(1);
+    db.stockLedger.groupBy.mockResolvedValue([
+      {
+        productId:  PRODUCT_ID,
+        locationId: LOCATION_ID,
+        sourceType: 'ADJUSTMENT',
+        _sum:       { changeQty: 5 },
+      },
+    ]);
+    db.stockLedger.findFirst.mockResolvedValue({ balanceAfter: '0' });
+
+    const sameDay = new Date('2024-06-15T00:00:00.000Z').toISOString();
+    const sameDayEnd = new Date('2024-06-15T23:59:59.999Z').toISOString();
+
+    const res = await request(app)
+      .get(`/v1/stock?startDate=${sameDay}&endDate=${sameDayEnd}`)
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data[0].inboundQty).toBe(5);
+    expect(res.body.data[0].finalQty).toBe(5); // 0 + 5 - 0
+  });
+});
+
+// ===========================================================================
 // RESERVATION UNDERFLOW PROTECTION
 // ===========================================================================
 

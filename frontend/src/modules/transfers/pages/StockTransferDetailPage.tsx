@@ -23,6 +23,7 @@ import stockTransfersService, {
 import stockService from '../../../services/stock.service';
 import apiClient from '../../../api/client';
 import { AuthUser } from '../../../types/auth.types';
+import ActionReasonModal from '../../../components/ActionReasonModal';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -188,13 +189,8 @@ export default function StockTransferDetailPage() {
     'submit' | 'approveOrigin' | 'approveDestination' | 'finalize' | 'cancel' | 'delete' | null
   >(null);
 
-  // Rejection dialog state
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
-  const [rejectionReason,  setRejectionReason]  = useState('');
-
-  // Cancellation dialog state
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
-  const [cancelReason,     setCancelReason]     = useState('');
 
   const [snack, setSnack] = useState<{ msg: string; severity: 'success' | 'error' } | null>(null);
 
@@ -273,15 +269,15 @@ export default function StockTransferDetailPage() {
   const approveDestMutation     = mkWorkflowMutation(() => stockTransfersService.approveDestination(id!), 'Destination approved — ready to finalize');
   const finalizeMutation        = mkWorkflowMutation(() => stockTransfersService.finalize(id!), 'Transfer finalized — stock moved');
   const cancelMutation = useMutation({
-    mutationFn: () => stockTransfersService.cancel(id!, cancelReason),
-    onSuccess: () => { invalidate(); setCancelDialogOpen(false); setCancelReason(''); setSnack({ msg: 'Transfer cancelled', severity: 'success' }); },
+    mutationFn: (reason: string) => stockTransfersService.cancel(id!, reason),
+    onSuccess: () => { invalidate(); setCancelDialogOpen(false); setSnack({ msg: 'Transfer cancelled', severity: 'success' }); },
     onError: (e: any) => { setSnack({ msg: e?.response?.data?.error?.message ?? 'Operation failed', severity: 'error' }); },
   });
 
   const rejectMutation = useMutation({
-    mutationFn: () => stockTransfersService.reject(id!, rejectionReason),
-    onSuccess: () => { invalidate(); setRejectDialogOpen(false); setRejectionReason(''); setSnack({ msg: 'Transfer rejected', severity: 'success' }); },
-    onError: (e: any) => { setRejectDialogOpen(false); setSnack({ msg: e?.response?.data?.error?.message ?? 'Operation failed', severity: 'error' }); },
+    mutationFn: (reason: string) => stockTransfersService.reject(id!, reason),
+    onSuccess: () => { invalidate(); setRejectDialogOpen(false); setSnack({ msg: 'Transfer rejected', severity: 'success' }); },
+    onError: (e: any) => { setSnack({ msg: e?.response?.data?.error?.message ?? 'Operation failed', severity: 'error' }); },
   });
 
   const deleteMutation = useMutation({
@@ -548,7 +544,7 @@ export default function StockTransferDetailPage() {
                   variant="outlined"
                   color="error"
                   startIcon={<CancelOutlinedIcon />}
-                  onClick={() => { setRejectionReason(''); setRejectDialogOpen(true); }}
+                  onClick={() => setRejectDialogOpen(true)}
                 >
                   Reject
                 </Button>
@@ -570,7 +566,7 @@ export default function StockTransferDetailPage() {
                   variant="outlined"
                   color="error"
                   startIcon={<CancelOutlinedIcon />}
-                  onClick={() => { setRejectionReason(''); setRejectDialogOpen(true); }}
+                  onClick={() => setRejectDialogOpen(true)}
                 >
                   Reject
                 </Button>
@@ -595,7 +591,7 @@ export default function StockTransferDetailPage() {
                 variant="outlined"
                 color="error"
                 startIcon={<CancelOutlinedIcon />}
-                onClick={() => { setCancelReason(''); setCancelDialogOpen(true); }}
+                onClick={() => setCancelDialogOpen(true)}
               >
                 Cancel
               </Button>
@@ -632,67 +628,27 @@ export default function StockTransferDetailPage() {
         />
       )}
 
-      {/* Cancellation Dialog */}
-      <Dialog open={cancelDialogOpen} onClose={() => setCancelDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Cancel Transfer</DialogTitle>
-        <DialogContent>
-          <Alert severity="warning" sx={{ mb: 2 }}>
-            Cancelling will permanently mark this transfer as CANCELLED. This cannot be undone.
-          </Alert>
-          <TextField
-            label="Cancellation Reason"
-            multiline
-            rows={3}
-            fullWidth
-            required
-            value={cancelReason}
-            onChange={(e) => setCancelReason(e.target.value)}
-            helperText="Required — describe why this transfer is being cancelled"
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setCancelDialogOpen(false)}>Back</Button>
-          <Button
-            variant="contained"
-            color="error"
-            disabled={!cancelReason.trim() || cancelMutation.isPending}
-            onClick={() => cancelMutation.mutate()}
-          >
-            Confirm Cancel
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {/* Cancel Modal */}
+      <ActionReasonModal
+        open={cancelDialogOpen}
+        type="cancel"
+        title="Cancel Transfer"
+        confirmLabel="Confirm Cancel"
+        loading={cancelMutation.isPending}
+        onSubmit={(reason) => cancelMutation.mutate(reason)}
+        onClose={() => setCancelDialogOpen(false)}
+      />
 
-      {/* Rejection Dialog */}
-      <Dialog open={rejectDialogOpen} onClose={() => setRejectDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Reject Transfer</DialogTitle>
-        <DialogContent>
-          <Alert severity="warning" sx={{ mb: 2 }}>
-            Rejecting will permanently mark this transfer as REJECTED. This cannot be undone.
-          </Alert>
-          <TextField
-            label="Rejection Reason"
-            multiline
-            rows={3}
-            fullWidth
-            required
-            value={rejectionReason}
-            onChange={(e) => setRejectionReason(e.target.value)}
-            helperText="Required — describe why this transfer is being rejected"
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            color="error"
-            disabled={!rejectionReason.trim() || rejectMutation.isPending}
-            onClick={() => rejectMutation.mutate()}
-          >
-            Confirm Reject
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {/* Reject Modal */}
+      <ActionReasonModal
+        open={rejectDialogOpen}
+        type="reject"
+        title="Reject Transfer"
+        confirmLabel="Confirm Reject"
+        loading={rejectMutation.isPending}
+        onSubmit={(reason) => rejectMutation.mutate(reason)}
+        onClose={() => setRejectDialogOpen(false)}
+      />
 
       <Snackbar
         open={!!snack}

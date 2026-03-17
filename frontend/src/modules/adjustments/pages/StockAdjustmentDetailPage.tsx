@@ -20,6 +20,7 @@ import stockAdjustmentsService, {
 import stockService from '../../../services/stock.service';
 import apiClient from '../../../api/client';
 import { useAuth } from '../../../context/AuthContext';
+import ActionReasonModal from '../../../components/ActionReasonModal';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -147,9 +148,9 @@ export default function StockAdjustmentDetailPage() {
 
   const [itemDialogOpen, setItemDialogOpen] = useState(false);
   const [editingItem,    setEditingItem]    = useState<AdjustmentItem | null>(null);
-  const [confirmAction,  setConfirmAction]  = useState<'submit' | 'approve' | 'reject' | 'finalize' | 'cancel' | null>(null);
-  const [rejectReason,   setRejectReason]   = useState('');
-  const [cancelReason,   setCancelReason]   = useState('');
+  const [confirmAction,    setConfirmAction]    = useState<'submit' | 'approve' | 'finalize' | null>(null);
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [snack, setSnack] = useState<{ msg: string; severity: 'success' | 'error' } | null>(null);
 
   const { data: reqData, isLoading, error } = useQuery({
@@ -204,8 +205,8 @@ export default function StockAdjustmentDetailPage() {
   });
 
   const rejectMutation = useMutation({
-    mutationFn: () => stockAdjustmentsService.reject(id!, rejectReason),
-    onSuccess: () => { invalidate(); setConfirmAction(null); setRejectReason(''); setSnack({ msg: 'Rejected', severity: 'success' }); },
+    mutationFn: (reason: string) => stockAdjustmentsService.reject(id!, reason),
+    onSuccess: () => { invalidate(); setRejectDialogOpen(false); setSnack({ msg: 'Rejected', severity: 'success' }); },
     onError: (e: any) => { setSnack({ msg: e?.response?.data?.error?.message ?? 'Reject failed', severity: 'error' }); },
   });
 
@@ -216,8 +217,8 @@ export default function StockAdjustmentDetailPage() {
   });
 
   const cancelMutation = useMutation({
-    mutationFn: () => stockAdjustmentsService.cancel(id!, cancelReason),
-    onSuccess: () => { invalidate(); setConfirmAction(null); setCancelReason(''); setSnack({ msg: 'Request cancelled', severity: 'success' }); },
+    mutationFn: (reason: string) => stockAdjustmentsService.cancel(id!, reason),
+    onSuccess: () => { invalidate(); setCancelDialogOpen(false); setSnack({ msg: 'Request cancelled', severity: 'success' }); },
     onError: (e: any) => { setSnack({ msg: e?.response?.data?.error?.message ?? 'Cancel failed', severity: 'error' }); },
   });
 
@@ -378,7 +379,7 @@ export default function StockAdjustmentDetailPage() {
             <Button variant="contained" color="success" onClick={() => setConfirmAction('approve')}>
               Approve
             </Button>
-            <Button variant="outlined" color="error" onClick={() => setConfirmAction('reject')}>
+            <Button variant="outlined" color="error" onClick={() => setRejectDialogOpen(true)}>
               Reject
             </Button>
           </>
@@ -389,7 +390,7 @@ export default function StockAdjustmentDetailPage() {
           </Button>
         )}
         {canCancel && (
-          <Button variant="outlined" color="error" startIcon={<CancelOutlinedIcon />} onClick={() => setConfirmAction('cancel')}>
+          <Button variant="outlined" color="error" startIcon={<CancelOutlinedIcon />} onClick={() => setCancelDialogOpen(true)}>
             Cancel
           </Button>
         )}
@@ -410,74 +411,58 @@ export default function StockAdjustmentDetailPage() {
         initial={editingItem}
       />
 
-      {/* Confirm Action Dialog */}
+      {/* Confirm Action Dialog (submit / approve / finalize) */}
       <Dialog open={!!confirmAction} onClose={() => setConfirmAction(null)} maxWidth="xs" fullWidth>
         <DialogTitle>
           {confirmAction === 'submit'   && 'Submit Request'}
           {confirmAction === 'approve'  && 'Approve Request'}
-          {confirmAction === 'reject'   && 'Reject Request'}
           {confirmAction === 'finalize' && 'Finalize Request'}
-          {confirmAction === 'cancel'   && 'Cancel Request'}
         </DialogTitle>
         <DialogContent>
-          {confirmAction === 'reject' && (
-            <TextField
-              label="Rejection reason (required)"
-              fullWidth
-              multiline
-              rows={3}
-              required
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-              sx={{ mt: 1 }}
-              error={rejectReason.trim() === ''}
-              helperText={rejectReason.trim() === '' ? 'A reason is required to reject' : ''}
-            />
-          )}
           {confirmAction === 'finalize' && (
             <Alert severity="warning" sx={{ mt: 1 }}>
               This will apply stock changes permanently and cannot be undone.
             </Alert>
           )}
-          {confirmAction === 'cancel' && (
-            <TextField
-              label="Cancellation reason (required)"
-              fullWidth
-              multiline
-              rows={3}
-              required
-              value={cancelReason}
-              onChange={(e) => setCancelReason(e.target.value)}
-              sx={{ mt: 1 }}
-              error={cancelReason.trim() === ''}
-              helperText={cancelReason.trim() === '' ? 'A reason is required to cancel' : ''}
-            />
-          )}
-          {confirmAction !== 'reject' && confirmAction !== 'finalize' && confirmAction !== 'cancel' && (
-            <Typography>Are you sure?</Typography>
-          )}
+          {confirmAction !== 'finalize' && <Typography>Are you sure?</Typography>}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => { setConfirmAction(null); setRejectReason(''); setCancelReason(''); }}>Cancel</Button>
+          <Button onClick={() => setConfirmAction(null)}>Cancel</Button>
           <Button
             variant="contained"
-            color={confirmAction === 'reject' || confirmAction === 'cancel' ? 'error' : confirmAction === 'finalize' ? 'warning' : 'primary'}
-            disabled={
-              (confirmAction === 'reject' && rejectReason.trim() === '') ||
-              (confirmAction === 'cancel' && cancelReason.trim() === '')
-            }
+            color={confirmAction === 'finalize' ? 'warning' : 'primary'}
             onClick={() => {
               if (confirmAction === 'submit')   submitMutation.mutate();
               if (confirmAction === 'approve')  approveMutation.mutate();
-              if (confirmAction === 'reject')   rejectMutation.mutate();
               if (confirmAction === 'finalize') finalizeMutation.mutate();
-              if (confirmAction === 'cancel')   cancelMutation.mutate();
             }}
           >
             Confirm
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Reject Modal */}
+      <ActionReasonModal
+        open={rejectDialogOpen}
+        type="reject"
+        title="Reject Request"
+        confirmLabel="Confirm Reject"
+        loading={rejectMutation.isPending}
+        onSubmit={(reason) => rejectMutation.mutate(reason)}
+        onClose={() => setRejectDialogOpen(false)}
+      />
+
+      {/* Cancel Modal */}
+      <ActionReasonModal
+        open={cancelDialogOpen}
+        type="cancel"
+        title="Cancel Request"
+        confirmLabel="Confirm Cancel"
+        loading={cancelMutation.isPending}
+        onSubmit={(reason) => cancelMutation.mutate(reason)}
+        onClose={() => setCancelDialogOpen(false)}
+      />
 
       <Snackbar
         open={!!snack}
