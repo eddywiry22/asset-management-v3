@@ -56,6 +56,10 @@ router.post('/:id/finalize', (req, res, next) =>
   transferController.finalize(cast(req), res, next)
 );
 
+router.post('/:id/reject', (req, res, next) =>
+  transferController.reject(cast(req), res, next)
+);
+
 router.post('/:id/cancel', (req, res, next) =>
   transferController.cancel(cast(req), res, next)
 );

@@ -1379,3 +1379,176 @@ describe('Source location ownership on create', () => {
     expect(res.status).toBe(201);
   });
 });
+
+// ===========================================================================
+// 24. REJECT
+// ===========================================================================
+
+describe('POST /v1/stock-transfers/:id/reject', () => {
+  // ── Stage 1 reject: SUBMITTED → CANCELLED by source MANAGER ────────────
+
+  it('source MANAGER can reject a SUBMITTED request → 200 (CANCELLED)', async () => {
+    db.stockTransferRequest.findUnique
+      .mockResolvedValueOnce(makeFakeRequest('SUBMITTED', [fakeItem]))
+      .mockResolvedValueOnce(makeFakeRequest('CANCELLED', [fakeItem]));
+    // Default findFirst mock returns MANAGER role at source location
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/reject`)
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe('CANCELLED');
+  });
+
+  it('user without MANAGER role at source cannot reject SUBMITTED → 403', async () => {
+    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('SUBMITTED', [fakeItem]));
+    // No MANAGER role at source location
+    db.userLocationRole.findFirst.mockResolvedValue(null);
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/reject`)
+      .set(AUTH);
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toMatch(/Only a manager at the source location/);
+  });
+
+  it('OPERATOR at source (not MANAGER) cannot reject SUBMITTED → 403', async () => {
+    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('SUBMITTED', [fakeItem]));
+    // Has OPERATOR role at source but not MANAGER
+    db.userLocationRole.findFirst.mockImplementation(({ where }: any) => {
+      if (where.role === 'MANAGER') return Promise.resolve(null);
+      return Promise.resolve({ id: 'role-1', userId: USER_ID, locationId: SRC_LOC_ID, role: 'OPERATOR' });
+    });
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/reject`)
+      .set(AUTH);
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toMatch(/Only a manager at the source location/);
+  });
+
+  it('admin can reject a SUBMITTED request → 200', async () => {
+    (authService.verifyAccessToken as jest.Mock).mockReturnValue({
+      sub: USER_ID, email: 'admin@example.com', phone: null, isAdmin: true,
+    });
+    db.stockTransferRequest.findUnique
+      .mockResolvedValueOnce(makeFakeRequest('SUBMITTED', [fakeItem]))
+      .mockResolvedValueOnce(makeFakeRequest('CANCELLED', [fakeItem]));
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/reject`)
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+  });
+
+  // ── Stage 2 reject: ORIGIN_MANAGER_APPROVED → CANCELLED by dest user ───
+
+  it('destination user can reject an ORIGIN_MANAGER_APPROVED request → 200', async () => {
+    db.stockTransferRequest.findUnique
+      .mockResolvedValueOnce(makeFakeRequest('ORIGIN_MANAGER_APPROVED', [fakeItem]))
+      .mockResolvedValueOnce(makeFakeRequest('CANCELLED', [fakeItem]));
+    // Default findFirst: returns role at DST_LOC_ID (assertUserCanAccessLocation check)
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/reject`)
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe('CANCELLED');
+  });
+
+  it('user without destination access cannot reject ORIGIN_MANAGER_APPROVED → 403', async () => {
+    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('ORIGIN_MANAGER_APPROVED', [fakeItem]));
+    db.userLocationRole.findFirst.mockResolvedValue(null);
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/reject`)
+      .set(AUTH);
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toMatch(/You do not have access to this location/);
+  });
+
+  it('admin can reject an ORIGIN_MANAGER_APPROVED request → 200', async () => {
+    (authService.verifyAccessToken as jest.Mock).mockReturnValue({
+      sub: USER_ID, email: 'admin@example.com', phone: null, isAdmin: true,
+    });
+    db.stockTransferRequest.findUnique
+      .mockResolvedValueOnce(makeFakeRequest('ORIGIN_MANAGER_APPROVED', [fakeItem]))
+      .mockResolvedValueOnce(makeFakeRequest('CANCELLED', [fakeItem]));
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/reject`)
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+  });
+
+  // ── Invalid status for reject ────────────────────────────────────────────
+
+  it('returns 400 when trying to reject a FINALIZED request', async () => {
+    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('FINALIZED', [fakeItem]));
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/reject`)
+      .set(AUTH);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/Cannot reject a request with status FINALIZED/);
+  });
+
+  it('returns 400 when trying to reject a DRAFT request', async () => {
+    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('DRAFT', [fakeItem]));
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/reject`)
+      .set(AUTH);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/Cannot reject a request with status DRAFT/);
+  });
+
+  it('returns 400 when trying to reject a READY_TO_FINALIZE request', async () => {
+    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('READY_TO_FINALIZE', [fakeItem]));
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/reject`)
+      .set(AUTH);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/Cannot reject a request with status READY_TO_FINALIZE/);
+  });
+});
+
+// ===========================================================================
+// 25. FINALIZE — DESTINATION-ONLY PERMISSION
+// ===========================================================================
+
+describe('Finalize — destination-only access requirement', () => {
+  it('destination user (no source access) CAN finalize → 200', async () => {
+    db.stockTransferRequest.findUnique
+      .mockResolvedValueOnce(makeFakeRequest('READY_TO_FINALIZE', [fakeItem]))
+      .mockResolvedValueOnce(makeFakeRequest('FINALIZED', [fakeItem]));
+    // Has access to DST_LOC_ID but not SRC_LOC_ID
+    db.userLocationRole.findFirst.mockImplementation(({ where }: any) => {
+      if (where.locationId === DST_LOC_ID) return Promise.resolve({ id: 'role-1', userId: USER_ID, locationId: DST_LOC_ID, role: 'OPERATOR' });
+      return Promise.resolve(null);
+    });
+    db.$transaction.mockImplementation(async (cb: Function) => await cb(db));
+    db.$queryRaw.mockResolvedValue([{ onHandQty: '100', reservedQty: '0' }]);
+    db.stockBalance.upsert.mockResolvedValue({ id: 'b', onHandQty: '100', reservedQty: '0' });
+    db.stockBalance.update.mockResolvedValue({ id: 'b', onHandQty: '90', reservedQty: '0' });
+    db.stockLedger.create.mockResolvedValue({});
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/finalize`)
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe('FINALIZED');
+  });
+});

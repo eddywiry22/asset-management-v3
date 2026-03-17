@@ -138,6 +138,16 @@ export class TransferController {
     }
   }
 
+  async reject(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const user = { id: req.user.id, isAdmin: req.user.isAdmin };
+      const data = await transferService.reject(req.params.id, user);
+      res.status(200).json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async cancel(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const user = { id: req.user.id, isAdmin: req.user.isAdmin };

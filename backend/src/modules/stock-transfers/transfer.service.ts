@@ -274,8 +274,54 @@ export class TransferService {
   }
 
   // -------------------------------------------------------------------------
+  // Reject (SUBMITTED → CANCELLED by source manager)
+  //      (ORIGIN_MANAGER_APPROVED → CANCELLED by destination user)
+  // -------------------------------------------------------------------------
+  async reject(requestId: string, user: UserCtx): Promise<TransferRequestRow> {
+    const req = await this.findById(requestId);
+
+    if (req.status === TransferRequestStatus.SUBMITTED) {
+      // Stage 1 reject: must be MANAGER at source location (or admin)
+      if (!user.isAdmin) {
+        const role = await prisma.userLocationRole.findFirst({
+          where: { userId: user.id, locationId: req.sourceLocationId, role: Role.MANAGER },
+        });
+        if (!role) {
+          throw new ForbiddenError('Only a manager at the source location can reject at origin stage');
+        }
+      }
+    } else if (req.status === TransferRequestStatus.ORIGIN_MANAGER_APPROVED) {
+      // Stage 2 reject: must have any role at destination location (or admin)
+      await assertUserCanAccessLocation(user.id, user.isAdmin, req.destinationLocationId);
+    } else {
+      throw new ValidationError(`Cannot reject a request with status ${req.status}`);
+    }
+
+    const claimed = await transferRepository.claimCancellation(
+      requestId,
+      user.id,
+      new Date(),
+      [req.status],
+    );
+    if (!claimed) {
+      throw new ValidationError(`Cannot reject a request with status ${req.status}`);
+    }
+
+    void auditService.log({
+      entityType:  'STOCK_TRANSFER_REQUEST',
+      entityId:    requestId,
+      action:      'STATUS_CHANGE',
+      afterValue:  { status: 'CANCELLED', rejectedFrom: req.status },
+      performedBy: user.id,
+    });
+
+    return (await transferRepository.findById(requestId))!;
+  }
+
+  // -------------------------------------------------------------------------
   // Finalize (READY_TO_FINALIZE → FINALIZED)
-  // Finalizer must be admin or have access to BOTH source and destination
+  // Finalizer must be admin or have access to DESTINATION location
+  // (destination user who approved step 2 can complete the transfer)
   // -------------------------------------------------------------------------
   async finalize(requestId: string, user: UserCtx): Promise<TransferRequestRow> {
     const req = await this.findById(requestId);
@@ -290,8 +336,7 @@ export class TransferService {
       throw new ValidationError('Source and destination locations must be different');
     }
 
-    // Non-admin must have access to BOTH source and destination locations
-    await assertUserCanAccessLocation(user.id, user.isAdmin, req.sourceLocationId);
+    // Non-admin must have access to the destination location
     await assertUserCanAccessLocation(user.id, user.isAdmin, req.destinationLocationId);
 
     // Atomically claim

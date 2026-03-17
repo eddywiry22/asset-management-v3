@@ -129,6 +129,10 @@ const stockTransfersService = {
     return apiClient.post(`stock-transfers/${requestId}/finalize`).then((r) => r.data);
   },
 
+  reject(requestId: string): Promise<{ success: boolean; data: TransferRequest }> {
+    return apiClient.post(`stock-transfers/${requestId}/reject`).then((r) => r.data);
+  },
+
   cancel(requestId: string): Promise<{ success: boolean; data: TransferRequest }> {
     return apiClient.post(`stock-transfers/${requestId}/cancel`).then((r) => r.data);
   },

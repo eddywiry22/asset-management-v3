@@ -184,7 +184,7 @@ export default function StockTransferDetailPage() {
 
   // Confirm dialogs
   const [confirmAction, setConfirmAction] = useState<
-    'submit' | 'approveOrigin' | 'approveDestination' | 'finalize' | 'cancel' | 'delete' | null
+    'submit' | 'approveOrigin' | 'approveDestination' | 'reject' | 'finalize' | 'cancel' | 'delete' | null
   >(null);
 
   const [snack, setSnack] = useState<{ msg: string; severity: 'success' | 'error' } | null>(null);
@@ -206,15 +206,23 @@ export default function StockTransferDetailPage() {
   });
 
   // Build a Map<locationId, role> from the user's visible locations.
-  const myRoleMap = new Map((myLocations ?? []).map((l) => [l.id, l.role ?? '']));
-
-  // Location-specific permission flags (resolved once req is loaded)
-  const isManagerAtSource       = isAdmin || myRoleMap.get(req?.sourceLocationId ?? '') === 'MANAGER';
-  const isOperatorAtDestination = isAdmin || myRoleMap.has(req?.destinationLocationId ?? '');
-  const hasAccessToBoth         = isAdmin || (
-    myRoleMap.has(req?.sourceLocationId ?? '') &&
-    myRoleMap.has(req?.destinationLocationId ?? '')
+  // Only non-null role values are stored; admin users skip this entirely.
+  const myRoleMap = new Map(
+    (myLocations ?? []).filter((l) => l.role).map((l) => [l.id, l.role as string])
   );
+
+  // Location-specific permission flags (resolved once req is loaded).
+  // All explicit so there is no ambiguity about what "has access" means.
+  const srcId  = req?.sourceLocationId      ?? '';
+  const dstId  = req?.destinationLocationId ?? '';
+  const srcRole = myRoleMap.get(srcId) ?? '';
+  const dstRole = myRoleMap.get(dstId) ?? '';
+
+  const isManagerAtSource       = isAdmin || srcRole === 'MANAGER';
+  // Any role (OPERATOR or MANAGER) at destination is sufficient
+  const isOperatorAtDestination = isAdmin || dstRole === 'OPERATOR' || dstRole === 'MANAGER';
+  // Finalize only requires destination access (the person who approved dest step can finalize)
+  const canFinalize             = isAdmin || dstRole === 'OPERATOR' || dstRole === 'MANAGER';
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['stock-transfer', id] });
@@ -254,6 +262,7 @@ export default function StockTransferDetailPage() {
   const submitMutation          = mkWorkflowMutation(() => stockTransfersService.submit(id!), 'Transfer submitted');
   const approveOriginMutation   = mkWorkflowMutation(() => stockTransfersService.approveOrigin(id!), 'Origin approved');
   const approveDestMutation     = mkWorkflowMutation(() => stockTransfersService.approveDestination(id!), 'Destination approved — ready to finalize');
+  const rejectMutation          = mkWorkflowMutation(() => stockTransfersService.reject(id!), 'Transfer rejected');
   const finalizeMutation        = mkWorkflowMutation(() => stockTransfersService.finalize(id!), 'Transfer finalized — stock moved');
   const cancelMutation          = mkWorkflowMutation(() => stockTransfersService.cancel(id!), 'Transfer cancelled');
 
@@ -300,6 +309,13 @@ export default function StockTransferDetailPage() {
       label: 'Confirm Approve',
       color: 'success',
       onConfirm: () => approveDestMutation.mutate(),
+    },
+    reject: {
+      title: 'Reject Transfer',
+      body: <Alert severity="warning" sx={{ mt: 1 }}>Rejecting will cancel this transfer request. This cannot be undone.</Alert>,
+      label: 'Confirm Reject',
+      color: 'error',
+      onConfirm: () => rejectMutation.mutate(),
     },
     finalize: {
       title: 'Finalize Transfer',
@@ -491,33 +507,53 @@ export default function StockTransferDetailPage() {
               </Button>
             )}
 
-            {/* SUBMITTED: Approve at Origin — manager at source location (or admin) */}
+            {/* SUBMITTED: Approve/Reject at Origin — manager at source (or admin) */}
             {isSubmitted && isManagerAtSource && (
-              <Button
-                variant="contained"
-                color="success"
-                startIcon={<CheckCircleOutlineIcon />}
-                disabled={req.items.length === 0}
-                onClick={() => setConfirmAction('approveOrigin')}
-              >
-                Approve (Origin Manager)
-              </Button>
+              <>
+                <Button
+                  variant="contained"
+                  color="success"
+                  startIcon={<CheckCircleOutlineIcon />}
+                  disabled={req.items.length === 0}
+                  onClick={() => setConfirmAction('approveOrigin')}
+                >
+                  Approve (Origin)
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="error"
+                  startIcon={<CancelOutlinedIcon />}
+                  onClick={() => setConfirmAction('reject')}
+                >
+                  Reject
+                </Button>
+              </>
             )}
 
-            {/* ORIGIN_MANAGER_APPROVED: Approve at Destination — any role at destination (or admin) */}
+            {/* ORIGIN_MANAGER_APPROVED: Approve/Reject at Destination — OPERATOR or MANAGER at destination (or admin) */}
             {isOriginApproved && isOperatorAtDestination && (
-              <Button
-                variant="contained"
-                color="success"
-                startIcon={<CheckCircleOutlineIcon />}
-                onClick={() => setConfirmAction('approveDestination')}
-              >
-                Approve (Destination)
-              </Button>
+              <>
+                <Button
+                  variant="contained"
+                  color="success"
+                  startIcon={<CheckCircleOutlineIcon />}
+                  onClick={() => setConfirmAction('approveDestination')}
+                >
+                  Approve (Destination)
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="error"
+                  startIcon={<CancelOutlinedIcon />}
+                  onClick={() => setConfirmAction('reject')}
+                >
+                  Reject
+                </Button>
+              </>
             )}
 
-            {/* READY_TO_FINALIZE: Finalize — user with access to BOTH locations (or admin) */}
-            {isReady && hasAccessToBoth && (
+            {/* READY_TO_FINALIZE: Finalize — destination user (or admin) */}
+            {isReady && canFinalize && (
               <Button
                 variant="contained"
                 color="warning"
