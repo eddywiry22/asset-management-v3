@@ -129,6 +129,7 @@ export default function StockDashboardPage() {
   const [appliedFilters, setAppliedFilters] = useState<{
     locationId?: string; startDate?: string; endDate?: string;
   }>({});
+  const [applyVersion, setApplyVersion] = useState(0);
 
   // Ledger modal state
   const [ledgerTarget, setLedgerTarget] = useState<StockOverviewItem | null>(null);
@@ -145,10 +146,10 @@ export default function StockDashboardPage() {
   const showLocationFilter = visibleLocations.length > 1;
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['stock-overview', appliedFilters, page, limit],
+    queryKey: ['stock-overview', appliedFilters, page, limit, applyVersion],
     queryFn:  () => {
       const { locationId, startDate, endDate } = appliedFilters;
-      console.log('[StockDashboard] fetch', { startDate, endDate, locationId });
+      console.log('FETCH', { startDate, endDate, locationId, applyVersion });
       return stockService.getStockOverview({ ...appliedFilters, page: page + 1, limit });
     },
     // staleTime: 0 ensures a fresh fetch every time the queryKey changes (e.g. new date filter)
@@ -172,6 +173,7 @@ export default function StockDashboardPage() {
       startDate:  filterStartDate ? new Date(filterStartDate).toISOString() : undefined,
       endDate:    endDateIso,
     });
+    setApplyVersion((v) => v + 1);
   }
 
   function clearFilters() {
