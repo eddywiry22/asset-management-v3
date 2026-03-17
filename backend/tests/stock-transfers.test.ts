@@ -1270,12 +1270,27 @@ describe('DELETE /v1/stock-transfers/:id — delete DRAFT request', () => {
     expect(res.body.error.message).toMatch(/Only the creator/);
   });
 
-  it('admin can delete any DRAFT request', async () => {
+  it('admin cannot delete another user\'s DRAFT request → 403', async () => {
     (authService.verifyAccessToken as jest.Mock).mockReturnValue({
       sub: USER_ID, email: 'admin@example.com', phone: null, isAdmin: true,
     });
     const otherUsersRequest = { ...makeFakeRequest('DRAFT', [fakeItem]), createdById: 'other-user-id' };
     db.stockTransferRequest.findUnique.mockResolvedValue(otherUsersRequest);
+
+    const res = await request(app)
+      .delete(`/v1/stock-transfers/${REQ_ID}`)
+      .set(AUTH);
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toMatch(/Only the creator/);
+  });
+
+  it('admin can delete their own DRAFT request → 204', async () => {
+    (authService.verifyAccessToken as jest.Mock).mockReturnValue({
+      sub: USER_ID, email: 'admin@example.com', phone: null, isAdmin: true,
+    });
+    // Admin IS the creator (createdById === USER_ID)
+    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('DRAFT', [fakeItem]));
     db.stockTransferItem.deleteMany.mockResolvedValue({ count: 1 });
     db.stockTransferRequest.delete.mockResolvedValue({});
 

@@ -609,3 +609,71 @@ describe('releaseReservation underflow protection', () => {
     ).resolves.toBeUndefined();
   });
 });
+
+// ===========================================================================
+// STOCK DASHBOARD — Apply button API call (date-only, no location required)
+// These tests mirror the exact query params the frontend Apply button sends.
+// ===========================================================================
+
+describe('GET /v1/stock — Apply button triggers API call without location', () => {
+  // Shared ledger mock: one ADJUSTMENT entry of +20 within the period
+  function setupLedgerMocks() {
+    db.stockBalance.findMany.mockResolvedValue([fakeBalance]);
+    db.stockBalance.count.mockResolvedValue(1);
+    db.stockLedger.groupBy.mockResolvedValue([
+      { sourceType: 'ADJUSTMENT', _sum: { changeQty: '20' } },
+    ]);
+    db.stockLedger.findFirst.mockResolvedValue({ changeQty: '0', balanceAfter: '0' });
+  }
+
+  it('returns 200 when only startDate is provided (no locationId)', async () => {
+    setupLedgerMocks();
+    const startDate = new Date('2024-01-01T00:00:00.000Z').toISOString();
+
+    const res = await request(app)
+      .get(`/v1/stock?startDate=${startDate}`)
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data).toHaveLength(1);
+  });
+
+  it('returns 200 when only endDate is provided (no locationId)', async () => {
+    setupLedgerMocks();
+    const endDate = new Date('2024-06-30T23:59:59.999Z').toISOString();
+
+    const res = await request(app)
+      .get(`/v1/stock?endDate=${endDate}`)
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data).toHaveLength(1);
+  });
+
+  it('returns 200 with both startDate and endDate, no locationId — finalQty uses period metrics', async () => {
+    setupLedgerMocks();
+    // getBalanceBeforeDate returns 5 units before the period
+    db.stockLedger.findFirst.mockResolvedValue({ changeQty: '0', balanceAfter: '5' });
+    const startDate = new Date('2024-01-01T00:00:00.000Z').toISOString();
+    const endDate   = new Date('2024-06-30T23:59:59.999Z').toISOString();
+
+    const res = await request(app)
+      .get(`/v1/stock?startDate=${startDate}&endDate=${endDate}`)
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    // startingQty(5) + inboundQty(20) - outboundQty(0) = 25
+    expect(res.body.data[0].finalQty).toBe(25);
+  });
+
+  it('returns 400 for malformed date string', async () => {
+    const res = await request(app)
+      .get('/v1/stock?startDate=not-a-date')
+      .set(AUTH);
+
+    expect(res.status).toBe(400);
+  });
+});

@@ -131,7 +131,7 @@ export class TransferService {
     if (req.status !== TransferRequestStatus.DRAFT) {
       throw new ValidationError('Only DRAFT requests can be deleted');
     }
-    if (!user.isAdmin && req.createdById !== user.id) {
+    if (req.createdById !== user.id) {
       throw new ForbiddenError('Only the creator can delete a transfer request');
     }
     await transferRepository.deleteById(requestId);

@@ -146,7 +146,14 @@ export default function StockDashboardPage() {
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['stock-overview', appliedFilters, page, limit],
-    queryFn:  () => stockService.getStockOverview({ ...appliedFilters, page: page + 1, limit }),
+    queryFn:  () => {
+      const { locationId, startDate, endDate } = appliedFilters;
+      console.log('[StockDashboard] fetch', { startDate, endDate, locationId });
+      return stockService.getStockOverview({ ...appliedFilters, page: page + 1, limit });
+    },
+    // staleTime: 0 ensures a fresh fetch every time the queryKey changes (e.g. new date filter)
+    // regardless of the global 30 s default set in App.tsx
+    staleTime: 0,
   });
 
   const rows  = data?.data ?? [];
