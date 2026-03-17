@@ -89,23 +89,28 @@ const fakeItem = {
 
 function makeFakeRequest(status = 'DRAFT', items: any[] = []) {
   return {
-    id:            REQ_ID,
-    requestNumber: 'ADJ-20260310-WH-001-0001',
+    id:                 REQ_ID,
+    requestNumber:      'ADJ-20260310-WH-001-0001',
     status,
-    notes:         null,
-    createdById:   USER_ID,
-    approvedById:  null,
-    finalizedById: null,
-    cancelledById: null,
-    approvedAt:    null,
-    finalizedAt:   null,
-    cancelledAt:   null,
-    createdAt:     new Date().toISOString(),
-    updatedAt:     new Date().toISOString(),
-    createdBy:     fakeUser,
-    approvedBy:    null,
-    finalizedBy:   null,
-    cancelledBy:   null,
+    notes:              null,
+    createdById:        USER_ID,
+    approvedById:       null,
+    finalizedById:      null,
+    cancelledById:      null,
+    rejectedById:       null,
+    approvedAt:         null,
+    finalizedAt:        null,
+    cancelledAt:        null,
+    rejectedAt:         null,
+    rejectionReason:    null,
+    cancellationReason: null,
+    createdAt:          new Date().toISOString(),
+    updatedAt:          new Date().toISOString(),
+    createdBy:          fakeUser,
+    approvedBy:         null,
+    finalizedBy:        null,
+    cancelledBy:        null,
+    rejectedBy:         null,
     items,
   };
 }
@@ -431,16 +436,27 @@ describe('POST /v1/stock-adjustments/:id/approve', () => {
 
 describe('POST /v1/stock-adjustments/:id/reject', () => {
   it('rejects a SUBMITTED request as manager', async () => {
-    db.stockAdjustmentRequest.findUnique.mockResolvedValue(makeFakeRequest('SUBMITTED', [fakeItem]));
-    db.stockAdjustmentRequest.update.mockResolvedValue(makeFakeRequest('REJECTED', [fakeItem]));
+    db.stockAdjustmentRequest.findUnique
+      .mockResolvedValueOnce(makeFakeRequest('SUBMITTED', [fakeItem]))
+      .mockResolvedValueOnce(makeFakeRequest('REJECTED', [fakeItem]));
 
     const res = await request(app)
       .post(`/v1/stock-adjustments/${REQ_ID}/reject`)
       .set(AUTH)
-      .send({ notes: 'Wrong quantities' });
+      .send({ reason: 'Wrong quantities' });
 
     expect(res.status).toBe(200);
     expect(res.body.data.status).toBe('REJECTED');
+  });
+
+  it('returns 400 when no rejection reason is provided', async () => {
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/reject`)
+      .set(AUTH)
+      .send({});
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/rejection reason is required/i);
   });
 
   it('returns 403 when operator tries to reject', async () => {
@@ -449,7 +465,8 @@ describe('POST /v1/stock-adjustments/:id/reject', () => {
 
     const res = await request(app)
       .post(`/v1/stock-adjustments/${REQ_ID}/reject`)
-      .set(AUTH);
+      .set(AUTH)
+      .send({ reason: 'test reason' });
 
     expect(res.status).toBe(403);
   });
@@ -662,6 +679,16 @@ describe('W13 — finalize APPROVED request with no items', () => {
 // ===========================================================================
 
 describe('POST /v1/stock-adjustments/:id/cancel', () => {
+  it('returns 400 when no cancellation reason is provided', async () => {
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/cancel`)
+      .set(AUTH)
+      .send({});
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/cancellation reason is required/i);
+  });
+
   it('creator can cancel a DRAFT request → 200 (CANCELLED)', async () => {
     db.stockAdjustmentRequest.findUnique
       .mockResolvedValueOnce(makeFakeRequest('DRAFT', [fakeItem]))
@@ -669,7 +696,8 @@ describe('POST /v1/stock-adjustments/:id/cancel', () => {
 
     const res = await request(app)
       .post(`/v1/stock-adjustments/${REQ_ID}/cancel`)
-      .set(AUTH);
+      .set(AUTH)
+      .send({ reason: 'No longer needed' });
 
     expect(res.status).toBe(200);
     expect(res.body.data.status).toBe('CANCELLED');
@@ -682,7 +710,8 @@ describe('POST /v1/stock-adjustments/:id/cancel', () => {
 
     const res = await request(app)
       .post(`/v1/stock-adjustments/${REQ_ID}/cancel`)
-      .set(AUTH);
+      .set(AUTH)
+      .send({ reason: 'No longer needed' });
 
     expect(res.status).toBe(200);
   });
@@ -694,7 +723,8 @@ describe('POST /v1/stock-adjustments/:id/cancel', () => {
 
     const res = await request(app)
       .post(`/v1/stock-adjustments/${REQ_ID}/cancel`)
-      .set(AUTH);
+      .set(AUTH)
+      .send({ reason: 'No longer needed' });
 
     expect(res.status).toBe(200);
   });
@@ -704,7 +734,8 @@ describe('POST /v1/stock-adjustments/:id/cancel', () => {
 
     const res = await request(app)
       .post(`/v1/stock-adjustments/${REQ_ID}/cancel`)
-      .set(AUTH);
+      .set(AUTH)
+      .send({ reason: 'test reason' });
 
     expect(res.status).toBe(400);
     expect(res.body.error.message).toMatch(/Cannot cancel a request with status FINALIZED/);
@@ -715,7 +746,8 @@ describe('POST /v1/stock-adjustments/:id/cancel', () => {
 
     const res = await request(app)
       .post(`/v1/stock-adjustments/${REQ_ID}/cancel`)
-      .set(AUTH);
+      .set(AUTH)
+      .send({ reason: 'test reason' });
 
     expect(res.status).toBe(400);
     expect(res.body.error.message).toMatch(/Cannot cancel a request with status CANCELLED/);
@@ -730,7 +762,8 @@ describe('POST /v1/stock-adjustments/:id/cancel', () => {
 
     const res = await request(app)
       .post(`/v1/stock-adjustments/${REQ_ID}/cancel`)
-      .set(AUTH);
+      .set(AUTH)
+      .send({ reason: 'No longer needed' });
 
     expect(res.status).toBe(200);
   });
@@ -743,7 +776,8 @@ describe('POST /v1/stock-adjustments/:id/cancel', () => {
 
     const res = await request(app)
       .post(`/v1/stock-adjustments/${REQ_ID}/cancel`)
-      .set(AUTH);
+      .set(AUTH)
+      .send({ reason: 'test reason' });
 
     expect(res.status).toBe(403);
     expect(res.body.error.message).toMatch(/Only the creator, a manager at the item location, or an admin/);
@@ -760,9 +794,30 @@ describe('POST /v1/stock-adjustments/:id/cancel', () => {
 
     const res = await request(app)
       .post(`/v1/stock-adjustments/${REQ_ID}/cancel`)
+      .set(AUTH)
+      .send({ reason: 'Admin override' });
+
+    expect(res.status).toBe(200);
+  });
+});
+
+// ===========================================================================
+// CANCELLED STATUS FILTER
+// ===========================================================================
+
+describe('GET /v1/stock-adjustments?status=CANCELLED', () => {
+  it('can filter by CANCELLED status', async () => {
+    db.stockAdjustmentRequest.findMany.mockResolvedValue([makeFakeRequest('CANCELLED', [fakeItem])]);
+    db.stockAdjustmentRequest.count.mockResolvedValue(1);
+
+    const res = await request(app)
+      .get('/v1/stock-adjustments?status=CANCELLED')
       .set(AUTH);
 
     expect(res.status).toBe(200);
+    expect(res.body.data[0].status).toBe('CANCELLED');
+    const findArgs = db.stockAdjustmentRequest.findMany.mock.calls[0][0];
+    expect(findArgs.where.status).toBe('CANCELLED');
   });
 });
 

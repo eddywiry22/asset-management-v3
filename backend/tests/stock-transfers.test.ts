@@ -109,6 +109,7 @@ function makeFakeRequest(status = 'DRAFT', items: any[] = []) {
     finalizedAt:             null,
     cancelledById:           null,
     cancelledAt:             null,
+    cancellationReason:      null,
     rejectedById:            null,
     rejectedAt:              null,
     rejectionReason:         null,
@@ -1135,12 +1136,23 @@ describe('Date filter validation', () => {
 // ===========================================================================
 
 describe('POST /v1/stock-transfers/:id/cancel', () => {
+  it('returns 400 when no cancellation reason is provided', async () => {
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/cancel`)
+      .set(AUTH)
+      .send({});
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/cancellation reason is required/i);
+  });
+
   it('cannot cancel a DRAFT request — use Delete instead → 400', async () => {
     db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('DRAFT', [fakeItem]));
 
     const res = await request(app)
       .post(`/v1/stock-transfers/${REQ_ID}/cancel`)
-      .set(AUTH);
+      .set(AUTH)
+      .send({ reason: 'test reason' });
 
     expect(res.status).toBe(400);
     expect(res.body.error.message).toMatch(/Cannot cancel/);
@@ -1153,7 +1165,8 @@ describe('POST /v1/stock-transfers/:id/cancel', () => {
 
     const res = await request(app)
       .post(`/v1/stock-transfers/${REQ_ID}/cancel`)
-      .set(AUTH);
+      .set(AUTH)
+      .send({ reason: 'No longer needed' });
 
     expect(res.status).toBe(200);
   });
@@ -1165,7 +1178,8 @@ describe('POST /v1/stock-transfers/:id/cancel', () => {
 
     const res = await request(app)
       .post(`/v1/stock-transfers/${REQ_ID}/cancel`)
-      .set(AUTH);
+      .set(AUTH)
+      .send({ reason: 'No longer needed' });
 
     expect(res.status).toBe(200);
   });
@@ -1175,7 +1189,8 @@ describe('POST /v1/stock-transfers/:id/cancel', () => {
 
     const res = await request(app)
       .post(`/v1/stock-transfers/${REQ_ID}/cancel`)
-      .set(AUTH);
+      .set(AUTH)
+      .send({ reason: 'test reason' });
 
     expect(res.status).toBe(400);
     expect(res.body.error.message).toMatch(/Cannot cancel/);
@@ -1190,7 +1205,8 @@ describe('POST /v1/stock-transfers/:id/cancel', () => {
 
     const res = await request(app)
       .post(`/v1/stock-transfers/${REQ_ID}/cancel`)
-      .set(AUTH);
+      .set(AUTH)
+      .send({ reason: 'test reason' });
 
     expect(res.status).toBe(403);
     expect(res.body.error.message).toMatch(/Only the creator, a location participant, or an admin/);
@@ -1207,7 +1223,8 @@ describe('POST /v1/stock-transfers/:id/cancel', () => {
 
     const res = await request(app)
       .post(`/v1/stock-transfers/${REQ_ID}/cancel`)
-      .set(AUTH);
+      .set(AUTH)
+      .send({ reason: 'Admin override' });
 
     expect(res.status).toBe(200);
   });
@@ -1565,7 +1582,8 @@ describe('POST /v1/stock-transfers/:id/cancel — location participant access', 
 
     const res = await request(app)
       .post(`/v1/stock-transfers/${REQ_ID}/cancel`)
-      .set(AUTH);
+      .set(AUTH)
+      .send({ reason: 'No longer needed' });
 
     expect(res.status).toBe(200);
   });
@@ -1579,7 +1597,8 @@ describe('POST /v1/stock-transfers/:id/cancel — location participant access', 
 
     const res = await request(app)
       .post(`/v1/stock-transfers/${REQ_ID}/cancel`)
-      .set(AUTH);
+      .set(AUTH)
+      .send({ reason: 'No longer needed' });
 
     expect(res.status).toBe(200);
   });
@@ -1591,7 +1610,8 @@ describe('POST /v1/stock-transfers/:id/cancel — location participant access', 
 
     const res = await request(app)
       .post(`/v1/stock-transfers/${REQ_ID}/cancel`)
-      .set(AUTH);
+      .set(AUTH)
+      .send({ reason: 'test reason' });
 
     expect(res.status).toBe(403);
     expect(res.body.error.message).toMatch(/Only the creator, a location participant, or an admin/);

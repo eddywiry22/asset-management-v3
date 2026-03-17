@@ -13,6 +13,8 @@ import stockAdjustmentsService, {
   AdjustmentRequest,
   AdjustmentRequestStatus,
 } from '../../../services/stockAdjustments.service';
+import stockService from '../../../services/stock.service';
+import { useAuth } from '../../../context/AuthContext';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -23,6 +25,7 @@ const STATUS_COLORS: Record<AdjustmentRequestStatus, 'default' | 'warning' | 'in
   APPROVED:  'info',
   REJECTED:  'error',
   FINALIZED: 'success',
+  CANCELLED: 'error',
 };
 
 function fmtDate(d: string | null | undefined): string {
@@ -78,22 +81,32 @@ function CreateRequestDialog({
 export default function StockAdjustmentsPage() {
   const navigate     = useNavigate();
   const queryClient  = useQueryClient();
+  const { isAdmin }  = useAuth();
 
   const [page, setPage]             = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(20);
   const [statusFilter, setStatusFilter] = useState<AdjustmentRequestStatus | ''>('');
   const [startDate, setStartDate]   = useState('');
   const [endDate, setEndDate]       = useState('');
-  const [appliedFilters, setAppliedFilters] = useState({ status: '' as AdjustmentRequestStatus | '', startDate: '', endDate: '' });
+  const [locationFilter, setLocationFilter] = useState('');
+  const [appliedFilters, setAppliedFilters] = useState({ status: '' as AdjustmentRequestStatus | '', startDate: '', endDate: '', locationId: '' });
   const [createOpen, setCreateOpen] = useState(false);
   const [snack, setSnack]           = useState<{ msg: string; severity: 'success' | 'error' } | null>(null);
+
+  const { data: allLocationsRes } = useQuery({
+    queryKey: ['locations-all'],
+    queryFn:  () => stockService.getAllLocations(),
+    enabled:  isAdmin,
+  });
+  const allLocations: { id: string; code: string; name: string }[] = allLocationsRes ?? [];
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['stock-adjustments', appliedFilters, page, rowsPerPage],
     queryFn:  () => stockAdjustmentsService.getAll({
-      ...(appliedFilters.status    ? { status:    appliedFilters.status    } : {}),
-      ...(appliedFilters.startDate ? { startDate: appliedFilters.startDate } : {}),
-      ...(appliedFilters.endDate   ? { endDate:   appliedFilters.endDate   } : {}),
+      ...(appliedFilters.status     ? { status:     appliedFilters.status     } : {}),
+      ...(appliedFilters.startDate  ? { startDate:  appliedFilters.startDate  } : {}),
+      ...(appliedFilters.endDate    ? { endDate:    appliedFilters.endDate    } : {}),
+      ...(appliedFilters.locationId ? { locationId: appliedFilters.locationId } : {}),
       page:  page + 1,
       limit: rowsPerPage,
     }),
@@ -133,7 +146,7 @@ export default function StockAdjustmentsPage() {
               onChange={(e) => setStatusFilter(e.target.value as AdjustmentRequestStatus | '')}
             >
               <MenuItem value="">All</MenuItem>
-              {(['DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED', 'FINALIZED'] as AdjustmentRequestStatus[]).map((s) => (
+              {(['DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED', 'FINALIZED', 'CANCELLED'] as AdjustmentRequestStatus[]).map((s) => (
                 <MenuItem key={s} value={s}>{s}</MenuItem>
               ))}
             </Select>
@@ -154,19 +167,34 @@ export default function StockAdjustmentsPage() {
             onChange={(e) => setEndDate(e.target.value)}
             InputLabelProps={{ shrink: true }}
           />
+          {isAdmin && (
+            <FormControl size="small" sx={{ minWidth: 180 }}>
+              <InputLabel>Location</InputLabel>
+              <Select
+                label="Location"
+                value={locationFilter}
+                onChange={(e) => setLocationFilter(e.target.value)}
+              >
+                <MenuItem value="">All Locations</MenuItem>
+                {allLocations.map((l) => (
+                  <MenuItem key={l.id} value={l.id}>{l.code} — {l.name}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
           <Button
             variant="outlined"
             startIcon={<FilterListIcon />}
-            onClick={() => { setPage(0); setAppliedFilters({ status: statusFilter, startDate, endDate }); }}
+            onClick={() => { setPage(0); setAppliedFilters({ status: statusFilter, startDate, endDate, locationId: locationFilter }); }}
           >
             Apply
           </Button>
           <Button
             variant="text"
             onClick={() => {
-              setStatusFilter(''); setStartDate(''); setEndDate('');
+              setStatusFilter(''); setStartDate(''); setEndDate(''); setLocationFilter('');
               setPage(0);
-              setAppliedFilters({ status: '', startDate: '', endDate: '' });
+              setAppliedFilters({ status: '', startDate: '', endDate: '', locationId: '' });
             }}
           >
             Clear

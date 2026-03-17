@@ -206,7 +206,10 @@ export class StockAdjustmentService {
   // Reject (SUBMITTED → REJECTED) — managers and admins only
   // Part 1: guard by any item's location
   // -------------------------------------------------------------------------
-  async reject(requestId: string, userId: string, userRoles: { isAdmin: boolean; locationRoles: string[] }, notes?: string): Promise<AdjustmentRequestRow> {
+  async reject(requestId: string, userId: string, userRoles: { isAdmin: boolean; locationRoles: string[] }, reason: string): Promise<AdjustmentRequestRow> {
+    if (!reason || !reason.trim()) {
+      throw new ValidationError('A rejection reason is required');
+    }
     if (!userRoles.isAdmin && !userRoles.locationRoles.includes(Role.MANAGER)) {
       throw new ForbiddenError('Only managers or admins can reject adjustment requests');
     }
@@ -228,14 +231,12 @@ export class StockAdjustmentService {
       }
     }
 
-    const updated = await stockAdjustmentRepository.updateStatus(requestId, {
-      status: AdjustmentRequestStatus.REJECTED,
-      approvedById: userId,
-      approvedAt:   new Date(),
-      ...(notes ? { notes } : {}),
-    });
+    const claimed = await stockAdjustmentRepository.claimRejection(requestId, userId, new Date(), reason.trim());
+    if (!claimed) {
+      throw new ValidationError(`Cannot reject a request with status ${req.status}`);
+    }
     void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', afterValue: { status: 'REJECTED' }, performedBy: userId });
-    return updated;
+    return (await stockAdjustmentRepository.findById(requestId))!;
   }
 
   // -------------------------------------------------------------------------
@@ -284,10 +285,13 @@ export class StockAdjustmentService {
   // Cancel (any pre-terminal state → CANCELLED)
   // Creator, admin, or manager at any item's location can cancel
   // -------------------------------------------------------------------------
-  async cancel(requestId: string, user: UserCtx): Promise<AdjustmentRequestRow> {
+  async cancel(requestId: string, user: UserCtx, reason: string): Promise<AdjustmentRequestRow> {
+    if (!reason || !reason.trim()) {
+      throw new ValidationError('A cancellation reason is required');
+    }
     const req = await this.findById(requestId);
 
-    if (req.status === AdjustmentRequestStatus.FINALIZED || req.status === AdjustmentRequestStatus.CANCELLED) {
+    if (req.status === AdjustmentRequestStatus.FINALIZED || req.status === AdjustmentRequestStatus.CANCELLED || req.status === AdjustmentRequestStatus.REJECTED) {
       throw new ValidationError(`Cannot cancel a request with status ${req.status}`);
     }
 
@@ -311,6 +315,7 @@ export class StockAdjustmentService {
       user.id,
       new Date(),
       [req.status],
+      reason.trim(),
     );
     if (!claimed) {
       throw new ValidationError(`Cannot cancel a request with status ${req.status}`);

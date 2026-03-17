@@ -6,6 +6,7 @@ import {
   addItemSchema,
   updateItemSchema,
   rejectRequestSchema,
+  cancelRequestSchema,
 } from './stockAdjustment.validator';
 import { AuthenticatedRequest } from '../../types/request.types';
 
@@ -56,7 +57,7 @@ router.post('/:id/finalize', (req, res, next) =>
   stockAdjustmentController.finalize(cast(req), res, next)
 );
 
-router.post('/:id/cancel', (req, res, next) =>
+router.post('/:id/cancel', validateBody(cancelRequestSchema), (req, res, next) =>
   stockAdjustmentController.cancel(cast(req), res, next)
 );
 

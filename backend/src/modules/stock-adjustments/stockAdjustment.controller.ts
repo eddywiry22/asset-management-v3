@@ -135,7 +135,7 @@ export class StockAdjustmentController {
       const data = await stockAdjustmentService.reject(req.params.id, req.user.id, {
         isAdmin: req.user.isAdmin,
         locationRoles,
-      }, req.body?.notes);
+      }, req.body?.reason ?? '');
       res.status(200).json({ success: true, data });
     } catch (err) {
       next(err);
@@ -155,7 +155,7 @@ export class StockAdjustmentController {
   async cancel(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const user = { id: req.user.id, isAdmin: req.user.isAdmin };
-      const data = await stockAdjustmentService.cancel(req.params.id, user);
+      const data = await stockAdjustmentService.cancel(req.params.id, user, req.body?.reason ?? '');
       res.status(200).json({ success: true, data });
     } catch (err) {
       next(err);

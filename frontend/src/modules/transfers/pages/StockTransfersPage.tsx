@@ -15,6 +15,7 @@ import stockTransfersService, {
   CreateTransferPayload,
 } from '../../../services/stockTransfers.service';
 import stockService from '../../../services/stock.service';
+import { useAuth } from '../../../context/AuthContext';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -27,6 +28,7 @@ const STATUS_COLORS: Record<TransferRequestStatus, 'default' | 'success' | 'warn
   READY_TO_FINALIZE:            'warning',
   FINALIZED:                    'success',
   CANCELLED:                    'error',
+  REJECTED:                     'error',
 };
 
 function fmtDate(d: string | null | undefined): string {
@@ -142,22 +144,32 @@ function CreateTransferDialog({
 export default function StockTransfersPage() {
   const navigate    = useNavigate();
   const queryClient = useQueryClient();
+  const { isAdmin } = useAuth();
 
   const [page, setPage]               = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(20);
   const [statusFilter, setStatusFilter] = useState<TransferRequestStatus | ''>('');
   const [startDate, setStartDate]     = useState('');
   const [endDate, setEndDate]         = useState('');
-  const [appliedFilters, setAppliedFilters] = useState({ status: '' as TransferRequestStatus | '', startDate: '', endDate: '' });
+  const [locationFilter, setLocationFilter] = useState('');
+  const [appliedFilters, setAppliedFilters] = useState({ status: '' as TransferRequestStatus | '', startDate: '', endDate: '', locationId: '' });
   const [createOpen, setCreateOpen]   = useState(false);
   const [snack, setSnack]             = useState<{ msg: string; severity: 'success' | 'error' } | null>(null);
+
+  const { data: allLocationsRes } = useQuery({
+    queryKey: ['locations-all'],
+    queryFn:  () => stockService.getAllLocations(),
+    enabled:  isAdmin,
+  });
+  const allLocations: SimpleLocation[] = allLocationsRes ?? [];
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['stock-transfers', appliedFilters, page, rowsPerPage],
     queryFn:  () => stockTransfersService.getAll({
-      ...(appliedFilters.status    ? { status:    appliedFilters.status    } : {}),
-      ...(appliedFilters.startDate ? { startDate: appliedFilters.startDate } : {}),
-      ...(appliedFilters.endDate   ? { endDate:   appliedFilters.endDate   } : {}),
+      ...(appliedFilters.status     ? { status:     appliedFilters.status     } : {}),
+      ...(appliedFilters.startDate  ? { startDate:  appliedFilters.startDate  } : {}),
+      ...(appliedFilters.endDate    ? { endDate:    appliedFilters.endDate    } : {}),
+      ...(appliedFilters.locationId ? { locationId: appliedFilters.locationId } : {}),
       page:  page + 1,
       limit: rowsPerPage,
     }),
@@ -198,7 +210,7 @@ export default function StockTransfersPage() {
               onChange={(e) => setStatusFilter(e.target.value as TransferRequestStatus | '')}
             >
               <MenuItem value="">All</MenuItem>
-              {(['DRAFT', 'SUBMITTED', 'ORIGIN_MANAGER_APPROVED', 'DESTINATION_OPERATOR_APPROVED', 'READY_TO_FINALIZE', 'FINALIZED', 'CANCELLED'] as TransferRequestStatus[]).map((s) => (
+              {(['DRAFT', 'SUBMITTED', 'ORIGIN_MANAGER_APPROVED', 'DESTINATION_OPERATOR_APPROVED', 'READY_TO_FINALIZE', 'FINALIZED', 'CANCELLED', 'REJECTED'] as TransferRequestStatus[]).map((s) => (
                 <MenuItem key={s} value={s}>{s.replace(/_/g, ' ')}</MenuItem>
               ))}
             </Select>
@@ -219,19 +231,34 @@ export default function StockTransfersPage() {
             onChange={(e) => setEndDate(e.target.value)}
             InputLabelProps={{ shrink: true }}
           />
+          {isAdmin && (
+            <FormControl size="small" sx={{ minWidth: 180 }}>
+              <InputLabel>Location</InputLabel>
+              <Select
+                label="Location"
+                value={locationFilter}
+                onChange={(e) => setLocationFilter(e.target.value)}
+              >
+                <MenuItem value="">All Locations</MenuItem>
+                {allLocations.map((l) => (
+                  <MenuItem key={l.id} value={l.id}>{l.code} — {l.name}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
           <Button
             variant="outlined"
             startIcon={<FilterListIcon />}
-            onClick={() => { setPage(0); setAppliedFilters({ status: statusFilter, startDate, endDate }); }}
+            onClick={() => { setPage(0); setAppliedFilters({ status: statusFilter, startDate, endDate, locationId: locationFilter }); }}
           >
             Apply
           </Button>
           <Button
             variant="text"
             onClick={() => {
-              setStatusFilter(''); setStartDate(''); setEndDate('');
+              setStatusFilter(''); setStartDate(''); setEndDate(''); setLocationFilter('');
               setPage(0);
-              setAppliedFilters({ status: '', startDate: '', endDate: '' });
+              setAppliedFilters({ status: '', startDate: '', endDate: '', locationId: '' });
             }}
           >
             Clear

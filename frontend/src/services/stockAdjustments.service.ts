@@ -34,13 +34,21 @@ export type AdjustmentRequest = {
   createdById: string;
   approvedById: string | null;
   finalizedById: string | null;
+  cancelledById: string | null;
+  rejectedById: string | null;
   approvedAt: string | null;
   finalizedAt: string | null;
+  cancelledAt: string | null;
+  rejectedAt: string | null;
+  rejectionReason: string | null;
+  cancellationReason: string | null;
   createdAt: string;
   updatedAt: string;
   createdBy: AdjustmentItemUser;
   approvedBy: AdjustmentItemUser | null;
   finalizedBy: AdjustmentItemUser | null;
+  cancelledBy: AdjustmentItemUser | null;
+  rejectedBy: AdjustmentItemUser | null;
   items: AdjustmentItem[];
 };
 
@@ -68,15 +76,17 @@ const stockAdjustmentsService = {
     status?: AdjustmentRequestStatus;
     startDate?: string;
     endDate?: string;
+    locationId?: string;
     page?: number;
     limit?: number;
   } = {}): Promise<PaginatedResponse<AdjustmentRequest>> {
     const query = new URLSearchParams();
-    if (params.status)    query.set('status',    params.status);
-    if (params.startDate) query.set('startDate', params.startDate);
-    if (params.endDate)   query.set('endDate',   params.endDate);
-    if (params.page)      query.set('page',      String(params.page));
-    if (params.limit)     query.set('limit',     String(params.limit));
+    if (params.status)     query.set('status',     params.status);
+    if (params.startDate)  query.set('startDate',  params.startDate);
+    if (params.endDate)    query.set('endDate',     params.endDate);
+    if (params.locationId) query.set('locationId',  params.locationId);
+    if (params.page)       query.set('page',        String(params.page));
+    if (params.limit)      query.set('limit',       String(params.limit));
     return apiClient.get(`stock-adjustments?${query}`).then((r) => r.data);
   },
 
@@ -108,16 +118,16 @@ const stockAdjustmentsService = {
     return apiClient.post(`stock-adjustments/${requestId}/approve`).then((r) => r.data);
   },
 
-  reject(requestId: string, notes?: string): Promise<{ success: boolean; data: AdjustmentRequest }> {
-    return apiClient.post(`stock-adjustments/${requestId}/reject`, { notes }).then((r) => r.data);
+  reject(requestId: string, reason: string): Promise<{ success: boolean; data: AdjustmentRequest }> {
+    return apiClient.post(`stock-adjustments/${requestId}/reject`, { reason }).then((r) => r.data);
   },
 
   finalize(requestId: string): Promise<{ success: boolean; data: AdjustmentRequest }> {
     return apiClient.post(`stock-adjustments/${requestId}/finalize`).then((r) => r.data);
   },
 
-  cancel(requestId: string): Promise<{ success: boolean; data: AdjustmentRequest }> {
-    return apiClient.post(`stock-adjustments/${requestId}/cancel`).then((r) => r.data);
+  cancel(requestId: string, reason: string): Promise<{ success: boolean; data: AdjustmentRequest }> {
+    return apiClient.post(`stock-adjustments/${requestId}/cancel`, { reason }).then((r) => r.data);
   },
 };
 

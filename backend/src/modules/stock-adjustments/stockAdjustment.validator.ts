@@ -19,10 +19,15 @@ export const updateItemSchema = z.object({
 });
 
 export const rejectRequestSchema = z.object({
-  notes: z.string().optional(),
+  reason: z.string({ error: 'A rejection reason is required' }).min(1, 'A rejection reason is required'),
+});
+
+export const cancelRequestSchema = z.object({
+  reason: z.string({ error: 'A cancellation reason is required' }).min(1, 'A cancellation reason is required'),
 });
 
 export type CreateRequestDto   = z.infer<typeof createRequestSchema>;
 export type AddItemDto         = z.infer<typeof addItemSchema>;
 export type UpdateItemDto      = z.infer<typeof updateItemSchema>;
 export type RejectRequestDto   = z.infer<typeof rejectRequestSchema>;
+export type CancelRequestDto   = z.infer<typeof cancelRequestSchema>;

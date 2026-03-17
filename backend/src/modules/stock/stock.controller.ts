@@ -55,13 +55,19 @@ export class StockController {
 
       const { locationId, page, limit, startDate, endDate } = parsed.data;
 
+      let parsedEndDate: Date | undefined;
+      if (endDate) {
+        parsedEndDate = new Date(endDate);
+        parsedEndDate.setHours(23, 59, 59, 999);
+      }
+
       const { data, total } = await stockService.getStockOverview(
         {
           locationId,
           page,
           limit,
           startDate: startDate ? new Date(startDate) : undefined,
-          endDate:   endDate   ? new Date(endDate)   : undefined,
+          endDate:   parsedEndDate,
         },
         req.user.id,
         req.user.isAdmin,
@@ -87,12 +93,18 @@ export class StockController {
 
       const { productId, locationId, startDate, endDate, page, limit } = parsed.data;
 
+      let parsedLedgerEndDate: Date | undefined;
+      if (endDate) {
+        parsedLedgerEndDate = new Date(endDate);
+        parsedLedgerEndDate.setHours(23, 59, 59, 999);
+      }
+
       const { data, total } = await stockService.getLedger(
         {
           productId,
           locationId,
           startDate: startDate ? new Date(startDate) : undefined,
-          endDate:   endDate   ? new Date(endDate)   : undefined,
+          endDate:   parsedLedgerEndDate,
           page,
           limit,
         },

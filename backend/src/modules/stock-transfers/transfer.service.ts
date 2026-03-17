@@ -392,7 +392,10 @@ export class TransferService {
   // Cancel (any pre-finalized state → CANCELLED)
   // Creator, admin, or any user with access to source/destination location can cancel
   // -------------------------------------------------------------------------
-  async cancel(requestId: string, user: UserCtx): Promise<TransferRequestRow> {
+  async cancel(requestId: string, user: UserCtx, reason: string): Promise<TransferRequestRow> {
+    if (!reason || !reason.trim()) {
+      throw new ValidationError('A cancellation reason is required');
+    }
     const req = await this.findById(requestId);
 
     if (!CANCELLABLE_STATUSES.includes(req.status)) {
@@ -416,6 +419,7 @@ export class TransferService {
       user.id,
       new Date(),
       CANCELLABLE_STATUSES,
+      reason.trim(),
     );
     if (!claimed) {
       throw new ValidationError(`Cannot cancel a request with status ${req.status}`);

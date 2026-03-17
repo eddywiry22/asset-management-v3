@@ -160,8 +160,9 @@ export class TransferController {
 
   async cancel(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-      const user = { id: req.user.id, isAdmin: req.user.isAdmin };
-      const data = await transferService.cancel(req.params.id, user);
+      const user   = { id: req.user.id, isAdmin: req.user.isAdmin };
+      const reason = (req.body?.reason as string) ?? '';
+      const data   = await transferService.cancel(req.params.id, user, reason);
       res.status(200).json({ success: true, data });
     } catch (err) {
       next(err);

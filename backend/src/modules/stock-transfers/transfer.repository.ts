@@ -26,6 +26,7 @@ export type TransferRequestRow = {
   finalizedAt: Date | null;
   cancelledById: string | null;
   cancelledAt: Date | null;
+  cancellationReason: string | null;
   rejectedById: string | null;
   rejectedAt: Date | null;
   rejectionReason: string | null;
@@ -220,10 +221,10 @@ export class TransferRepository {
   }
 
   // Cancel: any pre-finalized state → CANCELLED (atomic)
-  async claimCancellation(id: string, cancelledById: string, now: Date, allowedStatuses: TransferRequestStatus[]): Promise<boolean> {
+  async claimCancellation(id: string, cancelledById: string, now: Date, allowedStatuses: TransferRequestStatus[], cancellationReason: string): Promise<boolean> {
     const result = await prisma.stockTransferRequest.updateMany({
       where: { id, status: { in: allowedStatuses } },
-      data:  { status: TransferRequestStatus.CANCELLED, cancelledById, cancelledAt: now },
+      data:  { status: TransferRequestStatus.CANCELLED, cancelledById, cancelledAt: now, cancellationReason },
     });
     return result.count > 0;
   }

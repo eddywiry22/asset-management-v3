@@ -154,10 +154,16 @@ export default function StockDashboardPage() {
 
   function applyFilters() {
     setPage(0);
+    let endDateIso: string | undefined;
+    if (filterEndDate) {
+      const d = new Date(filterEndDate);
+      d.setHours(23, 59, 59, 999);
+      endDateIso = d.toISOString();
+    }
     setAppliedFilters({
       locationId: filterLocationId || undefined,
       startDate:  filterStartDate ? new Date(filterStartDate).toISOString() : undefined,
-      endDate:    filterEndDate   ? new Date(filterEndDate).toISOString()   : undefined,
+      endDate:    endDateIso,
     });
   }
 

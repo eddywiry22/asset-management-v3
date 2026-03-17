@@ -26,6 +26,7 @@ model User {
   adjustmentsApproved   StockAdjustmentRequest[] @relation("AdjustmentApprovedBy")
   adjustmentsFinalized  StockAdjustmentRequest[] @relation("AdjustmentFinalizedBy")
   adjustmentsCancelled  StockAdjustmentRequest[] @relation("AdjustmentCancelledBy")
+  adjustmentsRejected   StockAdjustmentRequest[] @relation("AdjustmentRejectedBy")
   transfersCreated              StockTransferRequest[] @relation("TransferCreatedBy")
   transfersOriginApproved       StockTransferRequest[] @relation("TransferOriginApprovedBy")
   transfersDestinationApproved  StockTransferRequest[] @relation("TransferDestinationApprovedBy")
@@ -178,21 +179,26 @@ model StockAdjustmentRequest {
   id            String                   @id @default(uuid())
   requestNumber String                   @unique
   status        AdjustmentRequestStatus  @default(DRAFT)
-  notes         String?  @db.Text
-  createdById   String
-  approvedById  String?
-  finalizedById String?
-  cancelledById String?
-  approvedAt    DateTime?
-  finalizedAt   DateTime?
-  cancelledAt   DateTime?
-  createdAt     DateTime                 @default(now())
-  updatedAt     DateTime                 @updatedAt
+  notes              String?  @db.Text
+  createdById        String
+  approvedById       String?
+  finalizedById      String?
+  cancelledById      String?
+  rejectedById       String?
+  approvedAt         DateTime?
+  finalizedAt        DateTime?
+  cancelledAt        DateTime?
+  rejectedAt         DateTime?
+  rejectionReason    String?  @db.Text
+  cancellationReason String?  @db.Text
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
 
   createdBy   User                   @relation("AdjustmentCreatedBy",   fields: [createdById],   references: [id])
   approvedBy  User?                  @relation("AdjustmentApprovedBy",  fields: [approvedById],  references: [id])
   finalizedBy User?                  @relation("AdjustmentFinalizedBy", fields: [finalizedById], references: [id])
   cancelledBy User?                  @relation("AdjustmentCancelledBy", fields: [cancelledById], references: [id])
+  rejectedBy  User?                  @relation("AdjustmentRejectedBy",  fields: [rejectedById],  references: [id])
   items       StockAdjustmentItem[]
 
   @@index([status])
@@ -259,6 +265,7 @@ model StockTransferRequest {
   finalizedAt             DateTime?
   cancelledById           String?
   cancelledAt             DateTime?
+  cancellationReason      String?               @db.Text
   rejectedById            String?
   rejectedAt              DateTime?
   rejectionReason         String?               @db.Text

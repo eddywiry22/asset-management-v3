@@ -41,6 +41,7 @@ export type TransferRequest = {
   finalizedAt: string | null;
   cancelledById: string | null;
   cancelledAt: string | null;
+  cancellationReason: string | null;
   rejectedById: string | null;
   rejectedAt: string | null;
   rejectionReason: string | null;
@@ -82,15 +83,17 @@ const stockTransfersService = {
     status?: TransferRequestStatus;
     startDate?: string;
     endDate?: string;
+    locationId?: string;
     page?: number;
     limit?: number;
   } = {}): Promise<PaginatedResponse<TransferRequest>> {
     const query = new URLSearchParams();
-    if (params.status)    query.set('status',    params.status);
-    if (params.startDate) query.set('startDate', params.startDate);
-    if (params.endDate)   query.set('endDate',   params.endDate);
-    if (params.page)      query.set('page',      String(params.page));
-    if (params.limit)     query.set('limit',     String(params.limit));
+    if (params.status)     query.set('status',     params.status);
+    if (params.startDate)  query.set('startDate',  params.startDate);
+    if (params.endDate)    query.set('endDate',     params.endDate);
+    if (params.locationId) query.set('locationId',  params.locationId);
+    if (params.page)       query.set('page',        String(params.page));
+    if (params.limit)      query.set('limit',       String(params.limit));
     return apiClient.get(`stock-transfers?${query}`).then((r) => r.data);
   },
 
@@ -138,8 +141,8 @@ const stockTransfersService = {
     return apiClient.post(`stock-transfers/${requestId}/reject`, { reason }).then((r) => r.data);
   },
 
-  cancel(requestId: string): Promise<{ success: boolean; data: TransferRequest }> {
-    return apiClient.post(`stock-transfers/${requestId}/cancel`).then((r) => r.data);
+  cancel(requestId: string, reason: string): Promise<{ success: boolean; data: TransferRequest }> {
+    return apiClient.post(`stock-transfers/${requestId}/cancel`, { reason }).then((r) => r.data);
   },
 };
 
