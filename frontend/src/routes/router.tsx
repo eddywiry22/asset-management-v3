@@ -13,6 +13,7 @@ import StockAdjustmentsPage from '../modules/adjustments/pages/StockAdjustmentsP
 import StockAdjustmentDetailPage from '../modules/adjustments/pages/StockAdjustmentDetailPage';
 import StockTransfersPage from '../modules/transfers/pages/StockTransfersPage';
 import StockTransferDetailPage from '../modules/transfers/pages/StockTransferDetailPage';
+import AuditLogsPage from '../modules/audit/pages/AuditLogsPage';
 
 const router = createBrowserRouter([
   {
@@ -86,6 +87,10 @@ const router = createBrowserRouter([
               {
                 path: 'admin/product-registrations',
                 element: <ProductRegistrationsPage />,
+              },
+              {
+                path: 'admin/audit-logs',
+                element: <AuditLogsPage />,
               },
             ],
           },

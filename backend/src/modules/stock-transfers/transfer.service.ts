@@ -276,6 +276,7 @@ export class TransferService {
       entityType:  'STOCK_TRANSFER_REQUEST',
       entityId:    requestId,
       action:      'STATUS_CHANGE',
+      beforeValue: { status: 'DRAFT' },
       afterValue:  { status: 'SUBMITTED' },
       performedBy: user.id,
     });
@@ -359,6 +360,7 @@ export class TransferService {
       entityType:  'STOCK_TRANSFER_REQUEST',
       entityId:    requestId,
       action:      'STATUS_CHANGE',
+      beforeValue: { status: 'SUBMITTED' },
       afterValue:  { status: 'ORIGIN_MANAGER_APPROVED', itemSnapshot: originItemSnapshot, inactiveItemCount: inactiveAtOrigin.length },
       performedBy: user.id,
     });
@@ -387,6 +389,7 @@ export class TransferService {
       entityType:  'STOCK_TRANSFER_REQUEST',
       entityId:    requestId,
       action:      'STATUS_CHANGE',
+      beforeValue: { status: 'ORIGIN_MANAGER_APPROVED' },
       afterValue:  { status: 'READY_TO_FINALIZE' },
       performedBy: user.id,
     });
@@ -453,7 +456,8 @@ export class TransferService {
       entityType:  'STOCK_TRANSFER_REQUEST',
       entityId:    requestId,
       action:      'STATUS_CHANGE',
-      afterValue:  { status: 'REJECTED', rejectedFrom: req.status },
+      beforeValue: { status: req.status },
+      afterValue:  { status: 'REJECTED' },
       performedBy: user.id,
     });
 
@@ -536,6 +540,7 @@ export class TransferService {
       entityType:  'STOCK_TRANSFER_REQUEST',
       entityId:    requestId,
       action:      'STATUS_CHANGE',
+      beforeValue: { status: 'READY_TO_FINALIZE' },
       afterValue:  { status: 'FINALIZED', itemSnapshot: finalizeItemSnapshot, inactiveItemCount: inactiveAtFinalize.length },
       performedBy: user.id,
     });
@@ -600,6 +605,7 @@ export class TransferService {
       entityType:  'STOCK_TRANSFER_REQUEST',
       entityId:    requestId,
       action:      'STATUS_CHANGE',
+      beforeValue: { status: req.status },
       afterValue:  { status: 'CANCELLED' },
       performedBy: user.id,
     });

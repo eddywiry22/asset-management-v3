@@ -10,6 +10,7 @@ import vendorsRoutes from './modules/vendors/vendors.routes';
 import uomsRoutes from './modules/uoms/uoms.routes';
 import productsRoutes from './modules/products/products.routes';
 import productRegistrationsRoutes from './modules/product-registrations/productRegistration.routes';
+import auditRoutes from './modules/audit/audit.routes';
 import stockRoutes from './modules/stock/stock.routes';
 import stockAdjustmentRoutes from './modules/stock-adjustments/stockAdjustment.routes';
 import stockTransferRoutes from './modules/stock-transfers/transfer.routes';
@@ -40,6 +41,7 @@ adminRouter.use('/vendors',    vendorsRoutes);
 adminRouter.use('/uoms',       uomsRoutes);
 adminRouter.use('/products',              productsRoutes);
 adminRouter.use('/product-registrations', productRegistrationsRoutes);
+adminRouter.use('/audit-logs',           auditRoutes);
 
 // /v1 router
 const v1Router = Router();
