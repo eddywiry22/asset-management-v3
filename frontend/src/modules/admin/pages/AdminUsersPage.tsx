@@ -97,8 +97,17 @@ export default function AdminUsersPage() {
 
   // ── Forms ──────────────────────────────────────────────────────────────────
 
-  const createForm = useForm<CreateForm>({ resolver: zodResolver(createSchema) });
-  const editForm   = useForm<EditForm>({ resolver: zodResolver(editSchema) });
+  // defaultValues ensure locationIds is always [] on mount, preventing the
+  // MUI "value must be an array" error on the <Select multiple> before any
+  // user interaction or form.reset() call.
+  const createForm = useForm<CreateForm>({
+    resolver: zodResolver(createSchema),
+    defaultValues: { locationIds: [] },
+  });
+  const editForm = useForm<EditForm>({
+    resolver: zodResolver(editSchema),
+    defaultValues: { locationIds: [] },
+  });
 
   // ── Mutations ──────────────────────────────────────────────────────────────
 
@@ -428,6 +437,7 @@ export default function AdminUsersPage() {
                   <Select
                     multiple
                     {...field}
+                    value={field.value ?? []}   {/* guard: always pass an array */}
                     input={<OutlinedInput label="Locations" />}
                     renderValue={(selected) =>
                       (selected as string[])
