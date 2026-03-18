@@ -11,6 +11,12 @@ import { assertUserCanAccessLocation } from '../../utils/guards';
 import { CreateRequestDto, AddItemDto, UpdateItemDto } from './stockAdjustment.validator';
 import { auditService } from '../../services/audit.service';
 import prisma from '../../config/database';
+import logger from '../../utils/logger';
+import {
+  validateUserAccess,
+  validateLocationActive,
+  validateProductActive,
+} from '../../utils/validationHelpers';
 
 type UserCtx = { id: string; isAdmin: boolean };
 
@@ -119,6 +125,23 @@ export class StockAdjustmentService {
     if (!product) throw new NotFoundError(`Product not found: ${dto.productId}`);
     const location = await prisma.location.findUnique({ where: { id: dto.locationId } });
     if (!location) throw new NotFoundError(`Location not found: ${dto.locationId}`);
+
+    // Stage 8.1: Non-blocking validation warnings (DO NOT block execution)
+    const [locationActiveResult, userAccessResult, productActiveResult] = await Promise.all([
+      validateLocationActive(dto.locationId),
+      validateUserAccess(user.id, dto.locationId),
+      validateProductActive(dto.productId, dto.locationId),
+    ]);
+    if (!locationActiveResult.valid) {
+      logger.warn('[Stage8] Adjustment addItem validation warning', { check: 'locationActive', locationId: dto.locationId, ...locationActiveResult });
+    }
+    if (!userAccessResult.valid) {
+      logger.warn('[Stage8] Adjustment addItem validation warning', { check: 'userAccess', userId: user.id, locationId: dto.locationId, ...userAccessResult });
+    }
+    if (!productActiveResult.valid) {
+      logger.warn('[Stage8] Adjustment addItem validation warning', { check: 'productActive', productId: dto.productId, locationId: dto.locationId, ...productActiveResult });
+    }
+
     return stockAdjustmentRepository.addItem({
       requestId,
       productId:  dto.productId,

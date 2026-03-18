@@ -50,6 +50,7 @@ model Location {
   transfersAsSource      StockTransferRequest[] @relation("TransferSourceLocation")
   transfersAsDestination StockTransferRequest[] @relation("TransferDestinationLocation")
   stockReservations      StockReservation[]
+  productLocations       ProductLocation[]
 }
 
 model UserLocationRole {
@@ -117,6 +118,25 @@ model Product {
   adjustmentItems  StockAdjustmentItem[]
   transferItems    StockTransferItem[]
   stockReservations StockReservation[]
+  productLocations  ProductLocation[]
+}
+
+// ---------------------------------------------------------------------------
+// Stage 8: Product-Location mapping
+// ---------------------------------------------------------------------------
+
+model ProductLocation {
+  id         String   @id @default(uuid())
+  productId  String
+  locationId String
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  product  Product  @relation(fields: [productId], references: [id])
+  location Location @relation(fields: [locationId], references: [id])
+
+  @@unique([productId, locationId])
 }
 
 // ---------------------------------------------------------------------------
