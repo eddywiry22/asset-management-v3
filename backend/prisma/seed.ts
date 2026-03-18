@@ -14,13 +14,13 @@ const LOCATIONS = [
 ];
 
 const USERS = [
-  { email: 'manager1@example.com',  phone: '+62811000001', isAdmin: false },
-  { email: 'manager2@example.com',  phone: '+62811000002', isAdmin: false },
-  { email: 'manager3@example.com',  phone: '+62811000003', isAdmin: false },
-  { email: 'operator1@example.com', phone: '+62822000001', isAdmin: false },
-  { email: 'operator2@example.com', phone: '+62822000002', isAdmin: false },
-  { email: 'operator3@example.com', phone: '+62822000003', isAdmin: false },
-  { email: 'admin@example.com',     phone: '+62800000000', isAdmin: true  },
+  { username: 'manager1',  email: 'manager1@example.com',  phone: '+62811000001', isAdmin: false },
+  { username: 'manager2',  email: 'manager2@example.com',  phone: '+62811000002', isAdmin: false },
+  { username: 'manager3',  email: 'manager3@example.com',  phone: '+62811000003', isAdmin: false },
+  { username: 'operator1', email: 'operator1@example.com', phone: '+62822000001', isAdmin: false },
+  { username: 'operator2', email: 'operator2@example.com', phone: '+62822000002', isAdmin: false },
+  { username: 'operator3', email: 'operator3@example.com', phone: '+62822000003', isAdmin: false },
+  { username: 'admin',     email: 'admin@example.com',     phone: '+62800000000', isAdmin: true  },
 ];
 
 const ROLE_MAP: Array<{ locationCode: string; managerEmail: string; operatorEmail: string }> = [
@@ -105,10 +105,10 @@ async function main() {
   const userMap = new Map<string, string>(); // email → id
 
   for (const u of USERS) {
-    const record = await (prisma.user as any).upsert({
+    const record = await prisma.user.upsert({
       where:  { email: u.email },
-      update: { phone: u.phone, isActive: true, isAdmin: u.isAdmin },
-      create: { email: u.email, phone: u.phone, passwordHash, isActive: true, isAdmin: u.isAdmin },
+      update: { username: u.username, phone: u.phone, isActive: true, isAdmin: u.isAdmin },
+      create: { username: u.username, email: u.email, phone: u.phone, passwordHash, isActive: true, isAdmin: u.isAdmin },
     });
     userMap.set(record.email!, record.id);
     console.log(`  User: ${record.email}${u.isAdmin ? ' [ADMIN]' : ''}`);
