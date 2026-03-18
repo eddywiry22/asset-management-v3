@@ -57,7 +57,7 @@ export type LedgerQueryParams = {
   endDate?: string;
 };
 
-export type VisibleLocation = { id: string; code: string; name: string; role?: string };
+export type VisibleLocation = { id: string; code: string; name: string; isActive?: boolean; role?: string };
 export type RegisteredProduct = { id: string; sku: string; name: string };
 
 const stockService = {

@@ -90,9 +90,24 @@ export class StockAdjustmentService {
     // Resolve location code for request number prefix
     const locationRole = await prisma.userLocationRole.findFirst({
       where:   { userId },
-      include: { location: { select: { code: true } } },
+      include: { location: { select: { code: true, isActive: true } } },
     });
     const locationCode = locationRole?.location?.code ?? 'GEN';
+
+    // Stage 8.4.1: block create if user's primary location is inactive
+    if (locationRole?.location?.isActive === false) {
+      logger.warn('[Stage8.4] Adjustment create blocked — location inactive', { userId, locationCode });
+      void auditService.log({
+        entityType:    'STOCK_ADJUSTMENT_REQUEST',
+        entityId:      userId,
+        action:        'BLOCKED',
+        afterSnapshot: { reason: 'LOCATION_INACTIVE', locationCode },
+        performedBy:   userId,
+      });
+      throw new ValidationError(
+        `Cannot create adjustment: your location ${locationCode} is inactive. Contact admin.`,
+      );
+    }
 
     for (let attempt = 0; attempt < 5; attempt++) {
       const requestNumber = await this.generateRequestNumber(locationCode);
@@ -262,6 +277,30 @@ export class StockAdjustmentService {
       }
     }
 
+    // Stage 8.4.1: block if any item location is inactive
+    const adjApproveLocIds = [...new Set(req.items.map((i) => i.locationId))];
+    const adjApproveInactiveLocs: string[] = [];
+    for (const locId of adjApproveLocIds) {
+      const result = await validateLocationActive(locId);
+      if (!result.valid) {
+        const loc = await prisma.location.findUnique({ where: { id: locId }, select: { code: true } });
+        adjApproveInactiveLocs.push(loc?.code ?? locId);
+      }
+    }
+    if (adjApproveInactiveLocs.length > 0) {
+      logger.warn('[Stage8.4] Adjustment approve blocked — inactive location(s)', { requestId, adjApproveInactiveLocs });
+      void auditService.log({
+        entityType:    'STOCK_ADJUSTMENT_REQUEST',
+        entityId:      requestId,
+        action:        'BLOCKED',
+        afterSnapshot: { reason: 'LOCATION_INACTIVE', inactiveLocations: adjApproveInactiveLocs },
+        performedBy:   userId,
+      });
+      throw new ValidationError(
+        `Cannot approve: location(s) ${adjApproveInactiveLocs.join(', ')} are inactive. Reactivate them first.`,
+      );
+    }
+
     // Stage 8.2.1.1: non-blocking warning for now-inactive items
     const inactiveItems = req.items.filter((i) => (i as any).isActiveNow === false);
     if (inactiveItems.length > 0) {
@@ -358,6 +397,30 @@ export class StockAdjustmentService {
       if (!hasAccess) {
         throw new ForbiddenError('You do not have access to this location');
       }
+    }
+
+    // Stage 8.4.1: block if any item location is inactive
+    const adjFinalizeLocIds = [...new Set(req.items.map((i) => i.locationId))];
+    const adjFinalizeInactiveLocs: string[] = [];
+    for (const locId of adjFinalizeLocIds) {
+      const result = await validateLocationActive(locId);
+      if (!result.valid) {
+        const loc = await prisma.location.findUnique({ where: { id: locId }, select: { code: true } });
+        adjFinalizeInactiveLocs.push(loc?.code ?? locId);
+      }
+    }
+    if (adjFinalizeInactiveLocs.length > 0) {
+      logger.warn('[Stage8.4] Adjustment finalize blocked — inactive location(s)', { requestId, adjFinalizeInactiveLocs });
+      void auditService.log({
+        entityType:    'STOCK_ADJUSTMENT_REQUEST',
+        entityId:      requestId,
+        action:        'BLOCKED',
+        afterSnapshot: { reason: 'LOCATION_INACTIVE', inactiveLocations: adjFinalizeInactiveLocs },
+        performedBy:   userId,
+      });
+      throw new ValidationError(
+        `Cannot finalize: location(s) ${adjFinalizeInactiveLocs.join(', ')} are inactive. Reactivate them first.`,
+      );
     }
 
     // Stage 8.2.2: blocking check — reject finalize if any items are now inactive
