@@ -220,6 +220,24 @@ export class StockAdjustmentService {
       }
     }
 
+    // Hard pre-flight: outbound items must not exceed available stock
+    // (availableQty accounts for ACTIVE reservations from other requests).
+    for (const item of req.items) {
+      const qtyChange = Number(item.qtyChange);
+      if (qtyChange < 0) {
+        const { availableQty } = await reservationService.getAvailableStock(
+          item.productId,
+          item.locationId,
+        );
+        if (availableQty + qtyChange < 0) {
+          throw new ValidationError(
+            `Insufficient available stock for product ${item.productId} at location ${item.locationId}. ` +
+            `Available: ${availableQty}, requested change: ${qtyChange}`,
+          );
+        }
+      }
+    }
+
     const updated = await stockAdjustmentRepository.updateStatus(requestId, {
       status:      AdjustmentRequestStatus.APPROVED,
       approvedById: userId,
@@ -289,39 +307,29 @@ export class StockAdjustmentService {
       }
     }
 
-    // Pre-flight: verify outbound items have sufficient available stock
-    // (respects active reservations from other requests).
-    for (const item of req.items) {
-      const qtyChange = Number(item.qtyChange);
-      if (qtyChange < 0) {
-        const { availableQty } = await reservationService.getAvailableStock(
-          item.productId,
-          item.locationId,
-        );
-        if (availableQty + qtyChange < 0) {
-          throw new ValidationError(
-            `Insufficient available stock for product ${item.productId} at location ${item.locationId}. ` +
-            `Available: ${availableQty}, requested change: ${qtyChange}`,
-          );
-        }
-      }
-    }
-
-    // Atomically claim: only the first concurrent caller transitions APPROVED → FINALIZED.
-    const claimed = await stockAdjustmentRepository.claimFinalization(requestId, userId, new Date());
-    if (!claimed) {
-      throw new ValidationError(`Cannot finalize a request with status ${req.status}`);
-    }
-
-    // Apply stock adjustments (each call is internally transactional).
-    for (const item of req.items) {
-      await stockService.applyAdjustment({
-        productId:  item.productId,
-        locationId: item.locationId,
-        qtyChange:  Number(item.qtyChange),
-        sourceId:   requestId,
+    // ONE transaction: status claim + all stock mutations.
+    // applyAdjustmentTx checks available stock with row-level locking inside
+    // the transaction — if any item has insufficient stock, the entire
+    // transaction rolls back (status stays APPROVED, no partial mutations).
+    await prisma.$transaction(async (tx) => {
+      const result = await (tx as any).stockAdjustmentRequest.updateMany({
+        where: { id: requestId, status: AdjustmentRequestStatus.APPROVED },
+        data:  { status: AdjustmentRequestStatus.FINALIZED, finalizedById: userId, finalizedAt: new Date() },
       });
-    }
+
+      if (result.count === 0) {
+        throw new ValidationError(`Cannot finalize a request with status ${req.status}`);
+      }
+
+      for (const item of req.items) {
+        await stockService.applyAdjustmentTx(tx as any, {
+          productId:  item.productId,
+          locationId: item.locationId,
+          qtyChange:  Number(item.qtyChange),
+          sourceId:   requestId,
+        });
+      }
+    });
 
     void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', afterValue: { status: 'FINALIZED' }, performedBy: userId });
     return (await stockAdjustmentRepository.findById(requestId))!;
