@@ -278,16 +278,21 @@ model StockAdjustmentItem {
 }
 
 model AuditLog {
-  id          String   @id @default(uuid())
-  entityType  String
-  entityId    String
-  action      String
-  beforeValue Json?
-  afterValue  Json?
-  performedBy String
-  timestamp   DateTime @default(now())
+  id             String   @id @default(uuid())
+  userId         String
+  action         String
+  entityType     String
+  entityId       String
+  timestamp      DateTime @default(now())
+  beforeSnapshot Json?
+  afterSnapshot  Json?
+  warnings       Json?
 
-  user User @relation(fields: [performedBy], references: [id])
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([entityType])
+  @@index([timestamp])
 }
 
 // ---------------------------------------------------------------------------
