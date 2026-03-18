@@ -288,13 +288,25 @@ export default function StockAdjustmentDetailPage() {
   return (
     <Box>
       {/* Header */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-        <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/stock-adjustments')}>Back</Button>
-        <Typography variant="h5" fontWeight={600} sx={{ flexGrow: 1 }}>
-          {req.requestNumber}
-        </Typography>
-        <Chip label={req.status} color={STATUS_COLORS[req.status] ?? 'default'} />
-      </Box>
+      {(() => {
+        const inactiveForFinalize = isApproved ? req.items.filter((i) => i.isActiveNow === false) : [];
+        return (
+          <>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: inactiveForFinalize.length > 0 ? 1 : 2 }}>
+              <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/stock-adjustments')}>Back</Button>
+              <Typography variant="h5" fontWeight={600} sx={{ flexGrow: 1 }}>
+                {req.requestNumber}
+              </Typography>
+              <Chip label={req.status} color={STATUS_COLORS[req.status] ?? 'default'} />
+            </Box>
+            {inactiveForFinalize.length > 0 && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                {inactiveForFinalize.length} item(s) have inactive product registrations and cannot be finalized. Reactivate or remove them first.
+              </Alert>
+            )}
+          </>
+        );
+      })()}
 
       {/* Meta */}
       <Paper sx={{ p: 2, mb: 2 }}>
@@ -483,7 +495,7 @@ export default function StockAdjustmentDetailPage() {
               <Button
                 variant="contained"
                 color="warning"
-                disabled={req.items.length === 0}
+                disabled={req.items.length === 0 || req.items.some((i) => i.isActiveNow === false)}
                 onClick={() => setConfirmAction('finalize')}
               >
                 Finalize (Apply Stock Changes)
@@ -531,12 +543,12 @@ export default function StockAdjustmentDetailPage() {
             'Delete Request'
           }
           body={(() => {
-            const hasInactive = req.items.some((i) => i.isActiveNow === false);
+            const hasInactiveForApprove = confirmAction === 'approve' && req.items.some((i) => i.isActiveNow === false);
             return (
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mt: 1 }}>
-                {(confirmAction === 'approve' || confirmAction === 'finalize') && hasInactive && (
+                {hasInactiveForApprove && (
                   <Alert severity="warning">
-                    Warning: {req.items.filter((i) => i.isActiveNow === false).length} item(s) have inactive product registrations. The operation will still proceed.
+                    Warning: {req.items.filter((i) => i.isActiveNow === false).length} item(s) have inactive product registrations. Approval will still proceed.
                   </Alert>
                 )}
                 {confirmAction === 'finalize' && (
@@ -545,10 +557,7 @@ export default function StockAdjustmentDetailPage() {
                 {confirmAction === 'delete' && (
                   <Alert severity="error">This will permanently delete the DRAFT request and all its items.</Alert>
                 )}
-                {confirmAction === 'submit' && (
-                  <Alert severity="info">Are you sure you want to proceed?</Alert>
-                )}
-                {confirmAction === 'approve' && !hasInactive && (
+                {(confirmAction === 'submit' || (confirmAction === 'approve' && !hasInactiveForApprove)) && (
                   <Alert severity="info">Are you sure you want to proceed?</Alert>
                 )}
               </Box>

@@ -14,6 +14,10 @@ router.post('/', validateBody(createProductRegistrationSchema), (req, res, next)
   productLocationController.create(req as AuthenticatedRequest, res, next)
 );
 
+router.get('/:id/check-deactivate', (req, res, next) =>
+  productLocationController.checkDeactivation(req as unknown as AuthenticatedRequest, res, next)
+);
+
 router.put('/:id', validateBody(updateProductRegistrationSchema), (req, res, next) =>
   productLocationController.update(req as AuthenticatedRequest, res, next)
 );

@@ -386,13 +386,20 @@ export default function StockTransferDetailPage() {
   return (
     <Box>
       {/* Header */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: itemsNotAtDest.length > 0 ? 1 : 2 }}>
         <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/stock-transfers')}>Back</Button>
         <Typography variant="h5" fontWeight={600} sx={{ flexGrow: 1 }}>
           {req.requestNumber}
         </Typography>
         <Chip label={req.status.replace(/_/g, ' ')} color={STATUS_COLORS[req.status] as any} />
       </Box>
+
+      {/* Destination registration blocking alert — shown near header so it is always visible */}
+      {itemsNotAtDest.length > 0 && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {itemsNotAtDest.length} item(s) are not registered at the destination location and must be registered before finalizing.
+        </Alert>
+      )}
 
       {/* Meta */}
       <Paper sx={{ p: 2, mb: 2 }}>
@@ -620,21 +627,14 @@ export default function StockTransferDetailPage() {
 
             {/* READY_TO_FINALIZE: Finalize — destination user (or admin) */}
             {isReady && canFinalize && (
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                {itemsNotAtDest.length > 0 && (
-                  <Alert severity="error" sx={{ mb: 1 }}>
-                    {itemsNotAtDest.length} item(s) are not registered at the destination location and must be registered before finalizing.
-                  </Alert>
-                )}
-                <Button
-                  variant="contained"
-                  color="warning"
-                  disabled={req.items.length === 0 || itemsNotAtDest.length > 0}
-                  onClick={() => setConfirmAction('finalize')}
-                >
-                  Finalize Transfer
-                </Button>
-              </Box>
+              <Button
+                variant="contained"
+                color="warning"
+                disabled={req.items.length === 0 || itemsNotAtDest.length > 0}
+                onClick={() => setConfirmAction('finalize')}
+              >
+                Finalize Transfer
+              </Button>
             )}
 
             {/* Cancel — any non-terminal state, creator or admin */}

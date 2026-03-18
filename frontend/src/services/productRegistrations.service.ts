@@ -21,6 +21,13 @@ export interface UpdateProductRegistrationInput {
   isActive: boolean;
 }
 
+export interface DeactivationCheck {
+  canDeactivate: boolean;
+  pendingCount:  number;
+  adjustments:   number;
+  transfers:     number;
+}
+
 export const productRegistrationsService = {
   async getAll(): Promise<ProductRegistration[]> {
     const res = await apiClient.get<{ success: boolean; data: ProductRegistration[] }>(
@@ -47,5 +54,12 @@ export const productRegistrationsService = {
 
   async delete(id: string): Promise<void> {
     await apiClient.delete(`/admin/product-registrations/${id}`);
+  },
+
+  async checkDeactivation(id: string): Promise<DeactivationCheck> {
+    const res = await apiClient.get<{ success: boolean; data: DeactivationCheck }>(
+      `/admin/product-registrations/${id}/check-deactivate`,
+    );
+    return res.data.data;
   },
 };

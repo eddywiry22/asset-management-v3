@@ -3,7 +3,7 @@ import {
   Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
   FormControlLabel, Switch, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, TextField, Typography, Paper, CircularProgress,
-  Alert, MenuItem,
+  Alert, MenuItem, Tooltip,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
@@ -96,6 +96,13 @@ export default function ProductRegistrationsPage() {
     onError: (err: any) => {
       setApiError(err?.response?.data?.error?.message ?? 'Failed to delete registration');
     },
+  });
+
+  // Pre-check pending requests when the edit dialog opens for an active registration
+  const { data: deactivationCheck } = useQuery({
+    queryKey: ['check-deactivate', editTarget?.id],
+    queryFn:  () => productRegistrationsService.checkDeactivation(editTarget!.id),
+    enabled:  !!editTarget && editTarget.isActive,
   });
 
   const openEdit = (item: ProductRegistration) => {
@@ -276,13 +283,29 @@ export default function ProductRegistrationsPage() {
             <Controller
               name="isActive"
               control={editForm.control}
-              render={({ field }) => (
-                <FormControlLabel
-                  control={<Switch checked={field.value} onChange={field.onChange} />}
-                  label="Active"
-                  sx={{ mt: 1 }}
-                />
-              )}
+              render={({ field }) => {
+                const hasPending = deactivationCheck && !deactivationCheck.canDeactivate;
+                const switchDisabled = !!hasPending && field.value === true;
+                const tooltipTitle = hasPending
+                  ? `Cannot deactivate: ${deactivationCheck.pendingCount} pending request(s) exist ` +
+                    `(${deactivationCheck.adjustments} adjustment(s), ${deactivationCheck.transfers} transfer(s)). Resolve them first.`
+                  : '';
+                return (
+                  <Tooltip title={tooltipTitle} arrow>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={field.value}
+                          onChange={field.onChange}
+                          disabled={switchDisabled}
+                        />
+                      }
+                      label="Active"
+                      sx={{ mt: 1 }}
+                    />
+                  </Tooltip>
+                );
+              }}
             />
           </DialogContent>
           <DialogActions>

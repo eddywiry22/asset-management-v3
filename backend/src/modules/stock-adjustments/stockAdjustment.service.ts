@@ -360,6 +360,30 @@ export class StockAdjustmentService {
       }
     }
 
+    // Stage 8.2.2: blocking check — reject finalize if any items are now inactive
+    const inactiveAtFinalize = req.items.filter((i) => (i as any).isActiveNow === false);
+    if (inactiveAtFinalize.length > 0) {
+      logger.warn('[Stage8] Adjustment finalize blocked — inactive items', {
+        requestId,
+        inactiveProductIds: inactiveAtFinalize.map((i) => i.productId),
+      });
+      void auditService.log({
+        entityType: 'STOCK_ADJUSTMENT_REQUEST',
+        entityId:   requestId,
+        action:     'FINALIZE_BLOCKED',
+        afterValue: {
+          reason:             'INACTIVE_ITEMS',
+          inactiveProductIds: inactiveAtFinalize.map((i) => i.productId),
+          inactiveItemCount:  inactiveAtFinalize.length,
+        },
+        performedBy: userId,
+      });
+      throw new ValidationError(
+        `Cannot finalize: ${inactiveAtFinalize.length} item(s) have inactive product registrations. ` +
+        `Reactivate or remove the inactive items before finalizing.`,
+      );
+    }
+
     // ONE transaction: status claim + all stock mutations.
     // applyAdjustmentTx checks available stock with row-level locking inside
     // the transaction — if any item has insufficient stock, the entire
@@ -384,17 +408,9 @@ export class StockAdjustmentService {
       }
     });
 
-    // Stage 8.2.1.1: non-blocking warning for now-inactive items at finalize
-    const inactiveAtFinalize = req.items.filter((i) => (i as any).isActiveNow === false);
-    if (inactiveAtFinalize.length > 0) {
-      logger.warn('[Stage8] Adjustment finalize — some items now inactive', {
-        requestId,
-        inactiveProductIds: inactiveAtFinalize.map((i) => i.productId),
-      });
-    }
     const finalizePlStatuses = await Promise.all(req.items.map((i) => getProductLocationStatus(i.productId, i.locationId)));
     const finalizeItemSnapshot = req.items.map((i, idx) => ({ productId: i.productId, locationId: i.locationId, ...finalizePlStatuses[idx] }));
-    void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', afterValue: { status: 'FINALIZED', itemSnapshot: finalizeItemSnapshot, inactiveItemCount: inactiveAtFinalize.length }, performedBy: userId });
+    void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', afterValue: { status: 'FINALIZED', itemSnapshot: finalizeItemSnapshot }, performedBy: userId });
     return (await stockAdjustmentRepository.findById(requestId))!;
   }
   // -------------------------------------------------------------------------

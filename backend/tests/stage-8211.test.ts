@@ -312,19 +312,16 @@ describe('POST /v1/stock-adjustments/:id/approve — inactive items warning (non
 });
 
 // ===========================================================================
-// Adjustments: finalize with inactive items — non-blocking warning
+// Adjustments: finalize with inactive items — BLOCKING (Stage 8.2.2)
 // ===========================================================================
 
-describe('POST /v1/stock-adjustments/:id/finalize — inactive items warning (non-blocking)', () => {
-  it('finalizes successfully even when an item has isActiveNow=false', async () => {
+describe('POST /v1/stock-adjustments/:id/finalize — blocked when items inactive (Stage 8.2.2)', () => {
+  it('returns 400 when an item has isActiveNow=false (finalize is now blocking)', async () => {
     const item     = makeAdjItem();
     const adjReq   = makeAdjRequest('APPROVED', [item]);
-    const finalized = makeAdjRequest('FINALIZED', [item]);
 
-    db.stockAdjustmentRequest.findUnique
-      .mockResolvedValueOnce(adjReq)    // findById in finalize
-      .mockResolvedValue(finalized);    // final re-fetch
-    // Product NOT active (inactive mapping)
+    db.stockAdjustmentRequest.findUnique.mockResolvedValue(adjReq);
+    // Product NOT active — validateProductActive returns { valid: false }
     db.productLocation.findFirst.mockResolvedValue(null);
     db.productLocation.findMany.mockResolvedValue([]);
 
@@ -332,8 +329,8 @@ describe('POST /v1/stock-adjustments/:id/finalize — inactive items warning (no
       .post(`/v1/stock-adjustments/${REQ_ID}/finalize`)
       .set(AUTH);
 
-    expect(res.status).toBe(200);
-    expect(res.body.data.status).toBe('FINALIZED');
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/inactive/i);
   });
 });
 

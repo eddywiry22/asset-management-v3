@@ -286,7 +286,11 @@ export default function StockDashboardPage() {
                         <Tooltip title="This product is not registered at this location">
                           <Chip label="Not Registered" size="small" color="error" />
                         </Tooltip>
-                      ) : null}
+                      ) : (
+                        <Tooltip title="This product is actively registered at this location">
+                          <Chip label="Active" size="small" color="success" />
+                        </Tooltip>
+                      )}
                     </TableCell>
                     <TableCell align="right">{fmtQty(row.onHandQty)}</TableCell>
                     <TableCell align="right" sx={{ color: row.reservedQty > 0 ? 'warning.main' : 'inherit' }}>

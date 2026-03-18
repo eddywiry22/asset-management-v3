@@ -55,8 +55,33 @@ export class ProductLocationService {
     return mapping;
   }
 
+  async checkDeactivation(id: string): Promise<{ canDeactivate: boolean; pendingCount: number; adjustments: number; transfers: number }> {
+    const mapping = await this.findById(id);
+    const { adjustments, transfers } = await productLocationRepository.countPendingRequests(mapping.productId, mapping.locationId);
+    const pendingCount = adjustments + transfers;
+    return { canDeactivate: pendingCount === 0, pendingCount, adjustments, transfers };
+  }
+
   async update(id: string, dto: UpdateProductRegistrationDto, performedBy: string): Promise<ProductLocationRow> {
     const before = await this.findById(id);
+
+    // Stage 8.2.2: block deactivation when pending requests exist
+    if (dto.isActive === false && before.isActive === true) {
+      const { adjustments, transfers } = await productLocationRepository.countPendingRequests(
+        before.productId,
+        before.locationId,
+      );
+      const pendingCount = adjustments + transfers;
+      if (pendingCount > 0) {
+        logger.warn('[Stage8] ProductRegistration deactivation blocked — pending requests', {
+          id, productId: before.productId, locationId: before.locationId, adjustments, transfers,
+        });
+        throw new ValidationError(
+          `Cannot deactivate this product at this location while there are pending requests ` +
+          `(${adjustments} adjustment(s), ${transfers} transfer(s)). Resolve them first.`,
+        );
+      }
+    }
 
     const updated = await productLocationRepository.update(id, { isActive: dto.isActive });
 

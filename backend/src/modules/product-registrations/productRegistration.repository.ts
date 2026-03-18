@@ -1,4 +1,5 @@
 import prisma from '../../config/database';
+import { AdjustmentRequestStatus, TransferRequestStatus } from '@prisma/client';
 
 export type ProductLocationRow = {
   id:         string;
@@ -57,6 +58,39 @@ export class ProductLocationRepository {
   async hasLedgerEntries(productId: string, locationId: string): Promise<boolean> {
     const count = await prisma.stockLedger.count({ where: { productId, locationId } });
     return count > 0;
+  }
+
+  async countPendingRequests(productId: string, locationId: string): Promise<{ adjustments: number; transfers: number }> {
+    const ADJ_TERMINAL: AdjustmentRequestStatus[] = [
+      AdjustmentRequestStatus.FINALIZED,
+      AdjustmentRequestStatus.CANCELLED,
+      AdjustmentRequestStatus.REJECTED,
+    ];
+    const TRF_TERMINAL: TransferRequestStatus[] = [
+      TransferRequestStatus.FINALIZED,
+      TransferRequestStatus.CANCELLED,
+      TransferRequestStatus.REJECTED,
+    ];
+
+    const [adjustments, transfers] = await Promise.all([
+      prisma.stockAdjustmentRequest.count({
+        where: {
+          status: { notIn: ADJ_TERMINAL },
+          items:  { some: { productId, locationId } },
+        },
+      }),
+      prisma.stockTransferRequest.count({
+        where: {
+          status: { notIn: TRF_TERMINAL },
+          OR: [
+            { sourceLocationId:      locationId, items: { some: { productId } } },
+            { destinationLocationId: locationId, items: { some: { productId } } },
+          ],
+        },
+      }),
+    ]);
+
+    return { adjustments, transfers };
   }
 }
 

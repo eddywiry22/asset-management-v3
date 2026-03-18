@@ -23,6 +23,15 @@ export class ProductLocationController {
     }
   }
 
+  async checkDeactivation(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const data = await productLocationService.checkDeactivation(req.params.id);
+      res.status(200).json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async update(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const data = await productLocationService.update(req.params.id, req.body, req.user.id);
