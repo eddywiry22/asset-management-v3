@@ -1,0 +1,74 @@
+/**
+ * Stage 8.1 — Non-blocking validation helpers.
+ *
+ * All helpers return a structured result and NEVER throw.
+ * They are designed for warning-only integration; enforcement
+ * will be added in Stage 8.2+.
+ */
+
+import prisma from '../config/database';
+
+export interface ValidationResult {
+  valid: boolean;
+  reason?: string;
+}
+
+/**
+ * Check whether a user has any role mapping to the given location.
+ * Uses existing UserLocationRole table (DO NOT create UserLocation).
+ */
+export async function validateUserAccess(
+  userId: string,
+  locationId: string,
+): Promise<ValidationResult> {
+  try {
+    const access = await prisma.userLocationRole.findFirst({
+      where: { userId, locationId },
+    });
+    return access
+      ? { valid: true }
+      : { valid: false, reason: 'USER_NO_ACCESS_TO_LOCATION' };
+  } catch {
+    return { valid: false, reason: 'USER_NO_ACCESS_TO_LOCATION' };
+  }
+}
+
+/**
+ * Check whether a location exists and is active.
+ */
+export async function validateLocationActive(
+  locationId: string,
+): Promise<ValidationResult> {
+  try {
+    const location = await prisma.location.findUnique({
+      where: { id: locationId },
+    });
+    if (!location || !location.isActive) {
+      return { valid: false, reason: 'LOCATION_INACTIVE' };
+    }
+    return { valid: true };
+  } catch {
+    return { valid: false, reason: 'LOCATION_INACTIVE' };
+  }
+}
+
+/**
+ * Check whether a product has an active mapping to a location
+ * in the ProductLocation table.
+ */
+export async function validateProductActive(
+  productId: string,
+  locationId: string,
+): Promise<ValidationResult> {
+  try {
+    const mapping = await (prisma as any).productLocation.findFirst({
+      where: { productId, locationId, isActive: true },
+    });
+    if (!mapping) {
+      return { valid: false, reason: 'PRODUCT_NOT_REGISTERED' };
+    }
+    return { valid: true };
+  } catch {
+    return { valid: false, reason: 'PRODUCT_NOT_REGISTERED' };
+  }
+}

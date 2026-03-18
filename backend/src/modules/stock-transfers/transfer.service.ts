@@ -10,6 +10,12 @@ import { assertUserCanAccessLocation } from '../../utils/guards';
 import { CreateTransferDto, AddItemDto, UpdateItemDto } from './transfer.validator';
 import { auditService } from '../../services/audit.service';
 import prisma from '../../config/database';
+import logger from '../../utils/logger';
+import {
+  validateUserAccess,
+  validateLocationActive,
+  validateProductActive,
+} from '../../utils/validationHelpers';
 
 type UserCtx = { id: string; isAdmin: boolean };
 
@@ -96,6 +102,22 @@ export class TransferService {
     const dest = await prisma.location.findUnique({ where: { id: dto.destinationLocationId } });
     if (!dest) throw new NotFoundError(`Destination location not found: ${dto.destinationLocationId}`);
 
+    // Stage 8.1: Non-blocking validation warnings (DO NOT block execution)
+    const [srcActiveResult, dstActiveResult, userAccessResult] = await Promise.all([
+      validateLocationActive(dto.sourceLocationId),
+      validateLocationActive(dto.destinationLocationId),
+      validateUserAccess(user.id, dto.sourceLocationId),
+    ]);
+    if (!srcActiveResult.valid) {
+      logger.warn('[Stage8] Transfer create validation warning', { check: 'sourceLocation', ...srcActiveResult });
+    }
+    if (!dstActiveResult.valid) {
+      logger.warn('[Stage8] Transfer create validation warning', { check: 'destinationLocation', ...dstActiveResult });
+    }
+    if (!userAccessResult.valid) {
+      logger.warn('[Stage8] Transfer create validation warning', { check: 'userAccess', userId: user.id, locationId: dto.sourceLocationId, ...userAccessResult });
+    }
+
     for (let attempt = 0; attempt < 5; attempt++) {
       const requestNumber = await this.generateRequestNumber(source.code, dest.code);
       try {
@@ -157,6 +179,12 @@ export class TransferService {
 
     const product = await prisma.product.findUnique({ where: { id: dto.productId } });
     if (!product) throw new NotFoundError(`Product not found: ${dto.productId}`);
+
+    // Stage 8.1: Non-blocking product-location validation warning
+    const productActiveResult = await validateProductActive(dto.productId, req.sourceLocationId);
+    if (!productActiveResult.valid) {
+      logger.warn('[Stage8] Transfer addItem validation warning', { check: 'productActive', productId: dto.productId, locationId: req.sourceLocationId, ...productActiveResult });
+    }
 
     return transferRepository.addItem({
       requestId,
