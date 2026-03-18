@@ -14,6 +14,7 @@ import StockAdjustmentDetailPage from '../modules/adjustments/pages/StockAdjustm
 import StockTransfersPage from '../modules/transfers/pages/StockTransfersPage';
 import StockTransferDetailPage from '../modules/transfers/pages/StockTransferDetailPage';
 import AuditLogsPage from '../modules/audit/pages/AuditLogsPage';
+import AdminLocationsPage from '../modules/admin/pages/AdminLocationsPage';
 
 const router = createBrowserRouter([
   {
@@ -87,6 +88,10 @@ const router = createBrowserRouter([
               {
                 path: 'admin/product-registrations',
                 element: <ProductRegistrationsPage />,
+              },
+              {
+                path: 'admin/locations',
+                element: <AdminLocationsPage />,
               },
               {
                 path: 'admin/audit-logs',

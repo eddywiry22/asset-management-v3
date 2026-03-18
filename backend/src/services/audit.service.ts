@@ -9,7 +9,8 @@ export type AuditAction =
   | 'CANCEL'
   | 'STATUS_CHANGE'
   | 'TRANSFER_CREATE'
-  | 'FINALIZE_BLOCKED';
+  | 'FINALIZE_BLOCKED'
+  | 'BLOCKED';
 
 export type AuditEntityType =
   | 'PRODUCT'

@@ -11,18 +11,18 @@ import { buildDateRangeFilter } from '../../utils/dateFilter';
 export class StockController {
   async getVisibleLocations(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-      let locations: Array<{ id: string; code: string; name: string; role?: string }>;
+      let locations: Array<{ id: string; code: string; name: string; isActive: boolean; role?: string }>;
 
       if (req.user.isAdmin) {
+        // Stage 8.4.2: admins see all locations (including inactive) for visibility
         locations = await prisma.location.findMany({
-          where:   { isActive: true },
-          select:  { id: true, code: true, name: true },
+          select:  { id: true, code: true, name: true, isActive: true },
           orderBy: { code: 'asc' },
         });
       } else {
         const roles = await prisma.userLocationRole.findMany({
           where:   { userId: req.user.id },
-          include: { location: { select: { id: true, code: true, name: true } } },
+          include: { location: { select: { id: true, code: true, name: true, isActive: true } } },
         });
         locations = roles
           .map((r) => ({ ...r.location, role: r.role }))

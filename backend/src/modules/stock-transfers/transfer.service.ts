@@ -119,17 +119,33 @@ export class TransferService {
     const dest = await prisma.location.findUnique({ where: { id: dto.destinationLocationId } });
     if (!dest) throw new NotFoundError(`Destination location not found: ${dto.destinationLocationId}`);
 
-    // Stage 8.1: Non-blocking validation warnings (DO NOT block execution)
+    // Stage 8.4.1: hard-blocking location active checks (was non-blocking in Stage 8.1)
     const [srcActiveResult, dstActiveResult, userAccessResult] = await Promise.all([
       validateLocationActive(dto.sourceLocationId),
       validateLocationActive(dto.destinationLocationId),
       validateUserAccess(user.id, dto.sourceLocationId),
     ]);
     if (!srcActiveResult.valid) {
-      logger.warn('[Stage8] Transfer create validation warning', { check: 'sourceLocation', ...srcActiveResult });
+      logger.warn('[Stage8.4] Transfer create blocked — source location inactive', { sourceLocationId: dto.sourceLocationId, locationCode: source.code });
+      void auditService.log({
+        entityType:    'STOCK_TRANSFER_REQUEST',
+        entityId:      user.id,
+        action:        'BLOCKED',
+        afterSnapshot: { reason: 'SOURCE_LOCATION_INACTIVE', sourceLocationId: dto.sourceLocationId, locationCode: source.code },
+        performedBy:   user.id,
+      });
+      throw new ValidationError(`Cannot create transfer: source location ${source.code} is inactive. Contact admin.`);
     }
     if (!dstActiveResult.valid) {
-      logger.warn('[Stage8] Transfer create validation warning', { check: 'destinationLocation', ...dstActiveResult });
+      logger.warn('[Stage8.4] Transfer create blocked — destination location inactive', { destinationLocationId: dto.destinationLocationId, locationCode: dest.code });
+      void auditService.log({
+        entityType:    'STOCK_TRANSFER_REQUEST',
+        entityId:      user.id,
+        action:        'BLOCKED',
+        afterSnapshot: { reason: 'DESTINATION_LOCATION_INACTIVE', destinationLocationId: dto.destinationLocationId, locationCode: dest.code },
+        performedBy:   user.id,
+      });
+      throw new ValidationError(`Cannot create transfer: destination location ${dest.code} is inactive. Contact admin.`);
     }
     if (!userAccessResult.valid) {
       logger.warn('[Stage8] Transfer create validation warning', { check: 'userAccess', userId: user.id, locationId: dto.sourceLocationId, ...userAccessResult });
@@ -310,6 +326,21 @@ export class TransferService {
       }
     }
 
+    // Stage 8.4.1: block if source location is inactive
+    const srcApproveActive = await validateLocationActive(req.sourceLocationId);
+    if (!srcApproveActive.valid) {
+      const srcLoc = await prisma.location.findUnique({ where: { id: req.sourceLocationId }, select: { code: true } });
+      logger.warn('[Stage8.4] Transfer approveOrigin blocked — source location inactive', { requestId, sourceLocationId: req.sourceLocationId });
+      void auditService.log({
+        entityType:    'STOCK_TRANSFER_REQUEST',
+        entityId:      requestId,
+        action:        'BLOCKED',
+        afterSnapshot: { reason: 'SOURCE_LOCATION_INACTIVE', sourceLocationId: req.sourceLocationId, locationCode: srcLoc?.code },
+        performedBy:   user.id,
+      });
+      throw new ValidationError(`Cannot approve: source location ${srcLoc?.code ?? req.sourceLocationId} is inactive. Contact admin.`);
+    }
+
     const now = new Date();
 
     // ONE transaction: status update + reservation creation.
@@ -379,6 +410,21 @@ export class TransferService {
     }
 
     await assertUserCanAccessLocation(user.id, user.isAdmin, req.destinationLocationId);
+
+    // Stage 8.4.1: block if destination location is inactive
+    const dstApproveActive = await validateLocationActive(req.destinationLocationId);
+    if (!dstApproveActive.valid) {
+      const dstLoc = await prisma.location.findUnique({ where: { id: req.destinationLocationId }, select: { code: true } });
+      logger.warn('[Stage8.4] Transfer approveDestination blocked — destination location inactive', { requestId, destinationLocationId: req.destinationLocationId });
+      void auditService.log({
+        entityType:    'STOCK_TRANSFER_REQUEST',
+        entityId:      requestId,
+        action:        'BLOCKED',
+        afterSnapshot: { reason: 'DESTINATION_LOCATION_INACTIVE', destinationLocationId: req.destinationLocationId, locationCode: dstLoc?.code },
+        performedBy:   user.id,
+      });
+      throw new ValidationError(`Cannot approve: destination location ${dstLoc?.code ?? req.destinationLocationId} is inactive. Contact admin.`);
+    }
 
     const claimed = await transferRepository.claimDestinationApproval(requestId, user.id, new Date());
     if (!claimed) {
@@ -485,6 +531,31 @@ export class TransferService {
     }
 
     await assertUserCanAccessLocation(user.id, user.isAdmin, req.destinationLocationId);
+
+    // Stage 8.4.1: block if source or destination location is inactive
+    const [tfrFinalSrcActive, tfrFinalDstActive] = await Promise.all([
+      validateLocationActive(req.sourceLocationId),
+      validateLocationActive(req.destinationLocationId),
+    ]);
+    if (!tfrFinalSrcActive.valid || !tfrFinalDstActive.valid) {
+      const [srcLoc, dstLoc] = await Promise.all([
+        prisma.location.findUnique({ where: { id: req.sourceLocationId },      select: { code: true } }),
+        prisma.location.findUnique({ where: { id: req.destinationLocationId }, select: { code: true } }),
+      ]);
+      const inactiveNames = [
+        ...(!tfrFinalSrcActive.valid ? [srcLoc?.code ?? req.sourceLocationId]      : []),
+        ...(!tfrFinalDstActive.valid ? [dstLoc?.code ?? req.destinationLocationId] : []),
+      ];
+      logger.warn('[Stage8.4] Transfer finalize blocked — inactive location(s)', { requestId, inactiveNames });
+      void auditService.log({
+        entityType:    'STOCK_TRANSFER_REQUEST',
+        entityId:      requestId,
+        action:        'BLOCKED',
+        afterSnapshot: { reason: 'LOCATION_INACTIVE', inactiveLocations: inactiveNames },
+        performedBy:   user.id,
+      });
+      throw new ValidationError(`Cannot finalize: location(s) ${inactiveNames.join(', ')} are inactive. Reactivate them first.`);
+    }
 
     // Stage 8.2.1.1: validate all items are registered at destination (blocking)
     const destStatuses = await Promise.all(

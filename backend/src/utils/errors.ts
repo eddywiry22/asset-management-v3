@@ -1,7 +1,8 @@
 export class AppError extends Error {
   constructor(
     public statusCode: number,
-    public message: string
+    public message: string,
+    public data?: object,
   ) {
     super(message);
     this.name = 'AppError';
@@ -10,8 +11,8 @@ export class AppError extends Error {
 }
 
 export class ValidationError extends AppError {
-  constructor(message: string) {
-    super(400, message);
+  constructor(message: string, blockingRequestCount?: number) {
+    super(400, message, blockingRequestCount !== undefined ? { blockingRequestCount } : undefined);
     this.name = 'ValidationError';
   }
 }

@@ -83,6 +83,16 @@ export default function StockAdjustmentsPage() {
   const queryClient  = useQueryClient();
   const { isAdmin }  = useAuth();
 
+  // Fetch user's assigned locations to detect inactive location
+  const { data: myLocations = [] } = useQuery({
+    queryKey: ['locations-mine'],
+    queryFn:  () => stockService.getVisibleLocations(),
+    enabled:  !isAdmin,
+  });
+  // Stage 8.4.2: show banner when ANY location is inactive; disable button only when ALL are inactive
+  const hasAnyInactiveLocation = !isAdmin && myLocations.some((l) => l.isActive === false);
+  const hasNoActiveLocation    = !isAdmin && myLocations.length > 0 && myLocations.every((l) => l.isActive === false);
+
   const [page, setPage]             = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(20);
   const [statusFilter, setStatusFilter] = useState<AdjustmentRequestStatus | ''>('');
@@ -129,9 +139,20 @@ export default function StockAdjustmentsPage() {
 
   return (
     <Box>
+      {hasAnyInactiveLocation && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          Some of your locations are inactive. Requests cannot be created for inactive locations. Contact admin if you need to reactivate.
+        </Alert>
+      )}
+
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
         <Typography variant="h5" fontWeight={600}>Stock Adjustment Requests</Typography>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreateOpen(true)}>
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={() => setCreateOpen(true)}
+          disabled={hasNoActiveLocation}
+        >
           New Request
         </Button>
       </Box>

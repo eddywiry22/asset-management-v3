@@ -208,6 +208,7 @@ export default function StockDashboardPage() {
                 {visibleLocations.map((loc) => (
                   <MenuItem key={loc.id} value={loc.id}>
                     {loc.code} — {loc.name}
+                    {loc.isActive === false && ' (Inactive)'}
                   </MenuItem>
                 ))}
               </Select>
@@ -256,7 +257,8 @@ export default function StockDashboardPage() {
                   <TableCell>Product</TableCell>
                   <TableCell>UOM</TableCell>
                   <TableCell>Location</TableCell>
-                  <TableCell>Status</TableCell>
+                  <TableCell>Location Status</TableCell>
+                  <TableCell>Product Status</TableCell>
                   <TableCell align="right">On Hand</TableCell>
                   <TableCell align="right">Reserved</TableCell>
                   <TableCell align="right">Available</TableCell>
@@ -276,6 +278,15 @@ export default function StockDashboardPage() {
                     <TableCell>{row.uomCode}</TableCell>
                     <TableCell>
                       <Chip label={row.locationCode} size="small" variant="outlined" />
+                    </TableCell>
+                    <TableCell>
+                      {row.locationIsActive ? (
+                        <Chip label="Active" size="small" color="success" />
+                      ) : (
+                        <Tooltip title="This location is inactive. Stock is read-only.">
+                          <Chip label="Inactive" size="small" color="default" />
+                        </Tooltip>
+                      )}
                     </TableCell>
                     <TableCell>
                       {row.isInactiveNow ? (
@@ -318,7 +329,7 @@ export default function StockDashboardPage() {
                 ))}
                 {rows.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={13} align="center">
+                    <TableCell colSpan={14} align="center">
                       No stock records found
                     </TableCell>
                   </TableRow>

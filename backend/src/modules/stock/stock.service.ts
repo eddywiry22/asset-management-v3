@@ -12,6 +12,7 @@ export type StockOverviewItem = {
   locationId: string;
   locationCode: string;
   locationName: string;
+  locationIsActive: boolean;
   onHandQty: number;
   reservedQty: number;
   availableQty: number;
@@ -75,7 +76,7 @@ export class StockService {
         take: limit,
         include: {
           product:  { select: { id: true, sku: true, name: true, uom: { select: { code: true } } } },
-          location: { select: { id: true, code: true, name: true } },
+          location: { select: { id: true, code: true, name: true, isActive: true } },
         },
         orderBy: [{ location: { code: 'asc' } }, { product: { sku: 'asc' } }],
       }),
@@ -155,14 +156,15 @@ export class StockService {
         const isInactiveNow   = isRegisteredNow && !plStatus!.isActive;
 
         return {
-          productId:      b.productId,
-          productSku:     b.product.sku,
-          productName:    b.product.name,
-          uomCode:        b.product.uom.code,
-          locationId:     b.locationId,
-          locationCode:   b.location.code,
-          locationName:   b.location.name,
-          onHandQty:      displayOnHand,
+          productId:        b.productId,
+          productSku:       b.product.sku,
+          productName:      b.product.name,
+          uomCode:          b.product.uom.code,
+          locationId:       b.locationId,
+          locationCode:     b.location.code,
+          locationName:     b.location.name,
+          locationIsActive: b.location.isActive,
+          onHandQty:        displayOnHand,
           reservedQty:    reserved,
           availableQty:   displayAvailable,
           startingQty,
@@ -532,10 +534,8 @@ export class StockService {
     if (isAdmin) {
       if (requestedLocationId) return [requestedLocationId];
 
-      const locations = await prisma.location.findMany({
-        where: { isActive: true },
-        select: { id: true },
-      });
+      // Stage 8.4.2: admins see stock for all locations, including inactive
+      const locations = await prisma.location.findMany({ select: { id: true } });
       return locations.map((l) => l.id);
     }
 
