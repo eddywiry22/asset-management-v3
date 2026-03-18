@@ -63,9 +63,10 @@ export class StockAdjustmentRepository {
     page: number;
     limit: number;
     locationIds?: string[];
+    creatorId?: string;
     filterLocationId?: string;
   }): Promise<{ data: AdjustmentRequestRow[]; total: number }> {
-    const { status, startDate, endDate, page, limit, locationIds, filterLocationId } = params;
+    const { status, startDate, endDate, page, limit, locationIds, creatorId, filterLocationId } = params;
     const where: Record<string, unknown> = {};
     if (status)    where['status']    = status;
     if (startDate || endDate) {
@@ -74,9 +75,12 @@ export class StockAdjustmentRepository {
         ...(endDate   ? { lte: endDate   } : {}),
       };
     }
-    // Non-admin: scope to accessible locations
+    // Non-admin: scope to accessible locations OR own requests (so empty drafts remain visible to creator)
     if (locationIds) {
-      where['items'] = { some: { locationId: { in: locationIds } } };
+      where['OR'] = [
+        { items: { some: { locationId: { in: locationIds } } } },
+        ...(creatorId ? [{ createdById: creatorId }] : []),
+      ];
     }
     // Admin: explicit location filter (from query param)
     if (filterLocationId) {
@@ -119,6 +123,11 @@ export class StockAdjustmentRepository {
       },
       include: REQUEST_INCLUDE,
     }) as Promise<AdjustmentRequestRow>;
+  }
+
+  async deleteById(id: string): Promise<void> {
+    await prisma.stockAdjustmentItem.deleteMany({ where: { requestId: id } });
+    await prisma.stockAdjustmentRequest.delete({ where: { id } });
   }
 
   async addItem(data: {

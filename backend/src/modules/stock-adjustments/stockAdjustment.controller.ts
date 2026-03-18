@@ -69,6 +69,15 @@ export class StockAdjustmentController {
     }
   }
 
+  async deleteRequest(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      await stockAdjustmentService.deleteRequest(req.params.id, req.user.id);
+      res.status(204).send();
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async addItem(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const user = { id: req.user.id, isAdmin: req.user.isAdmin };

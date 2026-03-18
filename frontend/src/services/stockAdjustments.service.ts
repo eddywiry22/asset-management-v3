@@ -98,6 +98,10 @@ const stockAdjustmentsService = {
     return apiClient.post('stock-adjustments', payload).then((r) => r.data);
   },
 
+  deleteRequest(requestId: string): Promise<void> {
+    return apiClient.delete(`stock-adjustments/${requestId}`).then(() => undefined);
+  },
+
   addItem(requestId: string, payload: AddItemPayload): Promise<{ success: boolean; data: AdjustmentItem }> {
     return apiClient.post(`stock-adjustments/${requestId}/items`, payload).then((r) => r.data);
   },

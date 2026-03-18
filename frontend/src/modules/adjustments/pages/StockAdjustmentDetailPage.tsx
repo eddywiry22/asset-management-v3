@@ -10,6 +10,8 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CancelOutlinedIcon from '@mui/icons-material/CancelOutlined';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import SendIcon from '@mui/icons-material/Send';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import stockAdjustmentsService, {
@@ -138,6 +140,40 @@ function ItemDialog({
 }
 
 // ---------------------------------------------------------------------------
+// Confirm Dialog helper
+// ---------------------------------------------------------------------------
+function ConfirmDialog({
+  open,
+  title,
+  body,
+  confirmLabel,
+  confirmColor,
+  onConfirm,
+  onClose,
+}: {
+  open: boolean;
+  title: string;
+  body: React.ReactNode;
+  confirmLabel: string;
+  confirmColor?: 'success' | 'error' | 'warning' | 'primary';
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogTitle>{title}</DialogTitle>
+      <DialogContent>{body}</DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" color={confirmColor ?? 'primary'} onClick={onConfirm}>
+          {confirmLabel}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Detail Page
 // ---------------------------------------------------------------------------
 export default function StockAdjustmentDetailPage() {
@@ -148,7 +184,7 @@ export default function StockAdjustmentDetailPage() {
 
   const [itemDialogOpen, setItemDialogOpen] = useState(false);
   const [editingItem,    setEditingItem]    = useState<AdjustmentItem | null>(null);
-  const [confirmAction,    setConfirmAction]    = useState<'submit' | 'approve' | 'finalize' | null>(null);
+  const [confirmAction,    setConfirmAction]    = useState<'submit' | 'approve' | 'finalize' | 'delete' | null>(null);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [snack, setSnack] = useState<{ msg: string; severity: 'success' | 'error' } | null>(null);
@@ -222,11 +258,18 @@ export default function StockAdjustmentDetailPage() {
     onError: (e: any) => { setSnack({ msg: e?.response?.data?.error?.message ?? 'Cancel failed', severity: 'error' }); },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: () => stockAdjustmentsService.deleteRequest(id!),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['stock-adjustments'] }); navigate('/stock-adjustments'); },
+    onError: (e: any) => { setConfirmAction(null); setSnack({ msg: e?.response?.data?.error?.message ?? 'Delete failed', severity: 'error' }); },
+  });
+
   const isDraft     = req?.status === 'DRAFT';
   const isSubmitted = req?.status === 'SUBMITTED';
   const isApproved  = req?.status === 'APPROVED';
   const isTerminal  = req?.status === 'FINALIZED' || req?.status === 'CANCELLED' || req?.status === 'REJECTED';
   const isCreator   = req?.createdById === (currentUser?.id ?? '');
+  const canDelete   = isDraft && isCreator;
   // F3: hide Cancel when Approve/Reject buttons are already shown (when submitted and user is manager)
   const approveRejectVisible = isSubmitted && isManager;
   const canCancel   = !isDraft && !isTerminal && !approveRejectVisible && (isAdmin || isCreator || isManager);
@@ -367,34 +410,85 @@ export default function StockAdjustmentDetailPage() {
       </Paper>
 
       {/* Workflow Actions */}
-      <Divider sx={{ mb: 2 }} />
-      <Box sx={{ display: 'flex', gap: 2 }}>
-        {isDraft && isCreator && (
-          <Button variant="contained" color="primary" onClick={() => setConfirmAction('submit')}>
-            Submit for Approval
-          </Button>
-        )}
-        {isSubmitted && isManager && (
-          <>
-            <Button variant="contained" color="success" onClick={() => setConfirmAction('approve')}>
-              Approve
-            </Button>
-            <Button variant="outlined" color="error" onClick={() => setRejectDialogOpen(true)}>
-              Reject
-            </Button>
-          </>
-        )}
-        {isApproved && (
-          <Button variant="contained" color="warning" onClick={() => setConfirmAction('finalize')}>
-            Finalize (Apply Stock Changes)
-          </Button>
-        )}
-        {canCancel && (
-          <Button variant="outlined" color="error" startIcon={<CancelOutlinedIcon />} onClick={() => setCancelDialogOpen(true)}>
-            Cancel
-          </Button>
-        )}
-      </Box>
+      {!isTerminal && (
+        <>
+          <Divider sx={{ mb: 2 }} />
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+
+            {/* DRAFT: Submit (creator only) */}
+            {isDraft && isCreator && (
+              <Button
+                variant="contained"
+                color="primary"
+                startIcon={<SendIcon />}
+                disabled={req.items.length === 0}
+                onClick={() => setConfirmAction('submit')}
+              >
+                Submit for Approval
+              </Button>
+            )}
+
+            {/* DRAFT: Delete (creator only) */}
+            {canDelete && (
+              <Button
+                variant="outlined"
+                color="error"
+                startIcon={<DeleteIcon />}
+                onClick={() => setConfirmAction('delete')}
+              >
+                Delete Request
+              </Button>
+            )}
+
+            {/* SUBMITTED: Approve/Reject — managers and admins */}
+            {isSubmitted && isManager && (
+              <>
+                <Button
+                  variant="contained"
+                  color="success"
+                  startIcon={<CheckCircleOutlineIcon />}
+                  disabled={req.items.length === 0}
+                  onClick={() => setConfirmAction('approve')}
+                >
+                  Approve
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="error"
+                  startIcon={<CancelOutlinedIcon />}
+                  onClick={() => setRejectDialogOpen(true)}
+                >
+                  Reject
+                </Button>
+              </>
+            )}
+
+            {/* APPROVED: Finalize */}
+            {isApproved && isManager && (
+              <Button
+                variant="contained"
+                color="warning"
+                disabled={req.items.length === 0}
+                onClick={() => setConfirmAction('finalize')}
+              >
+                Finalize (Apply Stock Changes)
+              </Button>
+            )}
+
+            {/* Cancel */}
+            {canCancel && (
+              <Button
+                variant="outlined"
+                color="error"
+                startIcon={<CancelOutlinedIcon />}
+                onClick={() => setCancelDialogOpen(true)}
+              >
+                Cancel
+              </Button>
+            )}
+          </Box>
+        </>
+      )}
 
       {/* Add/Edit Item Dialog */}
       <ItemDialog
@@ -411,36 +505,46 @@ export default function StockAdjustmentDetailPage() {
         initial={editingItem}
       />
 
-      {/* Confirm Action Dialog (submit / approve / finalize) */}
-      <Dialog open={!!confirmAction} onClose={() => setConfirmAction(null)} maxWidth="xs" fullWidth>
-        <DialogTitle>
-          {confirmAction === 'submit'   && 'Submit Request'}
-          {confirmAction === 'approve'  && 'Approve Request'}
-          {confirmAction === 'finalize' && 'Finalize Request'}
-        </DialogTitle>
-        <DialogContent>
-          {confirmAction === 'finalize' && (
-            <Alert severity="warning" sx={{ mt: 1 }}>
-              This will apply stock changes permanently and cannot be undone.
-            </Alert>
-          )}
-          {confirmAction !== 'finalize' && <Typography>Are you sure?</Typography>}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirmAction(null)}>Cancel</Button>
-          <Button
-            variant="contained"
-            color={confirmAction === 'finalize' ? 'warning' : 'primary'}
-            onClick={() => {
-              if (confirmAction === 'submit')   submitMutation.mutate();
-              if (confirmAction === 'approve')  approveMutation.mutate();
-              if (confirmAction === 'finalize') finalizeMutation.mutate();
-            }}
-          >
-            Confirm
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {/* Confirm Action Dialog (submit / approve / finalize / delete) */}
+      {confirmAction && (
+        <ConfirmDialog
+          open={!!confirmAction}
+          title={
+            confirmAction === 'submit'   ? 'Submit Request' :
+            confirmAction === 'approve'  ? 'Approve Request' :
+            confirmAction === 'finalize' ? 'Finalize Request' :
+            'Delete Request'
+          }
+          body={
+            confirmAction === 'finalize' ? (
+              <Alert severity="warning" sx={{ mt: 1 }}>This will apply stock changes permanently and cannot be undone.</Alert>
+            ) : confirmAction === 'delete' ? (
+              <Alert severity="error" sx={{ mt: 1 }}>This will permanently delete the DRAFT request and all its items.</Alert>
+            ) : (
+              <Alert severity="info" sx={{ mt: 1 }}>Are you sure you want to proceed?</Alert>
+            )
+          }
+          confirmLabel={
+            confirmAction === 'submit'   ? 'Confirm Submit' :
+            confirmAction === 'approve'  ? 'Confirm Approve' :
+            confirmAction === 'finalize' ? 'Confirm Finalize' :
+            'Confirm Delete'
+          }
+          confirmColor={
+            confirmAction === 'finalize' ? 'warning' :
+            confirmAction === 'delete'   ? 'error' :
+            confirmAction === 'approve'  ? 'success' :
+            'primary'
+          }
+          onConfirm={() => {
+            if (confirmAction === 'submit')   submitMutation.mutate();
+            if (confirmAction === 'approve')  approveMutation.mutate();
+            if (confirmAction === 'finalize') finalizeMutation.mutate();
+            if (confirmAction === 'delete')   deleteMutation.mutate();
+          }}
+          onClose={() => setConfirmAction(null)}
+        />
+      )}
 
       {/* Reject Modal */}
       <ActionReasonModal
