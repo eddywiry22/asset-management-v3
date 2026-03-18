@@ -14,8 +14,8 @@ export class StockController {
       let locations: Array<{ id: string; code: string; name: string; isActive: boolean; role?: string }>;
 
       if (req.user.isAdmin) {
+        // Stage 8.4.2: admins see all locations (including inactive) for visibility
         locations = await prisma.location.findMany({
-          where:   { isActive: true },
           select:  { id: true, code: true, name: true, isActive: true },
           orderBy: { code: 'asc' },
         });

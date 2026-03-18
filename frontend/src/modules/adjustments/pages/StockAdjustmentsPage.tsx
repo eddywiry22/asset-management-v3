@@ -89,9 +89,9 @@ export default function StockAdjustmentsPage() {
     queryFn:  () => stockService.getVisibleLocations(),
     enabled:  !isAdmin,
   });
-  // User is blocked if they have at least one location and none of them are active
-  const hasNoActiveLocation = !isAdmin && myLocations.length > 0 && myLocations.every((l) => l.isActive === false);
-  const inactiveLocationCode = hasNoActiveLocation ? myLocations[0].code : null;
+  // Stage 8.4.2: show banner when ANY location is inactive; disable button only when ALL are inactive
+  const hasAnyInactiveLocation = !isAdmin && myLocations.some((l) => l.isActive === false);
+  const hasNoActiveLocation    = !isAdmin && myLocations.length > 0 && myLocations.every((l) => l.isActive === false);
 
   const [page, setPage]             = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(20);
@@ -139,9 +139,9 @@ export default function StockAdjustmentsPage() {
 
   return (
     <Box>
-      {inactiveLocationCode && (
+      {hasAnyInactiveLocation && (
         <Alert severity="warning" sx={{ mb: 2 }}>
-          Your location <strong>{inactiveLocationCode}</strong> is inactive. You cannot create new adjustments. Contact admin.
+          Some of your locations are inactive. Requests cannot be created for inactive locations. Contact admin if you need to reactivate.
         </Alert>
       )}
 
@@ -151,7 +151,7 @@ export default function StockAdjustmentsPage() {
           variant="contained"
           startIcon={<AddIcon />}
           onClick={() => setCreateOpen(true)}
-          disabled={!!inactiveLocationCode}
+          disabled={hasNoActiveLocation}
         >
           New Request
         </Button>

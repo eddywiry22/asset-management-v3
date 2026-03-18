@@ -8,6 +8,7 @@ export type StockOverviewItem = {
   locationId: string;
   locationCode: string;
   locationName: string;
+  locationIsActive: boolean;
   onHandQty: number;
   reservedQty: number;
   availableQty: number;
