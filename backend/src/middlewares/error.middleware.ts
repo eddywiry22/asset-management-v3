@@ -25,6 +25,7 @@ export function errorMiddleware(
       error: {
         code,
         message: err.message,
+        ...(err.data ?? {}),
       },
     });
     return;
