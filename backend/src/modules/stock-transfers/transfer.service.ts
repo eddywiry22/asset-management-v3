@@ -180,10 +180,11 @@ export class TransferService {
     const product = await prisma.product.findUnique({ where: { id: dto.productId } });
     if (!product) throw new NotFoundError(`Product not found: ${dto.productId}`);
 
-    // Stage 8.1: Non-blocking product-location validation warning
+    // Stage 8.2: Hard-blocking product-location validation
     const productActiveResult = await validateProductActive(dto.productId, req.sourceLocationId);
     if (!productActiveResult.valid) {
-      logger.warn('[Stage8] Transfer addItem validation warning', { check: 'productActive', productId: dto.productId, locationId: req.sourceLocationId, ...productActiveResult });
+      logger.info('[Stage8] Transfer addItem blocked — product not registered/active', { check: 'productActive', productId: dto.productId, locationId: req.sourceLocationId, ...productActiveResult });
+      throw new ValidationError(`Product is not registered or not active at source location: ${dto.productId}`);
     }
 
     return transferRepository.addItem({

@@ -11,6 +11,7 @@ import CategoryIcon from '@mui/icons-material/Category';
 import BusinessIcon from '@mui/icons-material/Business';
 import ScaleIcon from '@mui/icons-material/Scale';
 import InventoryIcon from '@mui/icons-material/Inventory';
+import LinkIcon from '@mui/icons-material/Link';
 import WarehouseIcon from '@mui/icons-material/Warehouse';
 import TuneIcon from '@mui/icons-material/Tune';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
@@ -44,7 +45,8 @@ export default function Sidebar({ open }: SidebarProps) {
         { label: 'Categories', path: '/admin/categories', icon: <CategoryIcon /> },
         { label: 'Vendors',    path: '/admin/vendors',    icon: <BusinessIcon /> },
         { label: 'UOM',        path: '/admin/uoms',       icon: <ScaleIcon /> },
-        { label: 'Products',   path: '/admin/products',   icon: <InventoryIcon /> },
+        { label: 'Products',               path: '/admin/products',               icon: <InventoryIcon /> },
+        { label: 'Product Registrations', path: '/admin/product-registrations', icon: <LinkIcon /> },
       ],
     }] : []),
   ];

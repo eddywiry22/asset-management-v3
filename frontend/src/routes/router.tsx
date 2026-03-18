@@ -7,6 +7,7 @@ import CategoriesPage from '../modules/categories/pages/CategoriesPage';
 import VendorsPage from '../modules/vendors/pages/VendorsPage';
 import UomsPage from '../modules/uoms/pages/UomsPage';
 import ProductsPage from '../modules/products/pages/ProductsPage';
+import ProductRegistrationsPage from '../modules/product-registrations/pages/ProductRegistrationsPage';
 import StockDashboardPage from '../modules/stock/pages/StockDashboardPage';
 import StockAdjustmentsPage from '../modules/adjustments/pages/StockAdjustmentsPage';
 import StockAdjustmentDetailPage from '../modules/adjustments/pages/StockAdjustmentDetailPage';
@@ -81,6 +82,10 @@ const router = createBrowserRouter([
               {
                 path: 'admin/products',
                 element: <ProductsPage />,
+              },
+              {
+                path: 'admin/product-registrations',
+                element: <ProductRegistrationsPage />,
               },
             ],
           },

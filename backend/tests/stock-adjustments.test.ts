@@ -51,6 +51,7 @@ jest.mock('../src/config/database', () => {
       stockReservation:       createMock(),
       product:                createMock(),
       location:               createMock(),
+      productLocation:        createMock(),
       userLocationRole:       createMock(),
       auditLog:               { create: jest.fn().mockResolvedValue({}) },
       $connect:    jest.fn(),
@@ -145,7 +146,9 @@ beforeEach(() => {
   db.userLocationRole.findFirst.mockResolvedValue({ id: 'role-1', userId: USER_ID, locationId: LOCATION_ID, role: 'MANAGER', location: { code: 'WH-001' } });
   // W3: default product/location lookups succeed
   db.product.findUnique.mockResolvedValue({ id: PRODUCT_ID, sku: 'ELEC-001', name: 'Laptop' });
-  db.location.findUnique.mockResolvedValue({ id: LOCATION_ID, code: 'WH-001', name: 'Main Warehouse' });
+  db.location.findUnique.mockResolvedValue({ id: LOCATION_ID, code: 'WH-001', name: 'Main Warehouse', isActive: true });
+  // Stage 8.2: default productLocation mapping is active (allows item adds)
+  db.productLocation.findFirst.mockResolvedValue({ id: 'pl-id', productId: PRODUCT_ID, locationId: LOCATION_ID, isActive: true });
   // Stock internals
   db.$queryRaw.mockResolvedValue([{ onHandQty: '100', reservedQty: '0' }]);
   db.stockBalance.findUnique.mockResolvedValue({ onHandQty: '100', reservedQty: '0' });

@@ -126,20 +126,22 @@ export class StockAdjustmentService {
     const location = await prisma.location.findUnique({ where: { id: dto.locationId } });
     if (!location) throw new NotFoundError(`Location not found: ${dto.locationId}`);
 
-    // Stage 8.1: Non-blocking validation warnings (DO NOT block execution)
+    // Stage 8.2: Hard-blocking validation (inactive product/location blocked)
     const [locationActiveResult, userAccessResult, productActiveResult] = await Promise.all([
       validateLocationActive(dto.locationId),
       validateUserAccess(user.id, dto.locationId),
       validateProductActive(dto.productId, dto.locationId),
     ]);
     if (!locationActiveResult.valid) {
-      logger.warn('[Stage8] Adjustment addItem validation warning', { check: 'locationActive', locationId: dto.locationId, ...locationActiveResult });
+      logger.info('[Stage8] Adjustment addItem blocked — location inactive', { check: 'locationActive', locationId: dto.locationId, ...locationActiveResult });
+      throw new ValidationError(`Location is inactive or not found: ${dto.locationId}`);
     }
     if (!userAccessResult.valid) {
-      logger.warn('[Stage8] Adjustment addItem validation warning', { check: 'userAccess', userId: user.id, locationId: dto.locationId, ...userAccessResult });
+      logger.info('[Stage8] Adjustment addItem blocked — user has no access', { check: 'userAccess', userId: user.id, locationId: dto.locationId, ...userAccessResult });
     }
     if (!productActiveResult.valid) {
-      logger.warn('[Stage8] Adjustment addItem validation warning', { check: 'productActive', productId: dto.productId, locationId: dto.locationId, ...productActiveResult });
+      logger.info('[Stage8] Adjustment addItem blocked — product not registered/active', { check: 'productActive', productId: dto.productId, locationId: dto.locationId, ...productActiveResult });
+      throw new ValidationError(`Product is not registered or not active at this location: ${dto.productId}`);
     }
 
     return stockAdjustmentRepository.addItem({
