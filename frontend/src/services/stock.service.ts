@@ -73,15 +73,16 @@ const stockService = {
   },
 
   async getStockOverview(params: StockQueryParams = {}): Promise<PaginatedResponse<StockOverviewItem>> {
-    const query = new URLSearchParams();
-    if (params.locationId) query.set('locationId', params.locationId);
-    if (params.page)       query.set('page',       String(params.page));
-    if (params.limit)      query.set('limit',      String(params.limit));
-    if (params.startDate)  query.set('startDate',  params.startDate);
-    if (params.endDate)    query.set('endDate',    params.endDate);
-    const res = await apiClient.get<PaginatedResponse<StockOverviewItem>>(
-      `stock?${query.toString()}`,
-    );
+    const { locationId, startDate, endDate, page, limit } = params;
+    const res = await apiClient.get<PaginatedResponse<StockOverviewItem>>('stock', {
+      params: {
+        page,
+        limit,
+        ...(locationId && { locationId }),
+        ...(startDate  && { startDate }),
+        ...(endDate    && { endDate }),
+      },
+    });
     return res.data;
   },
 
