@@ -24,6 +24,7 @@ export type AdjustmentItem = {
   createdAt: string;
   product: { id: string; sku: string; name: string; uom: { code: string } };
   location: { id: string; code: string; name: string };
+  isActiveNow?: boolean;
 };
 
 export type AdjustmentRequest = {

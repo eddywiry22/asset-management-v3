@@ -56,11 +56,19 @@ export type LedgerQueryParams = {
 };
 
 export type VisibleLocation = { id: string; code: string; name: string; role?: string };
+export type RegisteredProduct = { id: string; sku: string; name: string };
 
 const stockService = {
   async getVisibleLocations(): Promise<VisibleLocation[]> {
     const res = await apiClient.get<{ success: boolean; data: VisibleLocation[] }>(
       'stock/locations',
+    );
+    return res.data.data;
+  },
+
+  async getRegisteredProducts(locationId: string): Promise<RegisteredProduct[]> {
+    const res = await apiClient.get<{ success: boolean; data: RegisteredProduct[] }>(
+      `stock/registered-products?locationId=${encodeURIComponent(locationId)}`,
     );
     return res.data.data;
   },

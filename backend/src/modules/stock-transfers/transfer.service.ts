@@ -78,11 +78,27 @@ export class TransferService {
   }
 
   // -------------------------------------------------------------------------
-  // Get by id
+  // Get by id — enriches items with isActiveNow for non-terminal requests
   // -------------------------------------------------------------------------
   async findById(id: string): Promise<TransferRequestRow> {
     const req = await transferRepository.findById(id);
     if (!req) throw new NotFoundError(`Stock transfer request not found: ${id}`);
+
+    const TERMINAL: TransferRequestStatus[] = [
+      TransferRequestStatus.FINALIZED,
+      TransferRequestStatus.CANCELLED,
+      TransferRequestStatus.REJECTED,
+    ];
+    if (!TERMINAL.includes(req.status) && req.items?.length) {
+      const enriched = await Promise.all(
+        req.items.map(async (item) => {
+          const result = await validateProductActive(item.productId, req.sourceLocationId);
+          return { ...item, isActiveNow: result.valid };
+        }),
+      );
+      return { ...req, items: enriched };
+    }
+
     return req;
   }
 
@@ -328,11 +344,12 @@ export class TransferService {
       });
     });
 
+    const originItemSnapshot = req.items.map((i) => ({ productId: i.productId, isActiveNow: (i as any).isActiveNow }));
     void auditService.log({
       entityType:  'STOCK_TRANSFER_REQUEST',
       entityId:    requestId,
       action:      'STATUS_CHANGE',
-      afterValue:  { status: 'ORIGIN_MANAGER_APPROVED' },
+      afterValue:  { status: 'ORIGIN_MANAGER_APPROVED', itemSnapshot: originItemSnapshot },
       performedBy: user.id,
     });
 
@@ -477,11 +494,12 @@ export class TransferService {
       });
     });
 
+    const finalizeItemSnapshot = req.items.map((i) => ({ productId: i.productId, isActiveNow: (i as any).isActiveNow }));
     void auditService.log({
       entityType:  'STOCK_TRANSFER_REQUEST',
       entityId:    requestId,
       action:      'STATUS_CHANGE',
-      afterValue:  { status: 'FINALIZED' },
+      afterValue:  { status: 'FINALIZED', itemSnapshot: finalizeItemSnapshot },
       performedBy: user.id,
     });
 

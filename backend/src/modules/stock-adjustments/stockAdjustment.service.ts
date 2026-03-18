@@ -58,11 +58,27 @@ export class StockAdjustmentService {
   }
 
   // -------------------------------------------------------------------------
-  // Get by id
+  // Get by id — enriches items with isActiveNow for non-terminal requests
   // -------------------------------------------------------------------------
   async findById(id: string): Promise<AdjustmentRequestRow> {
     const req = await stockAdjustmentRepository.findById(id);
     if (!req) throw new NotFoundError(`Stock adjustment request not found: ${id}`);
+
+    const TERMINAL: AdjustmentRequestStatus[] = [
+      AdjustmentRequestStatus.FINALIZED,
+      AdjustmentRequestStatus.CANCELLED,
+      AdjustmentRequestStatus.REJECTED,
+    ];
+    if (!TERMINAL.includes(req.status) && req.items?.length) {
+      const enriched = await Promise.all(
+        req.items.map(async (item) => {
+          const result = await validateProductActive(item.productId, item.locationId);
+          return { ...item, isActiveNow: result.valid };
+        }),
+      );
+      return { ...req, items: enriched };
+    }
+
     return req;
   }
 
@@ -268,7 +284,8 @@ export class StockAdjustmentService {
       approvedById: userId,
       approvedAt:   new Date(),
     });
-    void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', afterValue: { status: 'APPROVED' }, performedBy: userId });
+    const itemSnapshot = req.items.map((i) => ({ productId: i.productId, locationId: i.locationId, isActiveNow: (i as any).isActiveNow }));
+    void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', afterValue: { status: 'APPROVED', itemSnapshot }, performedBy: userId });
     return updated;
   }
 
@@ -356,7 +373,8 @@ export class StockAdjustmentService {
       }
     });
 
-    void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', afterValue: { status: 'FINALIZED' }, performedBy: userId });
+    const finalizeItemSnapshot = req.items.map((i) => ({ productId: i.productId, locationId: i.locationId, isActiveNow: (i as any).isActiveNow }));
+    void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', afterValue: { status: 'FINALIZED', itemSnapshot: finalizeItemSnapshot }, performedBy: userId });
     return (await stockAdjustmentRepository.findById(requestId))!;
   }
   // -------------------------------------------------------------------------

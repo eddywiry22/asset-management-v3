@@ -72,3 +72,23 @@ export async function validateProductActive(
     return { valid: false, reason: 'PRODUCT_NOT_REGISTERED' };
   }
 }
+
+/**
+ * Return all products with an active ProductLocation mapping at the given location.
+ * Used for dropdown filtering and "no products registered" warnings.
+ * Returns an empty array if the location has no registered products or on error.
+ */
+export async function getRegisteredProductsAtLocation(
+  locationId: string,
+): Promise<Array<{ id: string; sku: string; name: string }>> {
+  try {
+    const mappings = await (prisma as any).productLocation.findMany({
+      where:   { locationId, isActive: true },
+      include: { product: { select: { id: true, sku: true, name: true } } },
+    });
+    return mappings.map((m: any) => m.product).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+

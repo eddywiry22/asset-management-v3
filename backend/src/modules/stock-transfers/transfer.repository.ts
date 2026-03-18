@@ -8,6 +8,7 @@ export type TransferItemRow = {
   qty: any;
   createdAt: Date;
   product: { id: string; sku: string; name: string; uom: { code: string } };
+  isActiveNow?: boolean;
 };
 
 export type TransferRequestRow = {

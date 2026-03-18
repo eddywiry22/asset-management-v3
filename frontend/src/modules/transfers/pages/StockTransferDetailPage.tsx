@@ -21,7 +21,6 @@ import stockTransfersService, {
   UpdateItemPayload,
 } from '../../../services/stockTransfers.service';
 import stockService from '../../../services/stock.service';
-import apiClient from '../../../api/client';
 import { AuthUser } from '../../../types/auth.types';
 import ActionReasonModal from '../../../components/ActionReasonModal';
 
@@ -68,21 +67,24 @@ function ItemDialog({
   onClose,
   onSave,
   initial,
+  sourceLocationId,
 }: {
   open: boolean;
   onClose: () => void;
   onSave: (payload: AddItemPayload | UpdateItemPayload) => void;
   initial?: TransferItem | null;
+  sourceLocationId?: string;
 }) {
   const [productId, setProductId] = useState(initial?.productId ?? '');
   const [qty, setQty]             = useState(initial ? String(initial.qty) : '');
 
-  const { data: productsRes } = useQuery({
-    queryKey: ['products-simple'],
-    queryFn:  () => apiClient.get('products?limit=200').then((r) => r.data),
-    enabled:  open,
+  const { data: registeredProducts } = useQuery({
+    queryKey: ['registered-products', sourceLocationId],
+    queryFn:  () => stockService.getRegisteredProducts(sourceLocationId!),
+    enabled:  open && !initial && !!sourceLocationId,
   });
-  const products: SimpleProduct[] = productsRes?.data ?? [];
+  const products: SimpleProduct[] = registeredProducts ?? [];
+  const noProducts = !initial && !!sourceLocationId && (registeredProducts !== undefined) && products.length === 0;
 
   const handleSave = () => {
     const qtyNum = parseFloat(qty);
@@ -101,18 +103,23 @@ function ItemDialog({
       <DialogContent>
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
           {!initial && (
-            <FormControl fullWidth size="small">
-              <InputLabel>Product</InputLabel>
-              <Select
-                label="Product"
-                value={productId}
-                onChange={(e) => setProductId(e.target.value)}
-              >
-                {products.map((p: SimpleProduct) => (
-                  <MenuItem key={p.id} value={p.id}>{p.sku} — {p.name}</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+            <>
+              {noProducts && (
+                <Alert severity="warning">No products registered for this location</Alert>
+              )}
+              <FormControl fullWidth size="small" disabled={noProducts}>
+                <InputLabel>Product</InputLabel>
+                <Select
+                  label="Product"
+                  value={productId}
+                  onChange={(e) => setProductId(e.target.value)}
+                >
+                  {products.map((p: SimpleProduct) => (
+                    <MenuItem key={p.id} value={p.id}>{p.sku} — {p.name}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </>
           )}
           <TextField
             label="Quantity"
@@ -466,7 +473,14 @@ export default function StockTransferDetailPage() {
               )}
               {req.items.map((item) => (
                 <TableRow key={item.id}>
-                  <TableCell>{item.product?.sku} — {item.product?.name}</TableCell>
+                  <TableCell>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      {item.product?.sku} — {item.product?.name}
+                      {!isTerminal && item.isActiveNow === false && (
+                        <Chip label="Now Inactive" size="small" color="warning" />
+                      )}
+                    </Box>
+                  </TableCell>
                   <TableCell align="right" sx={{ fontWeight: 600 }}>{Number(item.qty)}</TableCell>
                   <TableCell>{item.product?.uom?.code}</TableCell>
                   {isDraft && isCreator && (
@@ -613,6 +627,7 @@ export default function StockTransferDetailPage() {
           }
         }}
         initial={editingItem}
+        sourceLocationId={req.sourceLocationId}
       />
 
       {/* Dynamic Confirm Dialog */}
