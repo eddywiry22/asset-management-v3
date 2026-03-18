@@ -196,7 +196,21 @@ npx prisma migrate reset
 
 ---
 
-## Architecture Notes
+## Stock Reservation Rules
+
+| Module / Action | Reservation Type | When Reservation is Created | Reservation Behavior | Stock Enforcement |
+|---|---|---|---|---|
+| **Transfer Request (Outbound)** | Hard reservation | On **Origin Manager Approval** | Reserved quantity is deducted from available stock and displayed in stock dashboard; prevents other transfers from over-committing | Approval **blocked** if requested qty exceeds available stock; cannot finalize without active reservation |
+| **Transfer Request (Inbound)** | Consumed | On **Finalization** | Reserved qty is removed and added to destination stock | Stock increases at destination, reservations cleared |
+| **Transfer Reject / Cancel** | Release reservation | On **Reject** (from ORIGIN_MANAGER_APPROVED) or **Cancel** (from ORIGIN_MANAGER_APPROVED / READY_TO_FINALIZE) | Reserved qty is released and available stock updated | Stock remains unchanged; prevents stale reservations |
+| **Adjustment Request (Outbound)** | None | Approval proceeds without creating reservation | Stock is checked at **approval** and again at **finalization** to ensure sufficient quantity | Approval **blocked** if available stock is insufficient; finalization will also fail if stock changed since approval |
+| **Adjustment Request (Inbound / Positive Qty)** | None | Never | No reservation created | Stock is updated on finalization |
+| **Adjustment Reject / Cancel** | N/A | N/A | N/A | Stock remains unchanged |
+| **Stock Dashboard** | N/A | N/A | Displays `reservedQty` only for active transfer reservations | Outbound adjustment reservations not shown; available = onHand − reservedQty |
+
+---
+
+
 
 - **Stock integrity is the highest priority.** Stock may only change during FINALIZATION of requests.
 - All stock operations must run inside database transactions.

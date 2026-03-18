@@ -44,6 +44,7 @@ jest.mock('../src/config/database', () => {
     count:      jest.fn(),
     groupBy:    jest.fn(),
     upsert:     jest.fn(),
+    aggregate:  jest.fn(),
   });
 
   return {
@@ -53,6 +54,7 @@ jest.mock('../src/config/database', () => {
       stockTransferItem:    createMock(),
       stockBalance:         createMock(),
       stockLedger:          createMock(),
+      stockReservation:     createMock(),
       product:              createMock(),
       location:             createMock(),
       userLocationRole:     createMock(),
@@ -90,6 +92,19 @@ const fakeItem = {
   qty:       { toString: () => '10' },
   createdAt: new Date().toISOString(),
   product:   { id: PRODUCT_ID, sku: 'ELEC-001', name: 'Laptop', uom: { code: 'PCS' } },
+};
+
+const fakeActiveReservation = {
+  id:           'res-1',
+  productId:    PRODUCT_ID,
+  locationId:   SRC_LOC_ID,
+  qty:          '10',
+  sourceType:   'TRANSFER',
+  sourceId:     REQ_ID,
+  sourceItemId: ITEM_ID,
+  status:       'ACTIVE',
+  createdAt:    new Date().toISOString(),
+  updatedAt:    new Date().toISOString(),
 };
 
 function makeFakeRequest(status = 'DRAFT', items: any[] = []) {
@@ -139,6 +154,9 @@ beforeEach(() => {
   // preventing leftover Once values from previous tests polluting subsequent tests.
   jest.resetAllMocks();
 
+  // Default: $transaction passes callback through (inner WithinTx methods execute)
+  db.$transaction.mockImplementation(async (cb: Function) => await cb(db));
+
   (authService.verifyAccessToken as jest.Mock).mockReturnValue({
     sub:     USER_ID,
     email:   'user@example.com',
@@ -156,11 +174,18 @@ beforeEach(() => {
   // Default: product lookup succeeds
   db.product.findUnique.mockResolvedValue({ id: PRODUCT_ID, sku: 'ELEC-001', name: 'Laptop' });
 
-  // moveStock internals
+  // Stock internals
   db.$queryRaw.mockResolvedValue([{ onHandQty: '100', reservedQty: '0' }]);
+  db.stockBalance.findUnique.mockResolvedValue({ onHandQty: '100', reservedQty: '0' });
   db.stockBalance.upsert.mockResolvedValue({ id: 'bal', productId: PRODUCT_ID, locationId: SRC_LOC_ID, onHandQty: '100', reservedQty: '0' });
   db.stockBalance.update.mockResolvedValue({ id: 'bal', productId: PRODUCT_ID, locationId: SRC_LOC_ID, onHandQty: '90', reservedQty: '0' });
   db.stockLedger.create.mockResolvedValue({});
+
+  // Default stockReservation mocks: no active reservations (override per-test for finalize)
+  db.stockReservation.aggregate.mockResolvedValue({ _sum: { qty: null } });
+  db.stockReservation.create.mockResolvedValue({ id: 'res-1' });
+  db.stockReservation.findMany.mockResolvedValue([]);
+  db.stockReservation.update.mockResolvedValue({});
 
   // Claim operations succeed by default
   db.stockTransferRequest.updateMany.mockResolvedValue({ count: 1 });
@@ -828,13 +853,10 @@ describe('POST /v1/stock-transfers/:id/finalize', () => {
       .mockResolvedValueOnce(makeFakeRequest('READY_TO_FINALIZE', [fakeItem]))
       .mockResolvedValueOnce(makeFakeRequest('FINALIZED', [fakeItem]));
 
-    db.$transaction.mockImplementation(async (cb: Function) => await cb(db));
-    db.stockBalance.upsert.mockResolvedValue({ id: 'bal', productId: PRODUCT_ID, locationId: SRC_LOC_ID, onHandQty: '100', reservedQty: '0' });
-    db.$queryRaw.mockResolvedValue([{ onHandQty: '100', reservedQty: '0' }]);
+    db.stockReservation.findMany.mockResolvedValue([fakeActiveReservation]);
     db.stockBalance.update
       .mockResolvedValueOnce({ id: 'bal', productId: PRODUCT_ID, locationId: SRC_LOC_ID, onHandQty: '90', reservedQty: '0' })
       .mockResolvedValueOnce({ id: 'bal', productId: PRODUCT_ID, locationId: DST_LOC_ID, onHandQty: '10', reservedQty: '0' });
-    db.stockLedger.create.mockResolvedValue({});
 
     const res = await request(app)
       .post(`/v1/stock-transfers/${REQ_ID}/finalize`)
@@ -843,9 +865,9 @@ describe('POST /v1/stock-transfers/:id/finalize', () => {
     expect(res.status).toBe(200);
     expect(res.body.data.status).toBe('FINALIZED');
 
-    // Two $transaction calls: one for TRANSFER_OUT, one for TRANSFER_IN
-    expect(db.$transaction).toHaveBeenCalledTimes(2);
-    // Two ledger entries created
+    // One atomic $transaction: status update + consume reservation + stock mutations
+    expect(db.$transaction).toHaveBeenCalledTimes(1);
+    // Two ledger entries created (TRANSFER_OUT + TRANSFER_IN)
     expect(db.stockLedger.create).toHaveBeenCalledTimes(2);
   });
 
@@ -854,11 +876,7 @@ describe('POST /v1/stock-transfers/:id/finalize', () => {
       .mockResolvedValueOnce(makeFakeRequest('READY_TO_FINALIZE', [fakeItem]))
       .mockResolvedValueOnce(makeFakeRequest('FINALIZED', [fakeItem]));
 
-    db.$transaction.mockImplementation(async (cb: Function) => await cb(db));
-    db.stockBalance.upsert.mockResolvedValue({ id: 'b', productId: PRODUCT_ID, locationId: SRC_LOC_ID, onHandQty: '100', reservedQty: '0' });
-    db.$queryRaw.mockResolvedValue([{ onHandQty: '100', reservedQty: '0' }]);
-    db.stockBalance.update.mockResolvedValue({ id: 'b', productId: PRODUCT_ID, locationId: SRC_LOC_ID, onHandQty: '90', reservedQty: '0' });
-    db.stockLedger.create.mockResolvedValue({});
+    db.stockReservation.findMany.mockResolvedValue([fakeActiveReservation]);
 
     await request(app).post(`/v1/stock-transfers/${REQ_ID}/finalize`).set(AUTH);
 
@@ -874,13 +892,10 @@ describe('POST /v1/stock-transfers/:id/finalize', () => {
       .mockResolvedValueOnce(makeFakeRequest('READY_TO_FINALIZE', [fakeItem]))
       .mockResolvedValueOnce(makeFakeRequest('FINALIZED', [fakeItem]));
 
-    db.$transaction.mockImplementation(async (cb: Function) => await cb(db));
-    db.stockBalance.upsert.mockResolvedValue({ id: 'b', productId: PRODUCT_ID, locationId: DST_LOC_ID, onHandQty: '0', reservedQty: '0' });
-    db.$queryRaw.mockResolvedValue([{ onHandQty: '100', reservedQty: '0' }]);
+    db.stockReservation.findMany.mockResolvedValue([fakeActiveReservation]);
     db.stockBalance.update
       .mockResolvedValueOnce({ id: 'b', productId: PRODUCT_ID, locationId: SRC_LOC_ID, onHandQty: '90', reservedQty: '0' })
       .mockResolvedValueOnce({ id: 'b', productId: PRODUCT_ID, locationId: DST_LOC_ID, onHandQty: '10', reservedQty: '0' });
-    db.stockLedger.create.mockResolvedValue({});
 
     await request(app).post(`/v1/stock-transfers/${REQ_ID}/finalize`).set(AUTH);
 
@@ -896,23 +911,23 @@ describe('POST /v1/stock-transfers/:id/finalize', () => {
       .mockResolvedValueOnce(makeFakeRequest('READY_TO_FINALIZE', [fakeItem]))
       .mockResolvedValueOnce(makeFakeRequest('FINALIZED', [fakeItem]));
 
-    db.$transaction.mockImplementation(async (cb: Function) => await cb(db));
-    db.$queryRaw.mockResolvedValue([{ onHandQty: '100', reservedQty: '0' }]);
-    db.stockBalance.upsert.mockResolvedValue({ id: 'b', productId: PRODUCT_ID, locationId: SRC_LOC_ID, onHandQty: '100', reservedQty: '0' });
+    db.stockReservation.findMany.mockResolvedValue([fakeActiveReservation]);
     db.stockBalance.update
       .mockResolvedValueOnce({ id: 'b', onHandQty: '90', reservedQty: '0' })   // source decremented
       .mockResolvedValueOnce({ id: 'b', onHandQty: '10', reservedQty: '0' });  // destination incremented
-    db.stockLedger.create.mockResolvedValue({});
 
     const res = await request(app).post(`/v1/stock-transfers/${REQ_ID}/finalize`).set(AUTH);
 
     expect(res.status).toBe(200);
     const updateCalls = db.stockBalance.update.mock.calls;
     expect(updateCalls).toHaveLength(2);
-    const sourceDecrement = updateCalls[0][0].data;
-    const destIncrement   = updateCalls[1][0].data;
-    expect(sourceDecrement.onHandQty?.decrement || sourceDecrement.onHandQty?.increment).toBeDefined();
-    expect(destIncrement.onHandQty?.increment).toBeDefined();
+    // First update: decrement both onHandQty and reservedQty at source
+    const sourceUpdate = updateCalls[0][0].data;
+    expect(sourceUpdate.onHandQty?.decrement).toBeDefined();
+    expect(sourceUpdate.reservedQty?.decrement).toBeDefined();
+    // Second update: increment onHandQty at destination
+    const destUpdate = updateCalls[1][0].data;
+    expect(destUpdate.onHandQty?.increment).toBeDefined();
   });
 
   it('finalizes with multiple items — creates 2 ledger entries per item', async () => {
@@ -923,17 +938,17 @@ describe('POST /v1/stock-transfers/:id/finalize', () => {
       .mockResolvedValueOnce(makeFakeRequest('READY_TO_FINALIZE', [itemA, itemB]))
       .mockResolvedValueOnce(makeFakeRequest('FINALIZED', [itemA, itemB]));
 
-    db.$transaction.mockImplementation(async (cb: Function) => await cb(db));
-    db.$queryRaw.mockResolvedValue([{ onHandQty: '100', reservedQty: '0' }]);
-    db.stockBalance.upsert.mockResolvedValue({ id: 'b', onHandQty: '100', reservedQty: '0' });
-    db.stockBalance.update.mockResolvedValue({ id: 'b', onHandQty: '95', reservedQty: '0' });
-    db.stockLedger.create.mockResolvedValue({});
+    // Two active reservations — one per item
+    db.stockReservation.findMany.mockResolvedValue([
+      { ...fakeActiveReservation, id: 'res-a', qty: '5', sourceItemId: 'item-a' },
+      { ...fakeActiveReservation, id: 'res-b', qty: '3', sourceItemId: 'item-b', productId: 'prod-b' },
+    ]);
 
     const res = await request(app).post(`/v1/stock-transfers/${REQ_ID}/finalize`).set(AUTH);
 
     expect(res.status).toBe(200);
-    // 2 items × 2 transactions each = 4 total transactions
-    expect(db.$transaction).toHaveBeenCalledTimes(4);
+    // ONE atomic transaction containing all stock mutations
+    expect(db.$transaction).toHaveBeenCalledTimes(1);
     // 2 items × 2 ledger entries each = 4 total ledger entries
     expect(db.stockLedger.create).toHaveBeenCalledTimes(4);
   });
@@ -1369,13 +1384,10 @@ describe('Location authorization — cross-warehouse access denied', () => {
     db.stockTransferRequest.findUnique
       .mockResolvedValueOnce(makeFakeRequest('READY_TO_FINALIZE', [fakeItem]))
       .mockResolvedValueOnce(makeFakeRequest('FINALIZED', [fakeItem]));
-    db.$transaction.mockImplementation(async (cb: Function) => await cb(db));
-    db.stockBalance.upsert.mockResolvedValue({ id: 'b', onHandQty: '100', reservedQty: '0' });
-    db.$queryRaw.mockResolvedValue([{ onHandQty: '100', reservedQty: '0' }]);
+    db.stockReservation.findMany.mockResolvedValue([fakeActiveReservation]);
     db.stockBalance.update
       .mockResolvedValueOnce({ id: 'b', onHandQty: '90', reservedQty: '0' })
       .mockResolvedValueOnce({ id: 'b', onHandQty: '10', reservedQty: '0' });
-    db.stockLedger.create.mockResolvedValue({});
 
     const res = await request(app)
       .post(`/v1/stock-transfers/${REQ_ID}/finalize`)
@@ -1672,6 +1684,108 @@ describe('GET /v1/stock-transfers — location-based filtering', () => {
 });
 
 // ===========================================================================
+// 28. RESERVATION EDGE CASES (Stage 7)
+// ===========================================================================
+
+describe('approveOrigin — hard reservation: insufficient stock → 400', () => {
+  it('returns 400 and does NOT change status when available stock < requested qty', async () => {
+    db.stockTransferRequest.findUnique.mockResolvedValue(makeFakeRequest('SUBMITTED', [fakeItem]));
+
+    // Stock: 5 on-hand, 0 reserved → available = 5. Item requests qty=10.
+    db.$queryRaw.mockResolvedValue([{ onHandQty: '5', reservedQty: '0' }]);
+    // No prior active reservations
+    db.stockReservation.aggregate.mockResolvedValue({ _sum: { qty: null } });
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/approve-origin`)
+      .set(AUTH);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/Insufficient available stock/);
+    // Status update must NOT have been committed (transaction rolled back)
+    const committed = db.stockTransferRequest.updateMany.mock.calls.length === 0
+      || db.stockReservation.create.mock.calls.length === 0;
+    expect(committed).toBe(true);
+  });
+
+  it('returns 200 when available stock exactly equals requested qty', async () => {
+    db.stockTransferRequest.findUnique
+      .mockResolvedValueOnce(makeFakeRequest('SUBMITTED', [fakeItem]))
+      .mockResolvedValueOnce(makeFakeRequest('ORIGIN_MANAGER_APPROVED', [fakeItem]));
+
+    // Exactly 10 available — matches fakeItem qty=10
+    db.$queryRaw.mockResolvedValue([{ onHandQty: '10', reservedQty: '0' }]);
+    db.stockReservation.aggregate.mockResolvedValue({ _sum: { qty: null } });
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/approve-origin`)
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe('ORIGIN_MANAGER_APPROVED');
+  });
+});
+
+describe('finalize — missing ACTIVE reservations → 400', () => {
+  it('returns 400 when no ACTIVE reservations exist for the transfer', async () => {
+    db.stockTransferRequest.findUnique.mockResolvedValue(
+      makeFakeRequest('READY_TO_FINALIZE', [fakeItem]),
+    );
+    // Default: db.stockReservation.findMany returns [] (set in beforeEach)
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/finalize`)
+      .set(AUTH);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/No active reservations found/);
+    // Status must NOT have changed to FINALIZED
+    expect(db.stockLedger.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('cancel from ORIGIN_MANAGER_APPROVED — releases reservations atomically', () => {
+  it('releases ACTIVE reservations when cancelling an ORIGIN_MANAGER_APPROVED request', async () => {
+    db.stockTransferRequest.findUnique
+      .mockResolvedValueOnce(makeFakeRequest('ORIGIN_MANAGER_APPROVED', [fakeItem]))
+      .mockResolvedValueOnce(makeFakeRequest('CANCELLED', [fakeItem]));
+
+    // ACTIVE reservation exists — must be released on cancel
+    db.stockReservation.findMany.mockResolvedValue([fakeActiveReservation]);
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/cancel`)
+      .set(AUTH)
+      .send({ reason: 'No longer needed' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe('CANCELLED');
+    // Reservation must have been marked RELEASED
+    expect(db.stockReservation.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: fakeActiveReservation.id },
+        data:  { status: 'RELEASED' },
+      }),
+    );
+  });
+
+  it('cancel from SUBMITTED requires no reservation release', async () => {
+    db.stockTransferRequest.findUnique
+      .mockResolvedValueOnce(makeFakeRequest('SUBMITTED', [fakeItem]))
+      .mockResolvedValueOnce(makeFakeRequest('CANCELLED', [fakeItem]));
+
+    const res = await request(app)
+      .post(`/v1/stock-transfers/${REQ_ID}/cancel`)
+      .set(AUTH)
+      .send({ reason: 'Changed my mind' });
+
+    expect(res.status).toBe(200);
+    // SUBMITTED is not a reserved state — no reservations to release
+    expect(db.stockReservation.update).not.toHaveBeenCalled();
+  });
+});
+
+// ===========================================================================
 // 27. FINALIZE — DESTINATION-ONLY PERMISSION
 // ===========================================================================
 
@@ -1685,11 +1799,7 @@ describe('Finalize — destination-only access requirement', () => {
       if (where.locationId === DST_LOC_ID) return Promise.resolve({ id: 'role-1', userId: USER_ID, locationId: DST_LOC_ID, role: 'OPERATOR' });
       return Promise.resolve(null);
     });
-    db.$transaction.mockImplementation(async (cb: Function) => await cb(db));
-    db.$queryRaw.mockResolvedValue([{ onHandQty: '100', reservedQty: '0' }]);
-    db.stockBalance.upsert.mockResolvedValue({ id: 'b', onHandQty: '100', reservedQty: '0' });
-    db.stockBalance.update.mockResolvedValue({ id: 'b', onHandQty: '90', reservedQty: '0' });
-    db.stockLedger.create.mockResolvedValue({});
+    db.stockReservation.findMany.mockResolvedValue([fakeActiveReservation]);
 
     const res = await request(app)
       .post(`/v1/stock-transfers/${REQ_ID}/finalize`)

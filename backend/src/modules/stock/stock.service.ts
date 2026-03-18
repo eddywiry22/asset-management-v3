@@ -201,6 +201,55 @@ export class StockService {
   }
 
   /**
+   * Apply a stock adjustment inside a caller-provided transaction (Stage 7).
+   * Identical logic to applyAdjustment but uses the given tx instead of
+   * opening a new one — for use in atomic multi-step finalizations.
+   */
+  async applyAdjustmentTx(
+    tx: any,
+    params: {
+      productId: string;
+      locationId: string;
+      qtyChange: number;
+      sourceId: string;
+    },
+  ): Promise<void> {
+    const { productId, locationId, qtyChange, sourceId } = params;
+
+    await stockBalanceRepository.upsertZero(tx as any, productId, locationId);
+
+    const locked        = await this.lockBalanceRow(tx as any, productId, locationId);
+    const currentOnHand = Number(locked.onHandQty);
+    const reserved      = Number(locked.reservedQty);
+
+    if (qtyChange < 0) {
+      const available = currentOnHand - reserved;
+      if (available + qtyChange < 0) {
+        throw new ValidationError(
+          `Insufficient available stock for product ${productId} at location ${locationId}. ` +
+          `Available: ${available}, requested change: ${qtyChange}`,
+        );
+      }
+    }
+
+    let updated: any;
+    if (qtyChange >= 0) {
+      updated = await stockBalanceRepository.increment(tx as any, productId, locationId, qtyChange);
+    } else {
+      updated = await stockBalanceRepository.decrement(tx as any, productId, locationId, Math.abs(qtyChange));
+    }
+
+    await stockLedgerRepository.create(tx as any, {
+      productId,
+      locationId,
+      changeQty:    qtyChange,
+      balanceAfter: Number(updated.onHandQty),
+      sourceType:   LedgerSourceType.ADJUSTMENT,
+      sourceId,
+    });
+  }
+
+  /**
    * Apply a stock adjustment (called by adjustment finalizer — Stage 5).
    * Wrapped in a DB transaction. Records ledger entry.
    */

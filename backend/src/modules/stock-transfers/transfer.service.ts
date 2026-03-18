@@ -1,10 +1,10 @@
-import { TransferRequestStatus, Role } from '@prisma/client';
+import { TransferRequestStatus, Role, ReservationSourceType } from '@prisma/client';
 import {
   transferRepository,
   TransferRequestRow,
   TransferItemRow,
 } from './transfer.repository';
-import { stockService } from '../stock/stock.service';
+import { reservationService } from '../stock/reservation.service';
 import { NotFoundError, ValidationError, ForbiddenError } from '../../utils/errors';
 import { assertUserCanAccessLocation } from '../../utils/guards';
 import { CreateTransferDto, AddItemDto, UpdateItemDto } from './transfer.validator';
@@ -26,6 +26,12 @@ const CANCELLABLE_STATUSES: TransferRequestStatus[] = [
 const REJECTABLE_STATUSES: TransferRequestStatus[] = [
   TransferRequestStatus.SUBMITTED,
   TransferRequestStatus.ORIGIN_MANAGER_APPROVED,
+];
+
+// States that have active stock reservations
+const RESERVED_STATUSES: TransferRequestStatus[] = [
+  TransferRequestStatus.ORIGIN_MANAGER_APPROVED,
+  TransferRequestStatus.READY_TO_FINALIZE,
 ];
 
 export class TransferService {
@@ -76,7 +82,6 @@ export class TransferService {
 
   // -------------------------------------------------------------------------
   // Create DRAFT request
-  // Non-admins must have access to the source location
   // -------------------------------------------------------------------------
   async create(dto: CreateTransferDto, user: UserCtx): Promise<TransferRequestRow> {
     if (dto.sourceLocationId === dto.destinationLocationId) {
@@ -138,7 +143,7 @@ export class TransferService {
   }
 
   // -------------------------------------------------------------------------
-  // Add item (DRAFT only) — creator must have source location access
+  // Add item (DRAFT only)
   // -------------------------------------------------------------------------
   async addItem(requestId: string, dto: AddItemDto, user: UserCtx): Promise<TransferItemRow> {
     const req = await this.findById(requestId);
@@ -202,7 +207,6 @@ export class TransferService {
 
   // -------------------------------------------------------------------------
   // Submit (DRAFT → SUBMITTED)
-  // Creator must have source location access
   // -------------------------------------------------------------------------
   async submit(requestId: string, user: UserCtx): Promise<TransferRequestRow> {
     const req = await this.findById(requestId);
@@ -235,7 +239,11 @@ export class TransferService {
 
   // -------------------------------------------------------------------------
   // Approve Origin (SUBMITTED → ORIGIN_MANAGER_APPROVED)
-  // Approver must have MANAGER role specifically at the SOURCE location (or be admin)
+  //
+  // ATOMIC: status update + stock reservation in ONE transaction.
+  // If reservation fails (insufficient stock), the status update is rolled back.
+  // Race condition protection: status update uses WHERE status=SUBMITTED so only
+  // one concurrent caller can succeed.
   // -------------------------------------------------------------------------
   async approveOrigin(requestId: string, user: UserCtx): Promise<TransferRequestRow> {
     const req = await this.findById(requestId);
@@ -247,7 +255,6 @@ export class TransferService {
     }
 
     if (!user.isAdmin) {
-      // Single query: must have MANAGER role specifically at the source location
       const role = await prisma.userLocationRole.findFirst({
         where: { userId: user.id, locationId: req.sourceLocationId, role: Role.MANAGER },
       });
@@ -256,10 +263,41 @@ export class TransferService {
       }
     }
 
-    const claimed = await transferRepository.claimOriginApproval(requestId, user.id, new Date());
-    if (!claimed) {
-      throw new ValidationError(`Cannot approve origin for a request with status ${req.status}`);
-    }
+    const now = new Date();
+
+    // ONE transaction: status update + reservation creation.
+    // If reserveStockWithinTx throws (e.g. insufficient stock), the updateMany
+    // is automatically rolled back — status stays SUBMITTED.
+    await prisma.$transaction(async (tx) => {
+      const result = await (tx as any).stockTransferRequest.updateMany({
+        where: { id: requestId, status: TransferRequestStatus.SUBMITTED },
+        data:  {
+          status:             TransferRequestStatus.ORIGIN_MANAGER_APPROVED,
+          originApprovedById: user.id,
+          originApprovedAt:   now,
+        },
+      });
+
+      if (result.count === 0) {
+        throw new ValidationError(
+          `Cannot approve origin for a request with status ${req.status}`,
+        );
+      }
+
+      // Reserve stock for all items at the source location.
+      // If any item has insufficient available stock, the entire transaction
+      // (including the status update) is rolled back.
+      await reservationService.reserveStockWithinTx(tx, {
+        sourceType: ReservationSourceType.TRANSFER,
+        sourceId:   requestId,
+        items: req.items.map((item) => ({
+          productId:    item.productId,
+          locationId:   req.sourceLocationId,
+          qty:          Number(item.qty),
+          sourceItemId: item.id,
+        })),
+      });
+    });
 
     void auditService.log({
       entityType:  'STOCK_TRANSFER_REQUEST',
@@ -274,7 +312,7 @@ export class TransferService {
 
   // -------------------------------------------------------------------------
   // Approve Destination (ORIGIN_MANAGER_APPROVED → READY_TO_FINALIZE)
-  // Approver must have access to the DESTINATION location
+  // No reservation changes — stock was reserved at origin approval.
   // -------------------------------------------------------------------------
   async approveDestination(requestId: string, user: UserCtx): Promise<TransferRequestRow> {
     const req = await this.findById(requestId);
@@ -301,9 +339,11 @@ export class TransferService {
   }
 
   // -------------------------------------------------------------------------
-  // Reject (SUBMITTED → REJECTED by source manager)
-  //      (ORIGIN_MANAGER_APPROVED → REJECTED by destination user)
-  // Requires a non-empty reason.
+  // Reject (SUBMITTED or ORIGIN_MANAGER_APPROVED → REJECTED)
+  //
+  // ATOMIC when rejecting from ORIGIN_MANAGER_APPROVED: status update +
+  // reservation release in ONE transaction so reservedQty is never left
+  // inflated if the status update succeeds but the release fails.
   // -------------------------------------------------------------------------
   async reject(requestId: string, user: UserCtx, reason: string): Promise<TransferRequestRow> {
     if (!reason || !reason.trim()) {
@@ -313,7 +353,6 @@ export class TransferService {
     const req = await this.findById(requestId);
 
     if (req.status === TransferRequestStatus.SUBMITTED) {
-      // Stage 1 reject: must be MANAGER at source location (or admin)
       if (!user.isAdmin) {
         const role = await prisma.userLocationRole.findFirst({
           where: { userId: user.id, locationId: req.sourceLocationId, role: Role.MANAGER },
@@ -323,22 +362,36 @@ export class TransferService {
         }
       }
     } else if (req.status === TransferRequestStatus.ORIGIN_MANAGER_APPROVED) {
-      // Stage 2 reject: must have any role at destination location (or admin)
       await assertUserCanAccessLocation(user.id, user.isAdmin, req.destinationLocationId);
     } else {
       throw new ValidationError(`Cannot reject a request with status ${req.status}`);
     }
 
-    const claimed = await transferRepository.claimRejection(
-      requestId,
-      user.id,
-      new Date(),
-      REJECTABLE_STATUSES,
-      reason.trim(),
-    );
-    if (!claimed) {
-      throw new ValidationError(`Cannot reject a request with status ${req.status}`);
-    }
+    const hadReservations = RESERVED_STATUSES.includes(req.status);
+    const now = new Date();
+
+    await prisma.$transaction(async (tx) => {
+      const result = await (tx as any).stockTransferRequest.updateMany({
+        where: { id: requestId, status: { in: REJECTABLE_STATUSES } },
+        data:  {
+          status:          TransferRequestStatus.REJECTED,
+          rejectedById:    user.id,
+          rejectedAt:      now,
+          rejectionReason: reason.trim(),
+        },
+      });
+
+      if (result.count === 0) {
+        throw new ValidationError(`Cannot reject a request with status ${req.status}`);
+      }
+
+      if (hadReservations) {
+        await reservationService.releaseReservationWithinTx(tx, {
+          sourceType: ReservationSourceType.TRANSFER,
+          sourceId:   requestId,
+        });
+      }
+    });
 
     void auditService.log({
       entityType:  'STOCK_TRANSFER_REQUEST',
@@ -353,8 +406,10 @@ export class TransferService {
 
   // -------------------------------------------------------------------------
   // Finalize (READY_TO_FINALIZE → FINALIZED)
-  // Finalizer must be admin or have access to DESTINATION location
-  // (destination user who approved step 2 can complete the transfer)
+  //
+  // ATOMIC: status update + consume reservations + stock mutations in ONE
+  // transaction. If any step fails the entire operation is rolled back —
+  // status stays READY_TO_FINALIZE and stock is unchanged.
   // -------------------------------------------------------------------------
   async finalize(requestId: string, user: UserCtx): Promise<TransferRequestRow> {
     const req = await this.findById(requestId);
@@ -369,25 +424,29 @@ export class TransferService {
       throw new ValidationError('Source and destination locations must be different');
     }
 
-    // Non-admin must have access to the destination location
     await assertUserCanAccessLocation(user.id, user.isAdmin, req.destinationLocationId);
 
-    // Atomically claim
-    const claimed = await transferRepository.claimFinalization(requestId, new Date());
-    if (!claimed) {
-      throw new ValidationError(`Cannot finalize a request with status ${req.status}`);
-    }
+    const now = new Date();
 
-    // Apply stock moves (each call is internally transactional)
-    for (const item of req.items) {
-      await stockService.moveStock({
-        productId:             item.productId,
+    // ONE transaction: status claim + consume reservations + stock mutations.
+    // consumeTransferReservationWithinTx throws if no ACTIVE reservations exist,
+    // which rolls back the status update too — preventing stuck FINALIZED state.
+    await prisma.$transaction(async (tx) => {
+      const result = await (tx as any).stockTransferRequest.updateMany({
+        where: { id: requestId, status: TransferRequestStatus.READY_TO_FINALIZE },
+        data:  { status: TransferRequestStatus.FINALIZED, finalizedAt: now },
+      });
+
+      if (result.count === 0) {
+        throw new ValidationError(`Cannot finalize a request with status ${req.status}`);
+      }
+
+      await reservationService.consumeTransferReservationWithinTx(tx, {
+        sourceId:              requestId,
         sourceLocationId:      req.sourceLocationId,
         destinationLocationId: req.destinationLocationId,
-        qty:                   Number(item.qty),
-        sourceId:              requestId,
       });
-    }
+    });
 
     void auditService.log({
       entityType:  'STOCK_TRANSFER_REQUEST',
@@ -402,7 +461,9 @@ export class TransferService {
 
   // -------------------------------------------------------------------------
   // Cancel (any pre-finalized state → CANCELLED)
-  // Creator, admin, or any user with access to source/destination location can cancel
+  //
+  // ATOMIC when cancelling from a reserved state: status update + reservation
+  // release in ONE transaction.
   // -------------------------------------------------------------------------
   async cancel(requestId: string, user: UserCtx, reason: string): Promise<TransferRequestRow> {
     if (!reason || !reason.trim()) {
@@ -414,7 +475,6 @@ export class TransferService {
       throw new ValidationError(`Cannot cancel a request with status ${req.status}`);
     }
     if (!user.isAdmin && req.createdById !== user.id) {
-      // Also allow users with access to source OR destination location
       const locRole = await prisma.userLocationRole.findFirst({
         where: {
           userId: user.id,
@@ -426,16 +486,31 @@ export class TransferService {
       }
     }
 
-    const claimed = await transferRepository.claimCancellation(
-      requestId,
-      user.id,
-      new Date(),
-      CANCELLABLE_STATUSES,
-      reason.trim(),
-    );
-    if (!claimed) {
-      throw new ValidationError(`Cannot cancel a request with status ${req.status}`);
-    }
+    const hadReservations = RESERVED_STATUSES.includes(req.status);
+    const now = new Date();
+
+    await prisma.$transaction(async (tx) => {
+      const result = await (tx as any).stockTransferRequest.updateMany({
+        where: { id: requestId, status: { in: CANCELLABLE_STATUSES } },
+        data:  {
+          status:             TransferRequestStatus.CANCELLED,
+          cancelledById:      user.id,
+          cancelledAt:        now,
+          cancellationReason: reason.trim(),
+        },
+      });
+
+      if (result.count === 0) {
+        throw new ValidationError(`Cannot cancel a request with status ${req.status}`);
+      }
+
+      if (hadReservations) {
+        await reservationService.releaseReservationWithinTx(tx, {
+          sourceType: ReservationSourceType.TRANSFER,
+          sourceId:   requestId,
+        });
+      }
+    });
 
     void auditService.log({
       entityType:  'STOCK_TRANSFER_REQUEST',

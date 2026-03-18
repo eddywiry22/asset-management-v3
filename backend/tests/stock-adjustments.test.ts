@@ -38,6 +38,7 @@ jest.mock('../src/config/database', () => {
     count:       jest.fn(),
     groupBy:     jest.fn(),
     upsert:      jest.fn(),
+    aggregate:   jest.fn(),
   });
 
   return {
@@ -47,6 +48,7 @@ jest.mock('../src/config/database', () => {
       stockAdjustmentItem:    createMock(),
       stockBalance:           createMock(),
       stockLedger:            createMock(),
+      stockReservation:       createMock(),
       product:                createMock(),
       location:               createMock(),
       userLocationRole:       createMock(),
@@ -124,7 +126,11 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-  jest.clearAllMocks();
+  jest.resetAllMocks();
+
+  // Default: $transaction passes callback through (inner WithinTx methods execute)
+  db.$transaction.mockImplementation(async (cb: Function) => await cb(db));
+
   // Default: manager user
   (authService.verifyAccessToken as jest.Mock).mockReturnValue({
     sub:     USER_ID,
@@ -140,11 +146,17 @@ beforeEach(() => {
   // W3: default product/location lookups succeed
   db.product.findUnique.mockResolvedValue({ id: PRODUCT_ID, sku: 'ELEC-001', name: 'Laptop' });
   db.location.findUnique.mockResolvedValue({ id: LOCATION_ID, code: 'WH-001', name: 'Main Warehouse' });
-  // applyAdjustment internals
+  // Stock internals
   db.$queryRaw.mockResolvedValue([{ onHandQty: '100', reservedQty: '0' }]);
+  db.stockBalance.findUnique.mockResolvedValue({ onHandQty: '100', reservedQty: '0' });
   db.stockBalance.upsert.mockResolvedValue({ id: 'bal', productId: PRODUCT_ID, locationId: LOCATION_ID, onHandQty: '100', reservedQty: '0' });
   db.stockBalance.update.mockResolvedValue({ id: 'bal', productId: PRODUCT_ID, locationId: LOCATION_ID, onHandQty: '105', reservedQty: '0' });
   db.stockLedger.create.mockResolvedValue({});
+  // Default stockReservation mocks: no active reservations
+  db.stockReservation.aggregate.mockResolvedValue({ _sum: { qty: null } });
+  db.stockReservation.create.mockResolvedValue({ id: 'res-1' });
+  db.stockReservation.findMany.mockResolvedValue([]);
+  db.stockReservation.update.mockResolvedValue({});
   // C1: default finalization claim succeeds
   db.stockAdjustmentRequest.updateMany.mockResolvedValue({ count: 1 });
 });
@@ -504,8 +516,8 @@ describe('POST /v1/stock-adjustments/:id/finalize', () => {
     expect(res.status).toBe(200);
     expect(res.body.data.status).toBe('FINALIZED');
 
-    // applyAdjustment calls stockBalance.upsert + update (via stockService internal $transaction)
-    expect(db.$transaction).toHaveBeenCalledTimes(2); // once per item
+    // ONE atomic $transaction: status update + applyAdjustmentTx for each item
+    expect(db.$transaction).toHaveBeenCalledTimes(1);
     expect(db.stockLedger.create).toHaveBeenCalledTimes(2);
   });
 
@@ -670,7 +682,8 @@ describe('W13 — finalize APPROVED request with no items', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.data.status).toBe('FINALIZED');
-    expect(db.$transaction).not.toHaveBeenCalled();
+    // ONE transaction for status update even when no items
+    expect(db.$transaction).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -837,10 +850,11 @@ describe('GET /v1/stock-adjustments — location-based filtering', () => {
       .set(AUTH);
 
     expect(res.status).toBe(200);
-    // Verify the repository was called with a locationIds filter (items.some constraint)
+    // Verify the repository was called with an OR filter scoping to accessible locations
     const findManyCall = db.stockAdjustmentRequest.findMany.mock.calls[0][0];
-    expect(findManyCall.where.items).toBeDefined();
-    expect(findManyCall.where.items.some.locationId.in).toContain(LOCATION_ID);
+    expect(findManyCall.where.OR).toBeDefined();
+    const locationFilter = findManyCall.where.OR[0];
+    expect(locationFilter.items.some.locationId.in).toContain(LOCATION_ID);
   });
 
   it('admin sees all requests with no location filter', async () => {
@@ -955,5 +969,82 @@ describe('Draft ownership enforcement', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.data.status).toBe('SUBMITTED');
+  });
+});
+
+// ===========================================================================
+// RESERVATION EDGE CASES — Stage 7
+// ===========================================================================
+
+describe('approve — outbound stock check: insufficient available stock → 400', () => {
+  it('returns 400 when outbound item exceeds available stock', async () => {
+    const outboundItem = { ...fakeItem, qtyChange: { toString: () => '-20' } };
+    db.stockAdjustmentRequest.findUnique.mockResolvedValue(makeFakeRequest('SUBMITTED', [outboundItem]));
+
+    // 5 on-hand, 0 reserved → available = 5. Outbound requests 20.
+    db.stockBalance.findUnique.mockResolvedValue({ onHandQty: '5', reservedQty: '0' });
+    db.stockReservation.aggregate.mockResolvedValue({ _sum: { qty: null } });
+
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/approve`)
+      .set(AUTH);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/Insufficient available stock/);
+    // Status must NOT have changed
+    expect(db.stockAdjustmentRequest.update).not.toHaveBeenCalled();
+  });
+
+  it('returns 200 when outbound item equals available stock exactly', async () => {
+    const outboundItem = { ...fakeItem, qtyChange: { toString: () => '-5' } };
+    db.stockAdjustmentRequest.findUnique.mockResolvedValue(makeFakeRequest('SUBMITTED', [outboundItem]));
+    const approved = makeFakeRequest('APPROVED', [outboundItem]);
+
+    // Exactly 5 available — matches requested 5
+    db.stockBalance.findUnique.mockResolvedValue({ onHandQty: '5', reservedQty: '0' });
+    db.stockReservation.aggregate.mockResolvedValue({ _sum: { qty: null } });
+    db.stockAdjustmentRequest.update.mockResolvedValue(approved);
+
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/approve`)
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe('APPROVED');
+  });
+
+  it('inbound items are not stock-checked during approve', async () => {
+    // fakeItem has qtyChange=5 (positive = inbound) — no stock needed
+    db.stockAdjustmentRequest.findUnique.mockResolvedValue(makeFakeRequest('SUBMITTED', [fakeItem]));
+    db.stockBalance.findUnique.mockResolvedValue({ onHandQty: '0', reservedQty: '0' });
+    const approved = makeFakeRequest('APPROVED', [fakeItem]);
+    db.stockAdjustmentRequest.update.mockResolvedValue(approved);
+
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/approve`)
+      .set(AUTH);
+
+    expect(res.status).toBe(200);
+    // stockReservation.aggregate not called since item is inbound
+    expect(db.stockReservation.aggregate).not.toHaveBeenCalled();
+  });
+});
+
+describe('finalize — outbound item fails stock check at execution time → 400', () => {
+  it('returns 400 and does not finalize when outbound item has insufficient stock', async () => {
+    const outboundItem = { ...fakeItem, qtyChange: { toString: () => '-50' } };
+    db.stockAdjustmentRequest.findUnique.mockResolvedValue(makeFakeRequest('APPROVED', [outboundItem]));
+
+    // Only 10 on-hand, but 50 requested outbound
+    db.$queryRaw.mockResolvedValue([{ onHandQty: '10', reservedQty: '0' }]);
+
+    const res = await request(app)
+      .post(`/v1/stock-adjustments/${REQ_ID}/finalize`)
+      .set(AUTH);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/Insufficient available stock/);
+    // No ledger entry should have been written
+    expect(db.stockLedger.create).not.toHaveBeenCalled();
   });
 });
