@@ -17,6 +17,7 @@ import LocationOnIcon from '@mui/icons-material/LocationOn';
 import TuneIcon from '@mui/icons-material/Tune';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import HistoryIcon from '@mui/icons-material/History';
+import PeopleIcon from '@mui/icons-material/People';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 
@@ -51,6 +52,7 @@ export default function Sidebar({ open }: SidebarProps) {
         { label: 'Product Registrations', path: '/admin/product-registrations', icon: <LinkIcon /> },
         { label: 'Locations',             path: '/admin/locations',             icon: <LocationOnIcon /> },
         { label: 'Audit Logs',           path: '/admin/audit-logs',            icon: <HistoryIcon /> },
+        { label: 'Users',               path: '/admin/users',                 icon: <PeopleIcon /> },
       ],
     }] : []),
   ];

@@ -12,6 +12,7 @@ import productsRoutes from './modules/products/products.routes';
 import productRegistrationsRoutes from './modules/product-registrations/productRegistration.routes';
 import locationAdminRoutes from './modules/locations/location.routes';
 import auditRoutes from './modules/audit/audit.routes';
+import adminUsersRoutes from './modules/admin-users/admin-users.routes';
 import stockRoutes from './modules/stock/stock.routes';
 import stockAdjustmentRoutes from './modules/stock-adjustments/stockAdjustment.routes';
 import stockTransferRoutes from './modules/stock-transfers/transfer.routes';
@@ -44,6 +45,7 @@ adminRouter.use('/products',              productsRoutes);
 adminRouter.use('/product-registrations', productRegistrationsRoutes);
 adminRouter.use('/locations',            locationAdminRoutes);
 adminRouter.use('/audit-logs',           auditRoutes);
+adminRouter.use('/users',                adminUsersRoutes);
 
 // /v1 router
 const v1Router = Router();

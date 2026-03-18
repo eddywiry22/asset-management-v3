@@ -15,6 +15,7 @@ import StockTransfersPage from '../modules/transfers/pages/StockTransfersPage';
 import StockTransferDetailPage from '../modules/transfers/pages/StockTransferDetailPage';
 import AuditLogsPage from '../modules/audit/pages/AuditLogsPage';
 import AdminLocationsPage from '../modules/admin/pages/AdminLocationsPage';
+import AdminUsersPage from '../modules/admin/pages/AdminUsersPage';
 
 const router = createBrowserRouter([
   {
@@ -96,6 +97,10 @@ const router = createBrowserRouter([
               {
                 path: 'admin/audit-logs',
                 element: <AuditLogsPage />,
+              },
+              {
+                path: 'admin/users',
+                element: <AdminUsersPage />,
               },
             ],
           },
