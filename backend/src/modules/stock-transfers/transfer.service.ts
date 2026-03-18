@@ -1,10 +1,10 @@
-import { TransferRequestStatus, Role } from '@prisma/client';
+import { TransferRequestStatus, Role, ReservationSourceType } from '@prisma/client';
 import {
   transferRepository,
   TransferRequestRow,
   TransferItemRow,
 } from './transfer.repository';
-import { stockService } from '../stock/stock.service';
+import { reservationService } from '../stock/reservation.service';
 import { NotFoundError, ValidationError, ForbiddenError } from '../../utils/errors';
 import { assertUserCanAccessLocation } from '../../utils/guards';
 import { CreateTransferDto, AddItemDto, UpdateItemDto } from './transfer.validator';
@@ -261,6 +261,21 @@ export class TransferService {
       throw new ValidationError(`Cannot approve origin for a request with status ${req.status}`);
     }
 
+    // Reserve stock for all items at the source location.
+    // Runs inside a single DB transaction with row-level locking (SELECT FOR UPDATE).
+    // If any item has insufficient available stock, the entire reservation is rolled back
+    // and an error is returned (no partial reservation).
+    await reservationService.reserveStock({
+      sourceType: ReservationSourceType.TRANSFER,
+      sourceId:   requestId,
+      items: req.items.map((item) => ({
+        productId:    item.productId,
+        locationId:   req.sourceLocationId,
+        qty:          Number(item.qty),
+        sourceItemId: item.id,
+      })),
+    });
+
     void auditService.log({
       entityType:  'STOCK_TRANSFER_REQUEST',
       entityId:    requestId,
@@ -340,6 +355,14 @@ export class TransferService {
       throw new ValidationError(`Cannot reject a request with status ${req.status}`);
     }
 
+    // Release reservations if stock was already reserved (approval had occurred)
+    if (req.status === TransferRequestStatus.ORIGIN_MANAGER_APPROVED) {
+      await reservationService.releaseReservation({
+        sourceType: ReservationSourceType.TRANSFER,
+        sourceId:   requestId,
+      });
+    }
+
     void auditService.log({
       entityType:  'STOCK_TRANSFER_REQUEST',
       entityId:    requestId,
@@ -378,16 +401,14 @@ export class TransferService {
       throw new ValidationError(`Cannot finalize a request with status ${req.status}`);
     }
 
-    // Apply stock moves (each call is internally transactional)
-    for (const item of req.items) {
-      await stockService.moveStock({
-        productId:             item.productId,
-        sourceLocationId:      req.sourceLocationId,
-        destinationLocationId: req.destinationLocationId,
-        qty:                   Number(item.qty),
-        sourceId:              requestId,
-      });
-    }
+    // Consume reservations and apply stock movement in a single transaction.
+    // This marks each StockReservation as CONSUMED, decrements source onHandQty
+    // and reservedQty, increments destination onHandQty, and writes ledger entries.
+    await reservationService.consumeTransferReservation({
+      sourceId:             requestId,
+      sourceLocationId:     req.sourceLocationId,
+      destinationLocationId: req.destinationLocationId,
+    });
 
     void auditService.log({
       entityType:  'STOCK_TRANSFER_REQUEST',
@@ -435,6 +456,18 @@ export class TransferService {
     );
     if (!claimed) {
       throw new ValidationError(`Cannot cancel a request with status ${req.status}`);
+    }
+
+    // Release reservations if stock was reserved (i.e. origin was already approved)
+    const reservedStatuses: TransferRequestStatus[] = [
+      TransferRequestStatus.ORIGIN_MANAGER_APPROVED,
+      TransferRequestStatus.READY_TO_FINALIZE,
+    ];
+    if (reservedStatuses.includes(req.status)) {
+      await reservationService.releaseReservation({
+        sourceType: ReservationSourceType.TRANSFER,
+        sourceId:   requestId,
+      });
     }
 
     void auditService.log({

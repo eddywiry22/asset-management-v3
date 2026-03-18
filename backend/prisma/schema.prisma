@@ -49,6 +49,7 @@ model Location {
   adjustmentItems        StockAdjustmentItem[]
   transfersAsSource      StockTransferRequest[] @relation("TransferSourceLocation")
   transfersAsDestination StockTransferRequest[] @relation("TransferDestinationLocation")
+  stockReservations      StockReservation[]
 }
 
 model UserLocationRole {
@@ -115,6 +116,7 @@ model Product {
   stockLedgers     StockLedger[]
   adjustmentItems  StockAdjustmentItem[]
   transferItems    StockTransferItem[]
+  stockReservations StockReservation[]
 }
 
 // ---------------------------------------------------------------------------
@@ -134,6 +136,40 @@ model StockBalance {
 
   @@unique([productId, locationId])
   @@index([locationId])
+}
+
+// ---------------------------------------------------------------------------
+// Stage 7: Stock Reservation System
+// ---------------------------------------------------------------------------
+
+enum ReservationSourceType {
+  TRANSFER
+  ADJUSTMENT
+}
+
+enum ReservationStatus {
+  ACTIVE
+  RELEASED
+  CONSUMED
+}
+
+model StockReservation {
+  id           String                @id @default(uuid())
+  productId    String
+  locationId   String
+  qty          Decimal               @db.Decimal(15, 4)
+  sourceType   ReservationSourceType
+  sourceId     String
+  sourceItemId String
+  status       ReservationStatus     @default(ACTIVE)
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+
+  product  Product  @relation(fields: [productId], references: [id])
+  location Location @relation(fields: [locationId], references: [id])
+
+  @@index([productId, locationId])
+  @@index([sourceType, sourceId])
 }
 
 model StockLedger {

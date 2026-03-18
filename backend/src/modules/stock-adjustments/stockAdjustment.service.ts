@@ -5,6 +5,7 @@ import {
   AdjustmentItemRow,
 } from './stockAdjustment.repository';
 import { stockService } from '../stock/stock.service';
+import { reservationService } from '../stock/reservation.service';
 import { NotFoundError, ValidationError, ForbiddenError } from '../../utils/errors';
 import { assertUserCanAccessLocation } from '../../utils/guards';
 import { CreateRequestDto, AddItemDto, UpdateItemDto } from './stockAdjustment.validator';
@@ -285,6 +286,24 @@ export class StockAdjustmentService {
       }
       if (!hasAccess) {
         throw new ForbiddenError('You do not have access to this location');
+      }
+    }
+
+    // Pre-flight: verify outbound items have sufficient available stock
+    // (respects active reservations from other requests).
+    for (const item of req.items) {
+      const qtyChange = Number(item.qtyChange);
+      if (qtyChange < 0) {
+        const { availableQty } = await reservationService.getAvailableStock(
+          item.productId,
+          item.locationId,
+        );
+        if (availableQty + qtyChange < 0) {
+          throw new ValidationError(
+            `Insufficient available stock for product ${item.productId} at location ${item.locationId}. ` +
+            `Available: ${availableQty}, requested change: ${qtyChange}`,
+          );
+        }
       }
     }
 
