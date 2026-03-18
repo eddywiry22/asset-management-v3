@@ -92,10 +92,10 @@ export default function AdminUsersPage() {
   const [toggleTarget, setToggleTarget]         = useState<AdminUser | null>(null);
   const [resetPasswordTarget, setResetPasswordTarget] = useState<AdminUser | null>(null);
 
-  // Blocking deactivation counts
+  // Blocking deactivation detail
   const [blockingCounts, setBlockingCounts] = useState<{
-    blockingAdjustmentCount: number;
-    blockingTransferCount: number;
+    adjustments: { asCreator: number; asApprover: number };
+    transfers: { asCreator: number; asOriginManager: number; asDestinationManager: number };
   } | null>(null);
 
   const [apiError, setApiError] = useState('');
@@ -181,14 +181,8 @@ export default function AdminUsersPage() {
     },
     onError: (err: any) => {
       const errorData = err?.response?.data?.error;
-      if (
-        errorData?.blockingAdjustmentCount !== undefined ||
-        errorData?.blockingTransferCount !== undefined
-      ) {
-        setBlockingCounts({
-          blockingAdjustmentCount: errorData.blockingAdjustmentCount ?? 0,
-          blockingTransferCount:   errorData.blockingTransferCount   ?? 0,
-        });
+      if (errorData?.blocking) {
+        setBlockingCounts(errorData.blocking);
       } else {
         setApiError(errorData?.message ?? 'Failed to toggle user status');
       }
@@ -649,9 +643,24 @@ export default function AdminUsersPage() {
           {apiError && <Alert severity="error" sx={{ mb: 2 }}>{apiError}</Alert>}
           {blockingCounts && (
             <Alert severity="error" sx={{ mb: 2 }}>
-              User <strong>{toggleTarget?.username}</strong> has{' '}
-              <strong>{blockingCounts.blockingAdjustmentCount}</strong> adjustment(s) and{' '}
-              <strong>{blockingCounts.blockingTransferCount}</strong> transfer(s) in progress.
+              <strong>{toggleTarget?.username}</strong> is involved in active workflows:
+              <ul style={{ margin: '8px 0 0', paddingLeft: 20 }}>
+                {blockingCounts.adjustments.asCreator > 0 && (
+                  <li>{blockingCounts.adjustments.asCreator} adjustment(s) as creator</li>
+                )}
+                {blockingCounts.adjustments.asApprover > 0 && (
+                  <li>{blockingCounts.adjustments.asApprover} adjustment(s) as approver</li>
+                )}
+                {blockingCounts.transfers.asCreator > 0 && (
+                  <li>{blockingCounts.transfers.asCreator} transfer(s) as creator</li>
+                )}
+                {blockingCounts.transfers.asOriginManager > 0 && (
+                  <li>{blockingCounts.transfers.asOriginManager} transfer(s) as origin manager</li>
+                )}
+                {blockingCounts.transfers.asDestinationManager > 0 && (
+                  <li>{blockingCounts.transfers.asDestinationManager} transfer(s) as destination manager</li>
+                )}
+              </ul>
               Resolve them before deactivating.
             </Alert>
           )}

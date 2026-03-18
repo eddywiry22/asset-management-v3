@@ -1,5 +1,5 @@
 import bcrypt from 'bcrypt';
-import { Role } from '@prisma/client';
+import { Role, AdjustmentRequestStatus, TransferRequestStatus } from '@prisma/client';
 import { adminUsersRepository, UserRow, UsersFilter } from './repositories/admin-users.repository';
 import { AppError, NotFoundError, ValidationError, ForbiddenError } from '../../utils/errors';
 import { auditService } from '../../services/audit.service';
@@ -150,19 +150,50 @@ export class AdminUsersService {
     const newActive = !user.isActive;
 
     if (!newActive) {
-      const [blockingAdjustmentCount, blockingTransferCount] = await Promise.all([
+      const activeAdjStatuses: AdjustmentRequestStatus[] = ['DRAFT', 'SUBMITTED', 'APPROVED'];
+      const activeTrfStatuses: TransferRequestStatus[] = [
+        'DRAFT', 'SUBMITTED', 'ORIGIN_MANAGER_APPROVED',
+        'DESTINATION_OPERATOR_APPROVED', 'READY_TO_FINALIZE',
+      ];
+
+      const [
+        adjAsCreator,
+        adjAsApprover,
+        trfAsCreator,
+        trfAsOriginManager,
+        trfAsDestinationManager,
+      ] = await Promise.all([
         prisma.stockAdjustmentRequest.count({
-          where: { createdById: id, status: { in: ['DRAFT', 'SUBMITTED'] } },
+          where: { createdById: id, status: { in: activeAdjStatuses } },
+        }),
+        prisma.stockAdjustmentRequest.count({
+          where: { approvedById: id, status: { in: activeAdjStatuses } },
         }),
         prisma.stockTransferRequest.count({
-          where: { createdById: id, status: { in: ['DRAFT', 'SUBMITTED'] } },
+          where: { createdById: id, status: { in: activeTrfStatuses } },
+        }),
+        prisma.stockTransferRequest.count({
+          where: { originApprovedById: id, status: { in: activeTrfStatuses } },
+        }),
+        prisma.stockTransferRequest.count({
+          where: { destinationApprovedById: id, status: { in: activeTrfStatuses } },
         }),
       ]);
 
-      if (blockingAdjustmentCount > 0 || blockingTransferCount > 0) {
-        throw new AppError(400, 'User has active requests', {
-          blockingAdjustmentCount,
-          blockingTransferCount,
+      const hasBlocking =
+        adjAsCreator > 0 || adjAsApprover > 0 ||
+        trfAsCreator > 0 || trfAsOriginManager > 0 || trfAsDestinationManager > 0;
+
+      if (hasBlocking) {
+        throw new AppError(400, 'User is involved in active workflows', {
+          blocking: {
+            adjustments: { asCreator: adjAsCreator, asApprover: adjAsApprover },
+            transfers: {
+              asCreator:            trfAsCreator,
+              asOriginManager:      trfAsOriginManager,
+              asDestinationManager: trfAsDestinationManager,
+            },
+          },
         });
       }
     }

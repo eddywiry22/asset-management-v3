@@ -10,6 +10,7 @@ import FilterListIcon from '@mui/icons-material/FilterList';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { useQuery } from '@tanstack/react-query';
 import stockService, { StockOverviewItem, StockLedgerEntry } from '../../../services/stock.service';
+import { useAuth } from '../../../context/AuthContext';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -118,6 +119,8 @@ function LedgerModal({ open, onClose, productId, locationId, productSku, locatio
 // Stock Dashboard Page
 // ---------------------------------------------------------------------------
 export default function StockDashboardPage() {
+  const { isAdmin } = useAuth();
+
   // Filters
   const [filterLocationId, setFilterLocationId] = useState('');
   const [startDate, setStartDate] = useState<string | null>(null);
@@ -138,11 +141,12 @@ export default function StockDashboardPage() {
   const [snackMsg, setSnackMsg] = useState('');
 
   // Fetch locations visible to this user (drives the location filter dropdown)
-  const { data: visibleLocations = [] } = useQuery({
+  const { data: visibleLocations = [], isSuccess: locationsLoaded } = useQuery({
     queryKey: ['stock-visible-locations'],
     queryFn:  stockService.getVisibleLocations,
   });
 
+  const hasNoLocation     = !isAdmin && locationsLoaded && visibleLocations.length === 0;
   const showLocationFilter = visibleLocations.length > 1;
 
   const { data, isLoading, error, refetch } = useQuery({
@@ -184,6 +188,12 @@ export default function StockDashboardPage() {
 
   return (
     <Box>
+      {hasNoLocation && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          You are not assigned to any location. Contact admin.
+        </Alert>
+      )}
+
       {/* Header */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
         <Typography variant="h5">Stock Dashboard</Typography>

@@ -41,8 +41,10 @@ export default function LoginPage() {
       login(result.access_token, result.refresh_token, result.user);
       navigate('/dashboard', { replace: true });
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { message?: string } } };
-      setServerError(axiosErr.response?.data?.message ?? 'Login failed. Please try again.');
+      const axiosErr = err as { response?: { data?: { error?: { message?: string } } } };
+      setServerError(
+        axiosErr.response?.data?.error?.message ?? 'Login failed. Please try again.'
+      );
     }
   };
 
