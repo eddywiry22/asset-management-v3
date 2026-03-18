@@ -1,26 +1,8 @@
 import { useState } from 'react';
 import {
-  Box,
-  Button,
-  Chip,
-  CircularProgress,
-  Collapse,
-  FormControl,
-  IconButton,
-  InputLabel,
-  MenuItem,
-  Paper,
-  Select,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TablePagination,
-  TableRow,
-  TextField,
-  Tooltip,
-  Typography,
+  Alert, Box, Button, Chip, CircularProgress, Collapse, FormControl, IconButton,
+  InputLabel, MenuItem, Paper, Select, Table, TableBody, TableCell, TableContainer,
+  TableHead, TablePagination, TableRow, TextField, Tooltip, Typography,
 } from '@mui/material';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
@@ -74,7 +56,8 @@ const ACTION_COLORS: Record<string, 'default' | 'success' | 'warning' | 'error' 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-function fmtDate(d: string): string {
+function fmtDate(d: string | null | undefined): string {
+  if (!d) return '—';
   return new Date(d).toLocaleString();
 }
 
@@ -113,11 +96,7 @@ function AuditLogRow({ log }: { log: AuditLog }) {
         <TableCell sx={{ whiteSpace: 'nowrap' }}>{fmtDate(log.timestamp)}</TableCell>
         <TableCell>{userLabel(log.user)}</TableCell>
         <TableCell>
-          <Chip
-            label={log.action}
-            color={ACTION_COLORS[log.action] ?? 'default'}
-            size="small"
-          />
+          <Chip label={log.action} color={ACTION_COLORS[log.action] ?? 'default'} size="small" />
         </TableCell>
         <TableCell>
           <Chip label={log.entityType} size="small" variant="outlined" />
@@ -138,7 +117,7 @@ function AuditLogRow({ log }: { log: AuditLog }) {
               {log.warnings && (
                 <Box mb={2}>
                   <Typography variant="subtitle2" color="warning.main" gutterBottom>Warnings</Typography>
-                  <Paper variant="outlined" sx={{ p: 1.5, bgcolor: 'warning.50', borderColor: 'warning.light' }}>
+                  <Paper variant="outlined" sx={{ p: 1.5 }}>
                     <pre style={{ margin: 0, fontSize: '0.78rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                       {JSON.stringify(log.warnings, null, 2)}
                     </pre>
@@ -172,36 +151,17 @@ function AuditLogRow({ log }: { log: AuditLog }) {
 }
 
 // ---------------------------------------------------------------------------
-// Applied filter state shape
-// ---------------------------------------------------------------------------
-interface AppliedFilters {
-  startDate:            string;
-  endDate:              string;
-  entityType:           string;
-  action:               string;
-  sourceLocationId:     string;
-  destinationLocationId: string;
-}
-
-const EMPTY_FILTERS: AppliedFilters = {
-  startDate:            '',
-  endDate:              '',
-  entityType:           '',
-  action:               '',
-  sourceLocationId:     '',
-  destinationLocationId: '',
-};
-
-// ---------------------------------------------------------------------------
 // Main Page
 // ---------------------------------------------------------------------------
+type SimpleLocation = { id: string; code: string; name: string };
+
 export default function AuditLogsPage() {
   const { isAdmin } = useAuth();
 
   const [page, setPage]               = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(20);
 
-  // Staging filters (not yet applied)
+  // Staging filters — updated on input change, not applied until Apply is clicked
   const [startDate,          setStartDate]          = useState('');
   const [endDate,            setEndDate]            = useState('');
   const [entityTypeFilter,   setEntityTypeFilter]   = useState('');
@@ -209,99 +169,72 @@ export default function AuditLogsPage() {
   const [srcLocationFilter,  setSrcLocationFilter]  = useState('');
   const [destLocationFilter, setDestLocationFilter] = useState('');
 
-  // Applied filters — only committed on Apply click
-  const [applied, setApplied] = useState<AppliedFilters>(EMPTY_FILTERS);
+  // Applied filters — committed on Apply, drives the query key
+  const [appliedFilters, setAppliedFilters] = useState({
+    startDate: '', endDate: '', entityType: '', action: '',
+    sourceLocationId: '', destinationLocationId: '',
+  });
 
-  const { data: locationsRes } = useQuery({
+  const { data: allLocationsRes } = useQuery({
     queryKey: ['locations-all'],
     queryFn:  () => stockService.getAllLocations(),
     enabled:  isAdmin,
   });
+  const allLocations: SimpleLocation[] = allLocationsRes ?? [];
 
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ['audit-logs', applied, page, rowsPerPage],
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['audit-logs', appliedFilters, page, rowsPerPage],
     queryFn: () => auditLogsService.getAll({
-      dateStart:            applied.startDate             || undefined,
-      dateEnd:              applied.endDate               || undefined,
-      entityType:           applied.entityType            || undefined,
-      action:               applied.action                || undefined,
-      sourceLocationId:     applied.sourceLocationId      || undefined,
-      destinationLocationId: applied.destinationLocationId || undefined,
+      ...(appliedFilters.startDate           ? { dateStart:            appliedFilters.startDate           } : {}),
+      ...(appliedFilters.endDate             ? { dateEnd:              appliedFilters.endDate             } : {}),
+      ...(appliedFilters.entityType          ? { entityType:           appliedFilters.entityType          } : {}),
+      ...(appliedFilters.action              ? { action:               appliedFilters.action              } : {}),
+      ...(appliedFilters.sourceLocationId    ? { sourceLocationId:     appliedFilters.sourceLocationId    } : {}),
+      ...(appliedFilters.destinationLocationId ? { destinationLocationId: appliedFilters.destinationLocationId } : {}),
       page:  page + 1,
       limit: rowsPerPage,
     }),
     enabled: isAdmin,
   });
 
-  function applyFilters() {
-    setPage(0);
-    setApplied({
-      startDate:            startDate,
-      endDate:              endDate,
-      entityType:           entityTypeFilter,
-      action:               actionFilter,
-      sourceLocationId:     srcLocationFilter,
-      destinationLocationId: destLocationFilter,
-    });
-  }
+  const isDateRangeInvalid = !!(startDate && endDate && startDate > endDate);
 
-  function clearFilters() {
-    setStartDate('');
-    setEndDate('');
-    setEntityTypeFilter('');
-    setActionFilter('');
-    setSrcLocationFilter('');
-    setDestLocationFilter('');
-    setPage(0);
-    setApplied(EMPTY_FILTERS);
-  }
-
-  const logs  = data?.data ?? [];
-  const total = data?.meta.total ?? 0;
-  const locations = (locationsRes?.data ?? []) as Array<{ id: string; code: string; name: string }>;
-
-  if (!isAdmin) {
-    return (
-      <Box p={4}>
-        <Typography color="error">403 — Admin access required.</Typography>
-      </Box>
-    );
-  }
+  const rows  = data?.data  ?? [];
+  const total = data?.meta?.total ?? 0;
 
   return (
-    <Box p={3}>
-      <Typography variant="h5" fontWeight={600} mb={2}>Audit Logs</Typography>
+    <Box>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <Typography variant="h5" fontWeight={600}>Audit Logs</Typography>
+      </Box>
 
-      {/* Filters */}
-      <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-        <Box display="flex" alignItems="center" gap={1} mb={1.5}>
-          <FilterListIcon fontSize="small" color="action" />
-          <Typography variant="subtitle2">Filters</Typography>
-        </Box>
-        <Box display="flex" gap={2} flexWrap="wrap" alignItems="flex-end">
+      {/* Filters — matches Adjustment / Transfer page pattern exactly */}
+      <Paper sx={{ p: 2, mb: 2 }}>
+        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
           <TextField
-            label="Date From"
-            type="datetime-local"
+            label="From"
+            type="date"
             size="small"
             value={startDate}
             onChange={(e) => setStartDate(e.target.value)}
             InputLabelProps={{ shrink: true }}
-            sx={{ minWidth: 200 }}
+            error={isDateRangeInvalid}
           />
           <TextField
-            label="Date To"
-            type="datetime-local"
+            label="To"
+            type="date"
             size="small"
             value={endDate}
             onChange={(e) => setEndDate(e.target.value)}
             InputLabelProps={{ shrink: true }}
-            sx={{ minWidth: 200 }}
+            error={isDateRangeInvalid}
+            helperText={isDateRangeInvalid ? 'End date must be after start date' : undefined}
           />
           <FormControl size="small" sx={{ minWidth: 180 }}>
             <InputLabel>Entity Type</InputLabel>
             <Select
-              value={entityTypeFilter}
               label="Entity Type"
+              value={entityTypeFilter}
               onChange={(e) => setEntityTypeFilter(e.target.value)}
             >
               <MenuItem value="">All</MenuItem>
@@ -313,8 +246,8 @@ export default function AuditLogsPage() {
           <FormControl size="small" sx={{ minWidth: 160 }}>
             <InputLabel>Action</InputLabel>
             <Select
-              value={actionFilter}
               label="Action"
+              value={actionFilter}
               onChange={(e) => setActionFilter(e.target.value)}
             >
               <MenuItem value="">All</MenuItem>
@@ -326,88 +259,106 @@ export default function AuditLogsPage() {
           <FormControl size="small" sx={{ minWidth: 180 }}>
             <InputLabel>Source Location</InputLabel>
             <Select
-              value={srcLocationFilter}
               label="Source Location"
+              value={srcLocationFilter}
               onChange={(e) => setSrcLocationFilter(e.target.value)}
             >
-              <MenuItem value="">All</MenuItem>
-              {locations.map((loc) => (
-                <MenuItem key={loc.id} value={loc.id}>{loc.code} — {loc.name}</MenuItem>
+              <MenuItem value="">All Locations</MenuItem>
+              {allLocations.map((l) => (
+                <MenuItem key={l.id} value={l.id}>{l.code} — {l.name}</MenuItem>
               ))}
             </Select>
           </FormControl>
           <FormControl size="small" sx={{ minWidth: 180 }}>
             <InputLabel>Destination Location</InputLabel>
             <Select
-              value={destLocationFilter}
               label="Destination Location"
+              value={destLocationFilter}
               onChange={(e) => setDestLocationFilter(e.target.value)}
             >
-              <MenuItem value="">All</MenuItem>
-              {locations.map((loc) => (
-                <MenuItem key={loc.id} value={loc.id}>{loc.code} — {loc.name}</MenuItem>
+              <MenuItem value="">All Locations</MenuItem>
+              {allLocations.map((l) => (
+                <MenuItem key={l.id} value={l.id}>{l.code} — {l.name}</MenuItem>
               ))}
             </Select>
           </FormControl>
-          <Box display="flex" gap={1}>
-            <Button variant="contained" size="small" onClick={applyFilters}>Apply</Button>
-            <Button variant="outlined"  size="small" onClick={clearFilters}>Clear</Button>
-          </Box>
+          <Button
+            variant="outlined"
+            startIcon={<FilterListIcon />}
+            disabled={isDateRangeInvalid}
+            onClick={() => {
+              if (!isDateRangeInvalid) {
+                setPage(0);
+                setAppliedFilters({
+                  startDate:            startDate,
+                  endDate:              endDate,
+                  entityType:           entityTypeFilter,
+                  action:               actionFilter,
+                  sourceLocationId:     srcLocationFilter,
+                  destinationLocationId: destLocationFilter,
+                });
+              }
+            }}
+          >
+            Apply
+          </Button>
+          <Button
+            variant="text"
+            onClick={() => {
+              setStartDate(''); setEndDate(''); setEntityTypeFilter('');
+              setActionFilter(''); setSrcLocationFilter(''); setDestLocationFilter('');
+              setPage(0);
+              setAppliedFilters({
+                startDate: '', endDate: '', entityType: '', action: '',
+                sourceLocationId: '', destinationLocationId: '',
+              });
+            }}
+          >
+            Clear
+          </Button>
         </Box>
       </Paper>
 
       {/* Table */}
-      <Paper variant="outlined">
-        {isLoading && (
-          <Box display="flex" justifyContent="center" p={4}>
-            <CircularProgress />
-          </Box>
-        )}
-        {isError && (
-          <Box p={3}>
-            <Typography color="error">Failed to load audit logs.</Typography>
-          </Box>
-        )}
-        {!isLoading && !isError && (
-          <>
-            <TableContainer>
-              <Table size="small">
-                <TableHead>
+      {isLoading && <CircularProgress />}
+      {error     && <Alert severity="error">Failed to load audit logs.</Alert>}
+      {!isLoading && !error && (
+        <Paper>
+          <TableContainer>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell width={48} />
+                  <TableCell>Timestamp</TableCell>
+                  <TableCell>User</TableCell>
+                  <TableCell>Action</TableCell>
+                  <TableCell>Entity Type</TableCell>
+                  <TableCell>Entity ID</TableCell>
+                  <TableCell>Summary</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {rows.length === 0 ? (
                   <TableRow>
-                    <TableCell width={48} />
-                    <TableCell>Timestamp</TableCell>
-                    <TableCell>User</TableCell>
-                    <TableCell>Action</TableCell>
-                    <TableCell>Entity Type</TableCell>
-                    <TableCell>Entity ID</TableCell>
-                    <TableCell>Summary</TableCell>
+                    <TableCell colSpan={7} align="center">No audit logs found.</TableCell>
                   </TableRow>
-                </TableHead>
-                <TableBody>
-                  {logs.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={7} align="center" sx={{ py: 4, color: 'text.secondary' }}>
-                        No audit logs found.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    logs.map((log) => <AuditLogRow key={log.id} log={log} />)
-                  )}
-                </TableBody>
-              </Table>
-            </TableContainer>
-            <TablePagination
-              component="div"
-              count={total}
-              page={page}
-              onPageChange={(_e, newPage) => setPage(newPage)}
-              rowsPerPage={rowsPerPage}
-              onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
-              rowsPerPageOptions={[10, 20, 50]}
-            />
-          </>
-        )}
-      </Paper>
+                ) : (
+                  rows.map((log) => <AuditLogRow key={log.id} log={log} />)
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+          <TablePagination
+            component="div"
+            count={total}
+            page={page}
+            onPageChange={(_e, p) => setPage(p)}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
+            rowsPerPageOptions={[10, 20, 50]}
+          />
+        </Paper>
+      )}
     </Box>
   );
 }
