@@ -434,10 +434,11 @@ export default function AdminUsersPage() {
               render={({ field, fieldState }) => (
                 <FormControl fullWidth margin="normal" error={!!fieldState.error}>
                   <InputLabel>Locations</InputLabel>
+                  {/* guard: value must always be an array for <Select multiple> */}
                   <Select
                     multiple
                     {...field}
-                    value={field.value ?? []}   {/* guard: always pass an array */}
+                    value={field.value ?? []}
                     input={<OutlinedInput label="Locations" />}
                     renderValue={(selected) =>
                       (selected as string[])
