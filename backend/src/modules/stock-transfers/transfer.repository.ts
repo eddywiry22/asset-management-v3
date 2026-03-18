@@ -1,5 +1,6 @@
 import prisma from '../../config/database';
 import { TransferRequestStatus } from '@prisma/client';
+import { buildDateRangeFilterFromDates } from '../../utils/dateFilter';
 
 export type TransferItemRow = {
   id: string;
@@ -73,12 +74,8 @@ export class TransferRepository {
     const { status, startDate, endDate, page, limit, locationIds, filterLocationId } = params;
     const where: Record<string, unknown> = {};
     if (status) where['status'] = status;
-    if (startDate || endDate) {
-      where['createdAt'] = {
-        ...(startDate ? { gte: startDate } : {}),
-        ...(endDate   ? { lte: endDate   } : {}),
-      };
-    }
+    const createdAtFilter = buildDateRangeFilterFromDates(startDate, endDate);
+    if (createdAtFilter) where['createdAt'] = createdAtFilter;
     // Non-admin: scope to accessible locations (from user roles)
     if (locationIds) {
       where['OR'] = [

@@ -1,5 +1,6 @@
 import prisma from '../../config/database';
 import { AdjustmentRequestStatus } from '@prisma/client';
+import { buildDateRangeFilterFromDates } from '../../utils/dateFilter';
 
 export type AdjustmentItemRow = {
   id: string;
@@ -70,12 +71,8 @@ export class StockAdjustmentRepository {
     const { status, startDate, endDate, page, limit, locationIds, creatorId, filterLocationId } = params;
     const where: Record<string, unknown> = {};
     if (status)    where['status']    = status;
-    if (startDate || endDate) {
-      where['createdAt'] = {
-        ...(startDate ? { gte: startDate } : {}),
-        ...(endDate   ? { lte: endDate   } : {}),
-      };
-    }
+    const createdAtFilter = buildDateRangeFilterFromDates(startDate, endDate);
+    if (createdAtFilter) where['createdAt'] = createdAtFilter;
     // Non-admin: scope to accessible locations OR own requests (so empty drafts remain visible to creator)
     if (locationIds) {
       where['OR'] = [

@@ -1,4 +1,5 @@
 import prisma from '../../config/database';
+import { buildDateRangeFilterFromDates } from '../../utils/dateFilter';
 
 export interface AuditLogRow {
   id: string;
@@ -35,11 +36,8 @@ export class AuditRepository {
   async findAll(filters: AuditLogFilters): Promise<{ data: AuditLogRow[]; total: number }> {
     const where: any = {};
 
-    if (filters.dateStart || filters.dateEnd) {
-      where.timestamp = {};
-      if (filters.dateStart) where.timestamp.gte = filters.dateStart;
-      if (filters.dateEnd)   where.timestamp.lte = filters.dateEnd;
-    }
+    const timestampFilter = buildDateRangeFilterFromDates(filters.dateStart, filters.dateEnd);
+    if (timestampFilter) where.timestamp = timestampFilter;
 
     if (filters.userId)     where.userId     = filters.userId;
     if (filters.entityType) where.entityType = filters.entityType;

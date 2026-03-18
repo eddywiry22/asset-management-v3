@@ -1,6 +1,8 @@
 import { Response, NextFunction } from 'express';
 import { AuthenticatedRequest } from '../../types/request.types';
 import { auditQueryService } from './audit.service';
+import { ValidationError } from '../../utils/errors';
+import { buildDateRangeFilter } from '../../utils/dateFilter';
 
 export class AuditController {
   async getAll(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
@@ -21,9 +23,16 @@ export class AuditController {
       const pageNum  = Math.max(1, parseInt(page, 10) || 1);
       const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
 
+      // Validate date strings before normalising
+      if (dateStart && isNaN(new Date(dateStart).getTime())) throw new ValidationError('Invalid dateStart');
+      if (dateEnd   && isNaN(new Date(dateEnd).getTime()))   throw new ValidationError('Invalid dateEnd');
+
+      // Normalise: start → 00:00:00.000, end → 23:59:59.999 (inclusive end-of-day)
+      const dateFilter = buildDateRangeFilter(dateStart, dateEnd);
+
       const result = await auditQueryService.findAll({
-        dateStart:            dateStart            ? new Date(dateStart)            : undefined,
-        dateEnd:              dateEnd              ? new Date(dateEnd)              : undefined,
+        dateStart:            dateFilter?.gte,
+        dateEnd:              dateFilter?.lte,
         userId:               userId               ?? undefined,
         entityType:           entityType           ?? undefined,
         action:               action               ?? undefined,

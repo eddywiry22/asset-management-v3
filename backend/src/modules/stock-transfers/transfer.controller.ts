@@ -3,6 +3,7 @@ import { transferService } from './transfer.service';
 import { AuthenticatedRequest } from '../../types/request.types';
 import { TransferRequestStatus } from '@prisma/client';
 import { ValidationError } from '../../utils/errors';
+import { buildDateRangeFilter } from '../../utils/dateFilter';
 
 const VALID_STATUSES = new Set<string>(Object.values(TransferRequestStatus));
 
@@ -21,18 +22,14 @@ export class TransferController {
         status = raw as TransferRequestStatus;
       }
 
-      let startDate: Date | undefined;
-      let endDate: Date | undefined;
-      if (req.query.startDate) {
-        startDate = new Date(req.query.startDate as string);
-        if (isNaN(startDate.getTime())) throw new ValidationError('Invalid startDate');
-      }
-      if (req.query.endDate) {
-        endDate = new Date(req.query.endDate as string);
-        if (isNaN(endDate.getTime())) throw new ValidationError('Invalid endDate');
-        // Include the full end day
-        endDate.setHours(23, 59, 59, 999);
-      }
+      // Validate and normalise dates (start → 00:00:00, end → 23:59:59.999)
+      const rawStart = req.query.startDate as string | undefined;
+      const rawEnd   = req.query.endDate   as string | undefined;
+      if (rawStart && isNaN(new Date(rawStart).getTime())) throw new ValidationError('Invalid startDate');
+      if (rawEnd   && isNaN(new Date(rawEnd).getTime()))   throw new ValidationError('Invalid endDate');
+      const dateRangeFilter = buildDateRangeFilter(rawStart, rawEnd);
+      const startDate = dateRangeFilter?.gte;
+      const endDate   = dateRangeFilter?.lte;
 
       // Admin-only explicit location filter
       let filterLocationId: string | undefined;
