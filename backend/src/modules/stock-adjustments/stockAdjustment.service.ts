@@ -16,6 +16,7 @@ import {
   validateUserAccess,
   validateLocationActive,
   validateProductActive,
+  getProductLocationStatus,
 } from '../../utils/validationHelpers';
 
 type UserCtx = { id: string; isAdmin: boolean };
@@ -261,6 +262,15 @@ export class StockAdjustmentService {
       }
     }
 
+    // Stage 8.2.1.1: non-blocking warning for now-inactive items
+    const inactiveItems = req.items.filter((i) => (i as any).isActiveNow === false);
+    if (inactiveItems.length > 0) {
+      logger.warn('[Stage8] Adjustment approve — some items now inactive', {
+        requestId,
+        inactiveProductIds: inactiveItems.map((i) => i.productId),
+      });
+    }
+
     // Hard pre-flight: outbound items must not exceed available stock
     // (availableQty accounts for ACTIVE reservations from other requests).
     for (const item of req.items) {
@@ -284,8 +294,9 @@ export class StockAdjustmentService {
       approvedById: userId,
       approvedAt:   new Date(),
     });
-    const itemSnapshot = req.items.map((i) => ({ productId: i.productId, locationId: i.locationId, isActiveNow: (i as any).isActiveNow }));
-    void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', afterValue: { status: 'APPROVED', itemSnapshot }, performedBy: userId });
+    const plStatuses = await Promise.all(req.items.map((i) => getProductLocationStatus(i.productId, i.locationId)));
+    const itemSnapshot = req.items.map((i, idx) => ({ productId: i.productId, locationId: i.locationId, ...plStatuses[idx] }));
+    void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', afterValue: { status: 'APPROVED', itemSnapshot, inactiveItemCount: inactiveItems.length }, performedBy: userId });
     return updated;
   }
 
@@ -373,8 +384,17 @@ export class StockAdjustmentService {
       }
     });
 
-    const finalizeItemSnapshot = req.items.map((i) => ({ productId: i.productId, locationId: i.locationId, isActiveNow: (i as any).isActiveNow }));
-    void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', afterValue: { status: 'FINALIZED', itemSnapshot: finalizeItemSnapshot }, performedBy: userId });
+    // Stage 8.2.1.1: non-blocking warning for now-inactive items at finalize
+    const inactiveAtFinalize = req.items.filter((i) => (i as any).isActiveNow === false);
+    if (inactiveAtFinalize.length > 0) {
+      logger.warn('[Stage8] Adjustment finalize — some items now inactive', {
+        requestId,
+        inactiveProductIds: inactiveAtFinalize.map((i) => i.productId),
+      });
+    }
+    const finalizePlStatuses = await Promise.all(req.items.map((i) => getProductLocationStatus(i.productId, i.locationId)));
+    const finalizeItemSnapshot = req.items.map((i, idx) => ({ productId: i.productId, locationId: i.locationId, ...finalizePlStatuses[idx] }));
+    void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', afterValue: { status: 'FINALIZED', itemSnapshot: finalizeItemSnapshot, inactiveItemCount: inactiveAtFinalize.length }, performedBy: userId });
     return (await stockAdjustmentRepository.findById(requestId))!;
   }
   // -------------------------------------------------------------------------

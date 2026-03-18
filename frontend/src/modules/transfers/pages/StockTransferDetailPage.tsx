@@ -217,6 +217,16 @@ export default function StockTransferDetailPage() {
     enabled:  !isAdmin,
   });
 
+  // Fetch products registered at destination — used to block finalize if items are missing
+  const dstLocationId = req?.destinationLocationId;
+  const { data: destRegisteredProducts } = useQuery({
+    queryKey: ['registered-products', dstLocationId],
+    queryFn:  () => stockService.getRegisteredProducts(dstLocationId!),
+    enabled:  !!dstLocationId && req?.status === 'READY_TO_FINALIZE',
+  });
+  const destRegisteredIds = new Set((destRegisteredProducts ?? []).map((p) => p.id));
+  const itemsNotAtDest = (req?.items ?? []).filter((i) => !destRegisteredIds.has(i.productId));
+
   // Build a Map<locationId, role> from the user's visible locations.
   // Only non-null role values are stored; admin users skip this entirely.
   const myRoleMap = new Map(
@@ -311,6 +321,9 @@ export default function StockTransferDetailPage() {
   const canCancel = !isDraft && !isTerminal && !approveRejectVisible && (isAdmin || isCreator || hasLocationAccess);
   const canDelete = isDraft && isCreator;
 
+  const hasInactiveItems = (req?.items ?? []).some((i) => i.isActiveNow === false);
+  const inactiveCount    = (req?.items ?? []).filter((i) => i.isActiveNow === false).length;
+
   // Workflow action confirmation config
   const actionConfig: Record<string, { title: string; body: React.ReactNode; label: string; color: 'success' | 'error' | 'warning' | 'primary'; onConfirm: () => void }> = {
     submit: {
@@ -322,7 +335,16 @@ export default function StockTransferDetailPage() {
     },
     approveOrigin: {
       title: 'Approve at Origin',
-      body: <Alert severity="info" sx={{ mt: 1 }}>Approving at origin confirms the source location has stock available.</Alert>,
+      body: (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mt: 1 }}>
+          {hasInactiveItems && (
+            <Alert severity="warning">
+              Warning: {inactiveCount} item(s) have inactive product registrations at source. The approval will still proceed.
+            </Alert>
+          )}
+          <Alert severity="info">Approving at origin confirms the source location has stock available.</Alert>
+        </Box>
+      ),
       label: 'Confirm Approve',
       color: 'success',
       onConfirm: () => approveOriginMutation.mutate(),
@@ -336,7 +358,16 @@ export default function StockTransferDetailPage() {
     },
     finalize: {
       title: 'Finalize Transfer',
-      body: <Alert severity="warning" sx={{ mt: 1 }}>Finalizing will move stock between locations. This cannot be undone.</Alert>,
+      body: (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mt: 1 }}>
+          {hasInactiveItems && (
+            <Alert severity="warning">
+              Warning: {inactiveCount} item(s) have inactive product registrations at source.
+            </Alert>
+          )}
+          <Alert severity="warning">Finalizing will move stock between locations. This cannot be undone.</Alert>
+        </Box>
+      ),
       label: 'Confirm Finalize',
       color: 'warning',
       onConfirm: () => finalizeMutation.mutate(),
@@ -589,14 +620,21 @@ export default function StockTransferDetailPage() {
 
             {/* READY_TO_FINALIZE: Finalize — destination user (or admin) */}
             {isReady && canFinalize && (
-              <Button
-                variant="contained"
-                color="warning"
-                disabled={req.items.length === 0}
-                onClick={() => setConfirmAction('finalize')}
-              >
-                Finalize Transfer
-              </Button>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                {itemsNotAtDest.length > 0 && (
+                  <Alert severity="error" sx={{ mb: 1 }}>
+                    {itemsNotAtDest.length} item(s) are not registered at the destination location and must be registered before finalizing.
+                  </Alert>
+                )}
+                <Button
+                  variant="contained"
+                  color="warning"
+                  disabled={req.items.length === 0 || itemsNotAtDest.length > 0}
+                  onClick={() => setConfirmAction('finalize')}
+                >
+                  Finalize Transfer
+                </Button>
+              </Box>
             )}
 
             {/* Cancel — any non-terminal state, creator or admin */}

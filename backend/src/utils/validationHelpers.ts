@@ -74,6 +74,27 @@ export async function validateProductActive(
 }
 
 /**
+ * Return the ProductLocation status for a (productId, locationId) pair.
+ * - isRegisteredNow: any ProductLocation row exists (active or inactive)
+ * - isActiveNow:     the mapping exists AND isActive === true
+ * Returns { isRegisteredNow: false, isActiveNow: false } on error or missing row.
+ */
+export async function getProductLocationStatus(
+  productId: string,
+  locationId: string,
+): Promise<{ isRegisteredNow: boolean; isActiveNow: boolean }> {
+  try {
+    const mapping = await (prisma as any).productLocation.findFirst({
+      where: { productId, locationId },
+    });
+    if (!mapping) return { isRegisteredNow: false, isActiveNow: false };
+    return { isRegisteredNow: true, isActiveNow: mapping.isActive === true };
+  } catch {
+    return { isRegisteredNow: false, isActiveNow: false };
+  }
+}
+
+/**
  * Return all products with an active ProductLocation mapping at the given location.
  * Used for dropdown filtering and "no products registered" warnings.
  * Returns an empty array if the location has no registered products or on error.

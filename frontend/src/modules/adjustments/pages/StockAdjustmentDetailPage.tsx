@@ -530,15 +530,30 @@ export default function StockAdjustmentDetailPage() {
             confirmAction === 'finalize' ? 'Finalize Request' :
             'Delete Request'
           }
-          body={
-            confirmAction === 'finalize' ? (
-              <Alert severity="warning" sx={{ mt: 1 }}>This will apply stock changes permanently and cannot be undone.</Alert>
-            ) : confirmAction === 'delete' ? (
-              <Alert severity="error" sx={{ mt: 1 }}>This will permanently delete the DRAFT request and all its items.</Alert>
-            ) : (
-              <Alert severity="info" sx={{ mt: 1 }}>Are you sure you want to proceed?</Alert>
-            )
-          }
+          body={(() => {
+            const hasInactive = req.items.some((i) => i.isActiveNow === false);
+            return (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mt: 1 }}>
+                {(confirmAction === 'approve' || confirmAction === 'finalize') && hasInactive && (
+                  <Alert severity="warning">
+                    Warning: {req.items.filter((i) => i.isActiveNow === false).length} item(s) have inactive product registrations. The operation will still proceed.
+                  </Alert>
+                )}
+                {confirmAction === 'finalize' && (
+                  <Alert severity="warning">This will apply stock changes permanently and cannot be undone.</Alert>
+                )}
+                {confirmAction === 'delete' && (
+                  <Alert severity="error">This will permanently delete the DRAFT request and all its items.</Alert>
+                )}
+                {confirmAction === 'submit' && (
+                  <Alert severity="info">Are you sure you want to proceed?</Alert>
+                )}
+                {confirmAction === 'approve' && !hasInactive && (
+                  <Alert severity="info">Are you sure you want to proceed?</Alert>
+                )}
+              </Box>
+            );
+          })()}
           confirmLabel={
             confirmAction === 'submit'   ? 'Confirm Submit' :
             confirmAction === 'approve'  ? 'Confirm Approve' :

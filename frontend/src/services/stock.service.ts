@@ -17,6 +17,8 @@ export type StockOverviewItem = {
   finalQty: number;
   pendingInbound: number;
   pendingOutbound: number;
+  isRegisteredNow: boolean;
+  isInactiveNow: boolean;
 };
 
 export type StockLedgerEntry = {

@@ -46,6 +46,7 @@ jest.mock('../src/config/database', () => {
       stockLedger:     createMock(),
       product:         createMock(),
       location:        createMock(),
+      productLocation: createMock(),
       userLocationRole: createMock(),
       auditLog:        { create: jest.fn().mockResolvedValue({}) },
       $connect:     jest.fn(),
@@ -112,6 +113,7 @@ beforeEach(() => {
     isAdmin: false,
   });
   db.userLocationRole.findMany.mockResolvedValue([{ locationId: LOCATION_ID }]);
+  db.productLocation.findMany.mockResolvedValue([]);
 
   // Default: lockBalanceRow returns rows with sufficient stock
   db.$queryRaw.mockResolvedValue([{ onHandQty: '10', reservedQty: '0' }]);
