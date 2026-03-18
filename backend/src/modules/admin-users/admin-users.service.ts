@@ -161,7 +161,7 @@ export class AdminUsersService {
         adjAsApprover,
         trfAsCreator,
         trfAsOriginManager,
-        trfAsDestinationManager,
+        trfAsDestinationApprover,
       ] = await Promise.all([
         prisma.stockAdjustmentRequest.count({
           where: { createdById: id, status: { in: activeAdjStatuses } },
@@ -175,6 +175,7 @@ export class AdminUsersService {
         prisma.stockTransferRequest.count({
           where: { originApprovedById: id, status: { in: activeTrfStatuses } },
         }),
+        // destinationApprovedById = the destination operator who approved receipt
         prisma.stockTransferRequest.count({
           where: { destinationApprovedById: id, status: { in: activeTrfStatuses } },
         }),
@@ -182,16 +183,16 @@ export class AdminUsersService {
 
       const hasBlocking =
         adjAsCreator > 0 || adjAsApprover > 0 ||
-        trfAsCreator > 0 || trfAsOriginManager > 0 || trfAsDestinationManager > 0;
+        trfAsCreator > 0 || trfAsOriginManager > 0 || trfAsDestinationApprover > 0;
 
       if (hasBlocking) {
         throw new AppError(400, 'User is involved in active workflows', {
           blocking: {
             adjustments: { asCreator: adjAsCreator, asApprover: adjAsApprover },
             transfers: {
-              asCreator:            trfAsCreator,
-              asOriginManager:      trfAsOriginManager,
-              asDestinationManager: trfAsDestinationManager,
+              asCreator:              trfAsCreator,
+              asOriginManager:        trfAsOriginManager,
+              asDestinationApprover:  trfAsDestinationApprover,
             },
           },
         });

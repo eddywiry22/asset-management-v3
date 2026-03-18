@@ -95,7 +95,7 @@ export default function AdminUsersPage() {
   // Blocking deactivation detail
   const [blockingCounts, setBlockingCounts] = useState<{
     adjustments: { asCreator: number; asApprover: number };
-    transfers: { asCreator: number; asOriginManager: number; asDestinationManager: number };
+    transfers: { asCreator: number; asOriginManager: number; asDestinationApprover: number };
   } | null>(null);
 
   const [apiError, setApiError] = useState('');
@@ -657,8 +657,8 @@ export default function AdminUsersPage() {
                 {blockingCounts.transfers.asOriginManager > 0 && (
                   <li>{blockingCounts.transfers.asOriginManager} transfer(s) as origin manager</li>
                 )}
-                {blockingCounts.transfers.asDestinationManager > 0 && (
-                  <li>{blockingCounts.transfers.asDestinationManager} transfer(s) as destination manager</li>
+                {blockingCounts.transfers.asDestinationApprover > 0 && (
+                  <li>{blockingCounts.transfers.asDestinationApprover} transfer(s) as destination approver</li>
                 )}
               </ul>
               Resolve them before deactivating.

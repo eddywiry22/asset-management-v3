@@ -16,11 +16,17 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-// Response interceptor: auto logout on 401
+// Response interceptor: auto logout on 401, but NOT for auth endpoints
+// (login failures return 401 and must not trigger a redirect loop)
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    const url: string = error.config?.url ?? '';
+    if (
+      error.response?.status === 401 &&
+      !url.includes('/auth/login') &&
+      !url.includes('/auth/refresh')
+    ) {
       localStorage.removeItem('access_token');
       localStorage.removeItem('refresh_token');
       localStorage.removeItem('auth_user');
