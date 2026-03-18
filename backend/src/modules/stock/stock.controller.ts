@@ -6,14 +6,7 @@ import { ValidationError } from '../../utils/errors';
 import { getRegisteredProductsAtLocation } from '../../utils/validationHelpers';
 
 import prisma from '../../config/database';
-
-// Accepts YYYY-MM-DD or full ISO; always returns UTC start-of-day / end-of-day.
-function parseStartDate(s: string): Date {
-  return s.includes('T') ? new Date(s) : new Date(s + 'T00:00:00.000Z');
-}
-function parseEndDate(s: string): Date {
-  return s.includes('T') ? new Date(s) : new Date(s + 'T23:59:59.999Z');
-}
+import { buildDateRangeFilter } from '../../utils/dateFilter';
 
 export class StockController {
   async getVisibleLocations(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
@@ -64,13 +57,16 @@ export class StockController {
 
       const { locationId, page, limit, startDate, endDate } = parsed.data;
 
+      // Normalise: start → 00:00:00.000, end → 23:59:59.999 (inclusive end-of-day)
+      const overviewDateFilter = buildDateRangeFilter(startDate, endDate);
+
       const { data, total } = await stockService.getStockOverview(
         {
           locationId,
           page,
           limit,
-          startDate: startDate ? parseStartDate(startDate) : undefined,
-          endDate:   endDate   ? parseEndDate(endDate)     : undefined,
+          startDate: overviewDateFilter?.gte,
+          endDate:   overviewDateFilter?.lte,
         },
         req.user.id,
         req.user.isAdmin,
@@ -109,12 +105,15 @@ export class StockController {
 
       const { productId, locationId, startDate, endDate, page, limit } = parsed.data;
 
+      // Normalise: start → 00:00:00.000, end → 23:59:59.999 (inclusive end-of-day)
+      const ledgerDateFilter = buildDateRangeFilter(startDate, endDate);
+
       const { data, total } = await stockService.getLedger(
         {
           productId,
           locationId,
-          startDate: startDate ? parseStartDate(startDate) : undefined,
-          endDate:   endDate   ? parseEndDate(endDate)     : undefined,
+          startDate: ledgerDateFilter?.gte,
+          endDate:   ledgerDateFilter?.lte,
           page,
           limit,
         },

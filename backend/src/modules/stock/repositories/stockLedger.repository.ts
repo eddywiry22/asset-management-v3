@@ -1,6 +1,7 @@
 import prisma from '../../../config/database';
 import { LedgerSourceType } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
+import { buildDateRangeFilterFromDates } from '../../../utils/dateFilter';
 
 export type StockLedgerRow = {
   id: string;
@@ -63,12 +64,8 @@ export class StockLedgerRepository {
       where.locationId = { in: visibleLocationIds };
     }
 
-    if (startDate || endDate) {
-      where.createdAt = {
-        ...(startDate ? { gte: startDate } : {}),
-        ...(endDate   ? { lte: endDate }   : {}),
-      };
-    }
+    const createdAtFilter = buildDateRangeFilterFromDates(startDate, endDate);
+    if (createdAtFilter) where.createdAt = createdAtFilter;
 
     const [data, total] = await Promise.all([
       prisma.stockLedger.findMany({
@@ -101,12 +98,8 @@ export class StockLedgerRepository {
 
     const where: Record<string, unknown> = { locationId };
     if (productId) where.productId = productId;
-    if (startDate || endDate) {
-      where.createdAt = {
-        ...(startDate ? { gte: startDate } : {}),
-        ...(endDate   ? { lte: endDate }   : {}),
-      };
-    }
+    const createdAtFilter = buildDateRangeFilterFromDates(startDate, endDate);
+    if (createdAtFilter) where.createdAt = createdAtFilter;
 
     const rows = await prisma.stockLedger.groupBy({
       by: ['productId', 'locationId', 'sourceType'],
