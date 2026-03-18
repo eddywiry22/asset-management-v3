@@ -17,7 +17,11 @@ export class UserRepository {
   async findByEmailOrPhone(identifier: string): Promise<User | null> {
     return prisma.user.findFirst({
       where: {
-        OR: [{ email: identifier }, { phone: identifier }],
+        OR: [
+          { username: identifier },
+          { email: identifier },
+          { phone: identifier },
+        ],
       },
     });
   }

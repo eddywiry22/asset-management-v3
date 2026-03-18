@@ -79,4 +79,8 @@ export const adminUsersService = {
     );
     return res.data.data;
   },
+
+  async resetPassword(id: string, newPassword: string): Promise<void> {
+    await apiClient.patch(`/admin/users/${id}/reset-password`, { newPassword });
+  },
 };

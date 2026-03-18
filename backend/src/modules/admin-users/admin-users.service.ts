@@ -1,9 +1,9 @@
 import bcrypt from 'bcrypt';
 import { Role } from '@prisma/client';
 import { adminUsersRepository, UserRow, UsersFilter } from './repositories/admin-users.repository';
-import { NotFoundError, ValidationError, ForbiddenError } from '../../utils/errors';
+import { AppError, NotFoundError, ValidationError, ForbiddenError } from '../../utils/errors';
 import { auditService } from '../../services/audit.service';
-import { CreateUserDto, UpdateUserDto } from './admin-users.validator';
+import { CreateUserDto, UpdateUserDto, ResetPasswordDto } from './admin-users.validator';
 import logger from '../../utils/logger';
 import prisma from '../../config/database';
 
@@ -148,6 +148,25 @@ export class AdminUsersService {
     }
 
     const newActive = !user.isActive;
+
+    if (!newActive) {
+      const [blockingAdjustmentCount, blockingTransferCount] = await Promise.all([
+        prisma.stockAdjustmentRequest.count({
+          where: { createdById: id, status: { in: ['DRAFT', 'SUBMITTED'] } },
+        }),
+        prisma.stockTransferRequest.count({
+          where: { createdById: id, status: { in: ['DRAFT', 'SUBMITTED'] } },
+        }),
+      ]);
+
+      if (blockingAdjustmentCount > 0 || blockingTransferCount > 0) {
+        throw new AppError(400, 'User has active requests', {
+          blockingAdjustmentCount,
+          blockingTransferCount,
+        });
+      }
+    }
+
     await adminUsersRepository.toggleActive(id, newActive);
 
     logger.info('[AdminUser] Toggled active', { id, isActive: newActive });
@@ -162,6 +181,27 @@ export class AdminUsersService {
     });
 
     return this.findById(id);
+  }
+
+  async resetPassword(id: string, newPassword: string, performedBy: string): Promise<void> {
+    const user = await this.findById(id);
+
+    if (user.isAdmin) {
+      throw new ForbiddenError('Cannot reset admin user password via API');
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    await adminUsersRepository.updatePasswordHash(id, passwordHash);
+
+    logger.info('[AdminUser] Password reset', { id });
+
+    void auditService.log({
+      userId: performedBy,
+      action: 'USER_PASSWORD_RESET',
+      entityType: 'USER',
+      entityId: id,
+      afterSnapshot: { passwordReset: true },
+    });
   }
 
   private async validateLocationsExist(locationIds: string[]): Promise<void> {

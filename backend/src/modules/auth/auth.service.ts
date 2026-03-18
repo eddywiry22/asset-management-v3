@@ -2,7 +2,7 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { env } from '../../config/env';
 import { userRepository } from '../users/repositories/user.repository';
-import { AuthError } from '../../utils/errors';
+import { AuthError, ForbiddenError } from '../../utils/errors';
 import { AuthUser, LoginResponse, TokenPayload } from '../../types/auth.types';
 
 export class AuthService {
@@ -14,7 +14,7 @@ export class AuthService {
     }
 
     if (!user.isActive) {
-      throw new AuthError('Your account is inactive. Contact admin.');
+      throw new ForbiddenError('Your account is inactive. Contact admin.');
     }
 
     const passwordValid = await bcrypt.compare(password, user.passwordHash);

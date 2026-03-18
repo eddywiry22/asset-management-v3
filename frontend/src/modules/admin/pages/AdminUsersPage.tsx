@@ -29,6 +29,7 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
+import LockResetIcon from '@mui/icons-material/LockReset';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -62,8 +63,17 @@ const editSchema = z.object({
   locationIds: z.array(z.string()).optional(),
 });
 
-type CreateForm = z.infer<typeof createSchema>;
-type EditForm   = z.infer<typeof editSchema>;
+const resetPasswordSchema = z.object({
+  newPassword:     z.string().min(6, 'Password must be at least 6 characters'),
+  confirmPassword: z.string().min(1, 'Please confirm the password'),
+}).refine((d) => d.newPassword === d.confirmPassword, {
+  message: 'Passwords do not match',
+  path: ['confirmPassword'],
+});
+
+type CreateForm        = z.infer<typeof createSchema>;
+type EditForm          = z.infer<typeof editSchema>;
+type ResetPasswordForm = z.infer<typeof resetPasswordSchema>;
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -77,9 +87,16 @@ export default function AdminUsersPage() {
   const [appliedRole, setAppliedRole]     = useState<UserRole | ''>('');
 
   // Dialog state
-  const [createOpen, setCreateOpen]       = useState(false);
-  const [editTarget, setEditTarget]       = useState<AdminUser | null>(null);
-  const [toggleTarget, setToggleTarget]   = useState<AdminUser | null>(null);
+  const [createOpen, setCreateOpen]             = useState(false);
+  const [editTarget, setEditTarget]             = useState<AdminUser | null>(null);
+  const [toggleTarget, setToggleTarget]         = useState<AdminUser | null>(null);
+  const [resetPasswordTarget, setResetPasswordTarget] = useState<AdminUser | null>(null);
+
+  // Blocking deactivation counts
+  const [blockingCounts, setBlockingCounts] = useState<{
+    blockingAdjustmentCount: number;
+    blockingTransferCount: number;
+  } | null>(null);
 
   const [apiError, setApiError] = useState('');
 
@@ -107,6 +124,9 @@ export default function AdminUsersPage() {
   const editForm = useForm<EditForm>({
     resolver: zodResolver(editSchema),
     defaultValues: { locationIds: [] },
+  });
+  const resetPasswordForm = useForm<ResetPasswordForm>({
+    resolver: zodResolver(resetPasswordSchema),
   });
 
   // ── Mutations ──────────────────────────────────────────────────────────────
@@ -156,10 +176,35 @@ export default function AdminUsersPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-users'] });
       setToggleTarget(null);
+      setBlockingCounts(null);
       setApiError('');
     },
     onError: (err: any) => {
-      setApiError(err?.response?.data?.error?.message ?? 'Failed to toggle user status');
+      const errorData = err?.response?.data?.error;
+      if (
+        errorData?.blockingAdjustmentCount !== undefined ||
+        errorData?.blockingTransferCount !== undefined
+      ) {
+        setBlockingCounts({
+          blockingAdjustmentCount: errorData.blockingAdjustmentCount ?? 0,
+          blockingTransferCount:   errorData.blockingTransferCount   ?? 0,
+        });
+      } else {
+        setApiError(errorData?.message ?? 'Failed to toggle user status');
+      }
+    },
+  });
+
+  const resetPasswordMutation = useMutation({
+    mutationFn: ({ id, newPassword }: { id: string; newPassword: string }) =>
+      adminUsersService.resetPassword(id, newPassword),
+    onSuccess: () => {
+      setResetPasswordTarget(null);
+      resetPasswordForm.reset();
+      setApiError('');
+    },
+    onError: (err: any) => {
+      setApiError(err?.response?.data?.error?.message ?? 'Failed to reset password');
     },
   });
 
@@ -180,7 +225,20 @@ export default function AdminUsersPage() {
 
   const openToggle = (user: AdminUser) => {
     setToggleTarget(user);
+    setBlockingCounts(null);
     setApiError('');
+  };
+
+  const openResetPassword = (user: AdminUser) => {
+    setResetPasswordTarget(user);
+    resetPasswordForm.reset();
+    setApiError('');
+  };
+
+  const onResetPasswordSubmit = (data: ResetPasswordForm) => {
+    if (!resetPasswordTarget) return;
+    setApiError('');
+    resetPasswordMutation.mutate({ id: resetPasswordTarget.id, newPassword: data.newPassword });
   };
 
   const onCreateSubmit = (data: CreateForm) => {
@@ -323,6 +381,14 @@ export default function AdminUsersPage() {
                       sx={{ mr: 1 }}
                     >
                       Edit
+                    </Button>
+                    <Button
+                      size="small"
+                      startIcon={<LockResetIcon />}
+                      onClick={() => openResetPassword(user)}
+                      sx={{ mr: 1 }}
+                    >
+                      Reset Password
                     </Button>
                     <Tooltip title={user.isActive ? 'Deactivate' : 'Activate'} arrow>
                       <span>
@@ -575,13 +641,21 @@ export default function AdminUsersPage() {
       </Dialog>
 
       {/* ── Toggle Active Confirmation Dialog ── */}
-      <Dialog open={!!toggleTarget} onClose={() => setToggleTarget(null)} maxWidth="sm" fullWidth>
+      <Dialog open={!!toggleTarget} onClose={() => { setToggleTarget(null); setBlockingCounts(null); }} maxWidth="sm" fullWidth>
         <DialogTitle>
           {toggleTarget?.isActive ? 'Deactivate User' : 'Activate User'}
         </DialogTitle>
         <DialogContent>
           {apiError && <Alert severity="error" sx={{ mb: 2 }}>{apiError}</Alert>}
-          {toggleTarget && (
+          {blockingCounts && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              User <strong>{toggleTarget?.username}</strong> has{' '}
+              <strong>{blockingCounts.blockingAdjustmentCount}</strong> adjustment(s) and{' '}
+              <strong>{blockingCounts.blockingTransferCount}</strong> transfer(s) in progress.
+              Resolve them before deactivating.
+            </Alert>
+          )}
+          {toggleTarget && !blockingCounts && (
             <Typography>
               Are you sure you want to{' '}
               <strong>{toggleTarget.isActive ? 'deactivate' : 'activate'}</strong>{' '}
@@ -595,18 +669,69 @@ export default function AdminUsersPage() {
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setToggleTarget(null)}>Cancel</Button>
-          <Button
-            variant="contained"
-            color={toggleTarget?.isActive ? 'error' : 'success'}
-            onClick={onToggleConfirm}
-            disabled={toggleMutation.isPending}
-          >
-            {toggleMutation.isPending
-              ? 'Processing...'
-              : toggleTarget?.isActive ? 'Deactivate' : 'Activate'}
-          </Button>
+          <Button onClick={() => { setToggleTarget(null); setBlockingCounts(null); }}>Cancel</Button>
+          {!blockingCounts && (
+            <Button
+              variant="contained"
+              color={toggleTarget?.isActive ? 'error' : 'success'}
+              onClick={onToggleConfirm}
+              disabled={toggleMutation.isPending}
+            >
+              {toggleMutation.isPending
+                ? 'Processing...'
+                : toggleTarget?.isActive ? 'Deactivate' : 'Activate'}
+            </Button>
+          )}
         </DialogActions>
+      </Dialog>
+
+      {/* ── Reset Password Dialog ── */}
+      <Dialog open={!!resetPasswordTarget} onClose={() => setResetPasswordTarget(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>Reset Password — {resetPasswordTarget?.username}</DialogTitle>
+        <form onSubmit={resetPasswordForm.handleSubmit(onResetPasswordSubmit)}>
+          <DialogContent>
+            {apiError && <Alert severity="error" sx={{ mb: 2 }}>{apiError}</Alert>}
+
+            <Controller
+              name="newPassword"
+              control={resetPasswordForm.control}
+              render={({ field, fieldState }) => (
+                <TextField
+                  {...field}
+                  type="password"
+                  label="New Password"
+                  fullWidth
+                  margin="normal"
+                  error={!!fieldState.error}
+                  helperText={fieldState.error?.message}
+                />
+              )}
+            />
+            <Controller
+              name="confirmPassword"
+              control={resetPasswordForm.control}
+              render={({ field, fieldState }) => (
+                <TextField
+                  {...field}
+                  type="password"
+                  label="Confirm Password"
+                  fullWidth
+                  margin="normal"
+                  error={!!fieldState.error}
+                  helperText={fieldState.error?.message}
+                />
+              )}
+            />
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => { setResetPasswordTarget(null); resetPasswordForm.reset(); }}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="contained" disabled={resetPasswordMutation.isPending}>
+              {resetPasswordMutation.isPending ? 'Saving...' : 'Reset Password'}
+            </Button>
+          </DialogActions>
+        </form>
       </Dialog>
     </Box>
   );

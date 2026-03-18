@@ -15,7 +15,7 @@ import { useAuth } from '../../../context/AuthContext';
 import { loginApi } from '../../../services/auth.service';
 
 const loginSchema = z.object({
-  identifier: z.string().min(1, 'Email or phone is required'),
+  identifier: z.string().min(1, 'Username, email or phone is required'),
   password: z.string().min(1, 'Password is required'),
 });
 
@@ -74,7 +74,7 @@ export default function LoginPage() {
           <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate>
             <TextField
               {...register('identifier')}
-              label="Email or Phone"
+              label="Username / Email / Phone"
               fullWidth
               margin="normal"
               autoComplete="username"

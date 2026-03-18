@@ -84,14 +84,15 @@ export default function StockAdjustmentsPage() {
   const { isAdmin }  = useAuth();
 
   // Fetch user's assigned locations to detect inactive location
-  const { data: myLocations = [] } = useQuery({
+  const { data: myLocations = [], isSuccess: locationsLoaded } = useQuery({
     queryKey: ['locations-mine'],
     queryFn:  () => stockService.getVisibleLocations(),
     enabled:  !isAdmin,
   });
+  const hasNoLocation          = !isAdmin && locationsLoaded && myLocations.length === 0;
   // Stage 8.4.2: show banner when ANY location is inactive; disable button only when ALL are inactive
   const hasAnyInactiveLocation = !isAdmin && myLocations.some((l) => l.isActive === false);
-  const hasNoActiveLocation    = !isAdmin && myLocations.length > 0 && myLocations.every((l) => l.isActive === false);
+  const hasNoActiveLocation    = hasNoLocation || (!isAdmin && myLocations.length > 0 && myLocations.every((l) => l.isActive === false));
 
   const [page, setPage]             = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(20);
@@ -139,7 +140,12 @@ export default function StockAdjustmentsPage() {
 
   return (
     <Box>
-      {hasAnyInactiveLocation && (
+      {hasNoLocation && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          You are not assigned to any location. Contact admin.
+        </Alert>
+      )}
+      {!hasNoLocation && hasAnyInactiveLocation && (
         <Alert severity="warning" sx={{ mb: 2 }}>
           Some of your locations are inactive. Requests cannot be created for inactive locations. Contact admin if you need to reactivate.
         </Alert>
