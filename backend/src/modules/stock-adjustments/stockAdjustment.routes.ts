@@ -27,6 +27,11 @@ router.post('/', validateBody(createRequestSchema), (req, res, next) =>
   stockAdjustmentController.create(cast(req), res, next)
 );
 
+// Delete draft request
+router.delete('/:id', (req, res, next) =>
+  stockAdjustmentController.deleteRequest(cast(req), res, next)
+);
+
 // Item management
 router.post('/:id/items', validateBody(addItemSchema), (req, res, next) =>
   stockAdjustmentController.addItem(cast(req), res, next)

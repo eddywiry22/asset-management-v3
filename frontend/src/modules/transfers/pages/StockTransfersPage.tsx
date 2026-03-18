@@ -189,6 +189,7 @@ export default function StockTransfersPage() {
 
   const rows  = data?.data  ?? [];
   const total = data?.meta?.total ?? 0;
+  const isDateRangeInvalid = !!(startDate && endDate && startDate > endDate);
 
   return (
     <Box>
@@ -222,6 +223,7 @@ export default function StockTransfersPage() {
             value={startDate}
             onChange={(e) => setStartDate(e.target.value)}
             InputLabelProps={{ shrink: true }}
+            error={isDateRangeInvalid}
           />
           <TextField
             label="To"
@@ -230,6 +232,8 @@ export default function StockTransfersPage() {
             value={endDate}
             onChange={(e) => setEndDate(e.target.value)}
             InputLabelProps={{ shrink: true }}
+            error={isDateRangeInvalid}
+            helperText={isDateRangeInvalid ? 'End date must be after start date' : undefined}
           />
           {isAdmin && (
             <FormControl size="small" sx={{ minWidth: 180 }}>
@@ -249,7 +253,8 @@ export default function StockTransfersPage() {
           <Button
             variant="outlined"
             startIcon={<FilterListIcon />}
-            onClick={() => { setPage(0); setAppliedFilters({ status: statusFilter, startDate, endDate, locationId: locationFilter }); }}
+            disabled={isDateRangeInvalid}
+            onClick={() => { if (!isDateRangeInvalid) { setPage(0); setAppliedFilters({ status: statusFilter, startDate, endDate, locationId: locationFilter }); } }}
           >
             Apply
           </Button>

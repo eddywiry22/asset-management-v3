@@ -161,7 +161,10 @@ export default function StockDashboardPage() {
   const rows  = data?.data ?? [];
   const total = data?.meta?.total ?? 0;
 
+  const isDateRangeInvalid = !!(startDate && endDate && startDate > endDate);
+
   function applyFilters() {
+    if (isDateRangeInvalid) return;
     setPage(0);
     setAppliedFilters({
       locationId: filterLocationId || undefined,
@@ -191,7 +194,7 @@ export default function StockDashboardPage() {
 
       {/* Filters */}
       <Paper sx={{ p: 2, mb: 2 }}>
-        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
           {/* Location filter — visible when the user has access to more than one location */}
           {showLocationFilter && (
             <FormControl size="small" sx={{ minWidth: 200 }}>
@@ -218,6 +221,7 @@ export default function StockDashboardPage() {
             InputLabelProps={{ shrink: true }}
             value={startDate ?? ''}
             onChange={(e) => setStartDate(e.target.value || null)}
+            error={isDateRangeInvalid}
           />
           <TextField
             label="Period End"
@@ -226,11 +230,13 @@ export default function StockDashboardPage() {
             InputLabelProps={{ shrink: true }}
             value={endDate ?? ''}
             onChange={(e) => setEndDate(e.target.value || null)}
+            error={isDateRangeInvalid}
+            helperText={isDateRangeInvalid ? 'End date must be after start date' : undefined}
           />
-          <Button variant="contained" startIcon={<FilterListIcon />} onClick={applyFilters}>
+          <Button variant="outlined" startIcon={<FilterListIcon />} onClick={applyFilters} disabled={isDateRangeInvalid}>
             Apply
           </Button>
-          <Button variant="outlined" onClick={clearFilters}>
+          <Button variant="text" onClick={clearFilters}>
             Clear
           </Button>
         </Box>

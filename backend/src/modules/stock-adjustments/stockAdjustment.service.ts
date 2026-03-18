@@ -47,7 +47,7 @@ export class StockAdjustmentService {
       locationIds = roles.map((r) => r.locationId);
     }
     const { user: _user, ...rest } = params;
-    return stockAdjustmentRepository.findAll({ ...rest, locationIds });
+    return stockAdjustmentRepository.findAll({ ...rest, locationIds, creatorId: params.user.id });
   }
 
   // -------------------------------------------------------------------------
@@ -84,6 +84,20 @@ export class StockAdjustmentService {
       }
     }
     throw new ValidationError('Unable to generate a unique request number');
+  }
+
+  // -------------------------------------------------------------------------
+  // Delete request (DRAFT only, creator only)
+  // -------------------------------------------------------------------------
+  async deleteRequest(requestId: string, userId: string): Promise<void> {
+    const req = await this.findById(requestId);
+    if (req.status !== AdjustmentRequestStatus.DRAFT) {
+      throw new ValidationError('Only DRAFT requests can be deleted');
+    }
+    if (req.createdById !== userId) {
+      throw new ForbiddenError('Only the creator can delete this request');
+    }
+    await stockAdjustmentRepository.deleteById(requestId);
   }
 
   // -------------------------------------------------------------------------
