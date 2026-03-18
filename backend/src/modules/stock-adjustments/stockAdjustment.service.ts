@@ -16,6 +16,7 @@ import {
   validateUserAccess,
   validateLocationActive,
   validateProductActive,
+  getProductLocationStatus,
 } from '../../utils/validationHelpers';
 
 type UserCtx = { id: string; isAdmin: boolean };
@@ -58,11 +59,27 @@ export class StockAdjustmentService {
   }
 
   // -------------------------------------------------------------------------
-  // Get by id
+  // Get by id — enriches items with isActiveNow for non-terminal requests
   // -------------------------------------------------------------------------
   async findById(id: string): Promise<AdjustmentRequestRow> {
     const req = await stockAdjustmentRepository.findById(id);
     if (!req) throw new NotFoundError(`Stock adjustment request not found: ${id}`);
+
+    const TERMINAL: AdjustmentRequestStatus[] = [
+      AdjustmentRequestStatus.FINALIZED,
+      AdjustmentRequestStatus.CANCELLED,
+      AdjustmentRequestStatus.REJECTED,
+    ];
+    if (!TERMINAL.includes(req.status) && req.items?.length) {
+      const enriched = await Promise.all(
+        req.items.map(async (item) => {
+          const result = await validateProductActive(item.productId, item.locationId);
+          return { ...item, isActiveNow: result.valid };
+        }),
+      );
+      return { ...req, items: enriched };
+    }
+
     return req;
   }
 
@@ -126,20 +143,22 @@ export class StockAdjustmentService {
     const location = await prisma.location.findUnique({ where: { id: dto.locationId } });
     if (!location) throw new NotFoundError(`Location not found: ${dto.locationId}`);
 
-    // Stage 8.1: Non-blocking validation warnings (DO NOT block execution)
+    // Stage 8.2: Hard-blocking validation (inactive product/location blocked)
     const [locationActiveResult, userAccessResult, productActiveResult] = await Promise.all([
       validateLocationActive(dto.locationId),
       validateUserAccess(user.id, dto.locationId),
       validateProductActive(dto.productId, dto.locationId),
     ]);
     if (!locationActiveResult.valid) {
-      logger.warn('[Stage8] Adjustment addItem validation warning', { check: 'locationActive', locationId: dto.locationId, ...locationActiveResult });
+      logger.info('[Stage8] Adjustment addItem blocked — location inactive', { check: 'locationActive', locationId: dto.locationId, ...locationActiveResult });
+      throw new ValidationError(`Location is inactive or not found: ${dto.locationId}`);
     }
     if (!userAccessResult.valid) {
-      logger.warn('[Stage8] Adjustment addItem validation warning', { check: 'userAccess', userId: user.id, locationId: dto.locationId, ...userAccessResult });
+      logger.info('[Stage8] Adjustment addItem blocked — user has no access', { check: 'userAccess', userId: user.id, locationId: dto.locationId, ...userAccessResult });
     }
     if (!productActiveResult.valid) {
-      logger.warn('[Stage8] Adjustment addItem validation warning', { check: 'productActive', productId: dto.productId, locationId: dto.locationId, ...productActiveResult });
+      logger.info('[Stage8] Adjustment addItem blocked — product not registered/active', { check: 'productActive', productId: dto.productId, locationId: dto.locationId, ...productActiveResult });
+      throw new ValidationError(`Product is not registered or not active at this location: ${dto.productId}`);
     }
 
     return stockAdjustmentRepository.addItem({
@@ -243,6 +262,15 @@ export class StockAdjustmentService {
       }
     }
 
+    // Stage 8.2.1.1: non-blocking warning for now-inactive items
+    const inactiveItems = req.items.filter((i) => (i as any).isActiveNow === false);
+    if (inactiveItems.length > 0) {
+      logger.warn('[Stage8] Adjustment approve — some items now inactive', {
+        requestId,
+        inactiveProductIds: inactiveItems.map((i) => i.productId),
+      });
+    }
+
     // Hard pre-flight: outbound items must not exceed available stock
     // (availableQty accounts for ACTIVE reservations from other requests).
     for (const item of req.items) {
@@ -266,7 +294,9 @@ export class StockAdjustmentService {
       approvedById: userId,
       approvedAt:   new Date(),
     });
-    void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', afterValue: { status: 'APPROVED' }, performedBy: userId });
+    const plStatuses = await Promise.all(req.items.map((i) => getProductLocationStatus(i.productId, i.locationId)));
+    const itemSnapshot = req.items.map((i, idx) => ({ productId: i.productId, locationId: i.locationId, ...plStatuses[idx] }));
+    void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', afterValue: { status: 'APPROVED', itemSnapshot, inactiveItemCount: inactiveItems.length }, performedBy: userId });
     return updated;
   }
 
@@ -330,6 +360,30 @@ export class StockAdjustmentService {
       }
     }
 
+    // Stage 8.2.2: blocking check — reject finalize if any items are now inactive
+    const inactiveAtFinalize = req.items.filter((i) => (i as any).isActiveNow === false);
+    if (inactiveAtFinalize.length > 0) {
+      logger.warn('[Stage8] Adjustment finalize blocked — inactive items', {
+        requestId,
+        inactiveProductIds: inactiveAtFinalize.map((i) => i.productId),
+      });
+      void auditService.log({
+        entityType: 'STOCK_ADJUSTMENT_REQUEST',
+        entityId:   requestId,
+        action:     'FINALIZE_BLOCKED',
+        afterValue: {
+          reason:             'INACTIVE_ITEMS',
+          inactiveProductIds: inactiveAtFinalize.map((i) => i.productId),
+          inactiveItemCount:  inactiveAtFinalize.length,
+        },
+        performedBy: userId,
+      });
+      throw new ValidationError(
+        `Cannot finalize: ${inactiveAtFinalize.length} item(s) have inactive product registrations. ` +
+        `Reactivate or remove the inactive items before finalizing.`,
+      );
+    }
+
     // ONE transaction: status claim + all stock mutations.
     // applyAdjustmentTx checks available stock with row-level locking inside
     // the transaction — if any item has insufficient stock, the entire
@@ -354,7 +408,9 @@ export class StockAdjustmentService {
       }
     });
 
-    void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', afterValue: { status: 'FINALIZED' }, performedBy: userId });
+    const finalizePlStatuses = await Promise.all(req.items.map((i) => getProductLocationStatus(i.productId, i.locationId)));
+    const finalizeItemSnapshot = req.items.map((i, idx) => ({ productId: i.productId, locationId: i.locationId, ...finalizePlStatuses[idx] }));
+    void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', afterValue: { status: 'FINALIZED', itemSnapshot: finalizeItemSnapshot }, performedBy: userId });
     return (await stockAdjustmentRepository.findById(requestId))!;
   }
   // -------------------------------------------------------------------------

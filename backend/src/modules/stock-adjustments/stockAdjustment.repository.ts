@@ -11,6 +11,7 @@ export type AdjustmentItemRow = {
   createdAt: Date;
   product: { id: string; sku: string; name: string; uom: { code: string } };
   location: { id: string; code: string; name: string };
+  isActiveNow?: boolean;
 };
 
 export type AdjustmentRequestRow = {

@@ -20,7 +20,6 @@ import stockAdjustmentsService, {
   AddItemPayload,
 } from '../../../services/stockAdjustments.service';
 import stockService from '../../../services/stock.service';
-import apiClient from '../../../api/client';
 import { useAuth } from '../../../context/AuthContext';
 import ActionReasonModal from '../../../components/ActionReasonModal';
 
@@ -71,20 +70,26 @@ function ItemDialog({
   const [qtyChange,  setQtyChange]  = useState(initial ? String(initial.qtyChange) : '');
   const [reason,     setReason]     = useState(initial?.reason ?? '');
 
-  const { data: productsRes } = useQuery({
-    queryKey: ['products-simple'],
-    queryFn:  () => apiClient.get('products?limit=200').then((r) => r.data),
-    enabled:  open,
-  });
-
   const { data: locationsRes } = useQuery({
     queryKey: ['locations-simple'],
     queryFn:  () => stockService.getVisibleLocations(),
     enabled:  open,
   });
 
-  const products: SimpleProduct[]  = productsRes?.data  ?? [];
+  const { data: registeredProducts } = useQuery({
+    queryKey: ['registered-products', locationId],
+    queryFn:  () => stockService.getRegisteredProducts(locationId),
+    enabled:  open && !!locationId,
+  });
+
   const locations: SimpleLocation[] = locationsRes ?? [];
+  const products: SimpleProduct[]   = registeredProducts ?? [];
+  const noProducts = !!locationId && (registeredProducts !== undefined) && products.length === 0;
+
+  const handleLocationChange = (newLocationId: string) => {
+    setLocationId(newLocationId);
+    setProductId('');
+  };
 
   const handleSave = () => {
     const qty = parseFloat(qtyChange);
@@ -98,18 +103,21 @@ function ItemDialog({
       <DialogContent>
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
           <FormControl fullWidth size="small">
+            <InputLabel>Location</InputLabel>
+            <Select label="Location" value={locationId} onChange={(e) => handleLocationChange(e.target.value)}>
+              {locations.map((l: SimpleLocation) => (
+                <MenuItem key={l.id} value={l.id}>{l.code} — {l.name}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          {noProducts && (
+            <Alert severity="warning">No products registered for this location</Alert>
+          )}
+          <FormControl fullWidth size="small" disabled={!locationId || noProducts}>
             <InputLabel>Product</InputLabel>
             <Select label="Product" value={productId} onChange={(e) => setProductId(e.target.value)}>
               {products.map((p: SimpleProduct) => (
                 <MenuItem key={p.id} value={p.id}>{p.sku} — {p.name}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <FormControl fullWidth size="small">
-            <InputLabel>Location</InputLabel>
-            <Select label="Location" value={locationId} onChange={(e) => setLocationId(e.target.value)}>
-              {locations.map((l: SimpleLocation) => (
-                <MenuItem key={l.id} value={l.id}>{l.code} — {l.name}</MenuItem>
               ))}
             </Select>
           </FormControl>
@@ -280,13 +288,25 @@ export default function StockAdjustmentDetailPage() {
   return (
     <Box>
       {/* Header */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-        <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/stock-adjustments')}>Back</Button>
-        <Typography variant="h5" fontWeight={600} sx={{ flexGrow: 1 }}>
-          {req.requestNumber}
-        </Typography>
-        <Chip label={req.status} color={STATUS_COLORS[req.status] ?? 'default'} />
-      </Box>
+      {(() => {
+        const inactiveForFinalize = isApproved ? req.items.filter((i) => i.isActiveNow === false) : [];
+        return (
+          <>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: inactiveForFinalize.length > 0 ? 1 : 2 }}>
+              <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/stock-adjustments')}>Back</Button>
+              <Typography variant="h5" fontWeight={600} sx={{ flexGrow: 1 }}>
+                {req.requestNumber}
+              </Typography>
+              <Chip label={req.status} color={STATUS_COLORS[req.status] ?? 'default'} />
+            </Box>
+            {inactiveForFinalize.length > 0 && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                {inactiveForFinalize.length} item(s) have inactive product registrations and cannot be finalized. Reactivate or remove them first.
+              </Alert>
+            )}
+          </>
+        );
+      })()}
 
       {/* Meta */}
       <Paper sx={{ p: 2, mb: 2 }}>
@@ -379,7 +399,14 @@ export default function StockAdjustmentDetailPage() {
               )}
               {req.items.map((item) => (
                 <TableRow key={item.id}>
-                  <TableCell>{item.product?.sku} — {item.product?.name}</TableCell>
+                  <TableCell>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      {item.product?.sku} — {item.product?.name}
+                      {!isTerminal && item.isActiveNow === false && (
+                        <Chip label="Now Inactive" size="small" color="warning" />
+                      )}
+                    </Box>
+                  </TableCell>
                   <TableCell>{item.location?.code} — {item.location?.name}</TableCell>
                   <TableCell
                     align="right"
@@ -468,7 +495,7 @@ export default function StockAdjustmentDetailPage() {
               <Button
                 variant="contained"
                 color="warning"
-                disabled={req.items.length === 0}
+                disabled={req.items.length === 0 || req.items.some((i) => i.isActiveNow === false)}
                 onClick={() => setConfirmAction('finalize')}
               >
                 Finalize (Apply Stock Changes)
@@ -515,15 +542,27 @@ export default function StockAdjustmentDetailPage() {
             confirmAction === 'finalize' ? 'Finalize Request' :
             'Delete Request'
           }
-          body={
-            confirmAction === 'finalize' ? (
-              <Alert severity="warning" sx={{ mt: 1 }}>This will apply stock changes permanently and cannot be undone.</Alert>
-            ) : confirmAction === 'delete' ? (
-              <Alert severity="error" sx={{ mt: 1 }}>This will permanently delete the DRAFT request and all its items.</Alert>
-            ) : (
-              <Alert severity="info" sx={{ mt: 1 }}>Are you sure you want to proceed?</Alert>
-            )
-          }
+          body={(() => {
+            const hasInactiveForApprove = confirmAction === 'approve' && req.items.some((i) => i.isActiveNow === false);
+            return (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mt: 1 }}>
+                {hasInactiveForApprove && (
+                  <Alert severity="warning">
+                    Warning: {req.items.filter((i) => i.isActiveNow === false).length} item(s) have inactive product registrations. Approval will still proceed.
+                  </Alert>
+                )}
+                {confirmAction === 'finalize' && (
+                  <Alert severity="warning">This will apply stock changes permanently and cannot be undone.</Alert>
+                )}
+                {confirmAction === 'delete' && (
+                  <Alert severity="error">This will permanently delete the DRAFT request and all its items.</Alert>
+                )}
+                {(confirmAction === 'submit' || (confirmAction === 'approve' && !hasInactiveForApprove)) && (
+                  <Alert severity="info">Are you sure you want to proceed?</Alert>
+                )}
+              </Box>
+            );
+          })()}
           confirmLabel={
             confirmAction === 'submit'   ? 'Confirm Submit' :
             confirmAction === 'approve'  ? 'Confirm Approve' :

@@ -10,6 +10,7 @@ import {
   validateLocationActive,
   validateUserAccess,
   validateProductActive,
+  getRegisteredProductsAtLocation,
 } from '../src/utils/validationHelpers';
 
 // ---------------------------------------------------------------------------
@@ -125,6 +126,49 @@ describe('validateUserAccess', () => {
 
     expect(result.valid).toBe(false);
     expect(result.reason).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getRegisteredProductsAtLocation
+// ---------------------------------------------------------------------------
+describe('getRegisteredProductsAtLocation', () => {
+  it('returns products when active mappings exist', async () => {
+    const fakeProduct = { id: 'prod-1', sku: 'SKU-001', name: 'Widget' };
+    db.productLocation.findMany.mockResolvedValue([
+      { id: 'pl-1', productId: fakeProduct.id, locationId: LOCATION_ID, isActive: true, product: fakeProduct },
+    ]);
+
+    const result = await getRegisteredProductsAtLocation(LOCATION_ID);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual(fakeProduct);
+  });
+
+  it('returns empty array when no active mappings exist', async () => {
+    db.productLocation.findMany.mockResolvedValue([]);
+
+    const result = await getRegisteredProductsAtLocation(LOCATION_ID);
+
+    expect(result).toEqual([]);
+  });
+
+  it('filters out null products (defensive)', async () => {
+    db.productLocation.findMany.mockResolvedValue([
+      { id: 'pl-2', product: null },
+    ]);
+
+    const result = await getRegisteredProductsAtLocation(LOCATION_ID);
+
+    expect(result).toEqual([]);
+  });
+
+  it('returns empty array and does NOT throw when prisma throws', async () => {
+    db.productLocation.findMany.mockRejectedValue(new Error('DB error'));
+
+    const result = await getRegisteredProductsAtLocation(LOCATION_ID);
+
+    expect(result).toEqual([]);
   });
 });
 

@@ -57,6 +57,7 @@ jest.mock('../src/config/database', () => {
       stockReservation:     createMock(),
       product:              createMock(),
       location:             createMock(),
+      productLocation:      createMock(),
       userLocationRole:     createMock(),
       auditLog:             { create: jest.fn().mockResolvedValue({}) },
       $connect:    jest.fn(),
@@ -173,6 +174,8 @@ beforeEach(() => {
 
   // Default: product lookup succeeds
   db.product.findUnique.mockResolvedValue({ id: PRODUCT_ID, sku: 'ELEC-001', name: 'Laptop' });
+  // Stage 8.2: default productLocation mapping is active (allows item adds)
+  db.productLocation.findFirst.mockResolvedValue({ id: 'pl-id', productId: PRODUCT_ID, locationId: SRC_LOC_ID, isActive: true });
 
   // Stock internals
   db.$queryRaw.mockResolvedValue([{ onHandQty: '100', reservedQty: '0' }]);

@@ -256,6 +256,7 @@ export default function StockDashboardPage() {
                   <TableCell>Product</TableCell>
                   <TableCell>UOM</TableCell>
                   <TableCell>Location</TableCell>
+                  <TableCell>Status</TableCell>
                   <TableCell align="right">On Hand</TableCell>
                   <TableCell align="right">Reserved</TableCell>
                   <TableCell align="right">Available</TableCell>
@@ -275,6 +276,21 @@ export default function StockDashboardPage() {
                     <TableCell>{row.uomCode}</TableCell>
                     <TableCell>
                       <Chip label={row.locationCode} size="small" variant="outlined" />
+                    </TableCell>
+                    <TableCell>
+                      {row.isInactiveNow ? (
+                        <Tooltip title="This product's registration at this location is currently inactive">
+                          <Chip label="Inactive" size="small" color="warning" />
+                        </Tooltip>
+                      ) : !row.isRegisteredNow ? (
+                        <Tooltip title="This product is not registered at this location">
+                          <Chip label="Not Registered" size="small" color="error" />
+                        </Tooltip>
+                      ) : (
+                        <Tooltip title="This product is actively registered at this location">
+                          <Chip label="Active" size="small" color="success" />
+                        </Tooltip>
+                      )}
                     </TableCell>
                     <TableCell align="right">{fmtQty(row.onHandQty)}</TableCell>
                     <TableCell align="right" sx={{ color: row.reservedQty > 0 ? 'warning.main' : 'inherit' }}>
@@ -302,7 +318,7 @@ export default function StockDashboardPage() {
                 ))}
                 {rows.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={12} align="center">
+                    <TableCell colSpan={13} align="center">
                       No stock records found
                     </TableCell>
                   </TableRow>

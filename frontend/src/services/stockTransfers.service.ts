@@ -23,6 +23,7 @@ export type TransferItem = {
   qty: number;
   createdAt: string;
   product: { id: string; sku: string; name: string; uom: { code: string } };
+  isActiveNow?: boolean;
 };
 
 export type TransferRequest = {

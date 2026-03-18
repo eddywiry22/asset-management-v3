@@ -15,6 +15,7 @@ import {
   validateUserAccess,
   validateLocationActive,
   validateProductActive,
+  getProductLocationStatus,
 } from '../../utils/validationHelpers';
 
 type UserCtx = { id: string; isAdmin: boolean };
@@ -78,11 +79,27 @@ export class TransferService {
   }
 
   // -------------------------------------------------------------------------
-  // Get by id
+  // Get by id — enriches items with isActiveNow for non-terminal requests
   // -------------------------------------------------------------------------
   async findById(id: string): Promise<TransferRequestRow> {
     const req = await transferRepository.findById(id);
     if (!req) throw new NotFoundError(`Stock transfer request not found: ${id}`);
+
+    const TERMINAL: TransferRequestStatus[] = [
+      TransferRequestStatus.FINALIZED,
+      TransferRequestStatus.CANCELLED,
+      TransferRequestStatus.REJECTED,
+    ];
+    if (!TERMINAL.includes(req.status) && req.items?.length) {
+      const enriched = await Promise.all(
+        req.items.map(async (item) => {
+          const result = await validateProductActive(item.productId, req.sourceLocationId);
+          return { ...item, isActiveNow: result.valid };
+        }),
+      );
+      return { ...req, items: enriched };
+    }
+
     return req;
   }
 
@@ -180,10 +197,11 @@ export class TransferService {
     const product = await prisma.product.findUnique({ where: { id: dto.productId } });
     if (!product) throw new NotFoundError(`Product not found: ${dto.productId}`);
 
-    // Stage 8.1: Non-blocking product-location validation warning
+    // Stage 8.2: Hard-blocking product-location validation
     const productActiveResult = await validateProductActive(dto.productId, req.sourceLocationId);
     if (!productActiveResult.valid) {
-      logger.warn('[Stage8] Transfer addItem validation warning', { check: 'productActive', productId: dto.productId, locationId: req.sourceLocationId, ...productActiveResult });
+      logger.info('[Stage8] Transfer addItem blocked — product not registered/active', { check: 'productActive', productId: dto.productId, locationId: req.sourceLocationId, ...productActiveResult });
+      throw new ValidationError(`Product is not registered or not active at source location: ${dto.productId}`);
     }
 
     return transferRepository.addItem({
@@ -327,11 +345,21 @@ export class TransferService {
       });
     });
 
+    // Stage 8.2.1.1: non-blocking warning for now-inactive items at origin approval
+    const inactiveAtOrigin = req.items.filter((i) => (i as any).isActiveNow === false);
+    if (inactiveAtOrigin.length > 0) {
+      logger.warn('[Stage8] Transfer approveOrigin — some items now inactive at source', {
+        requestId,
+        inactiveProductIds: inactiveAtOrigin.map((i) => i.productId),
+      });
+    }
+    const originPlStatuses = await Promise.all(req.items.map((i) => getProductLocationStatus(i.productId, req.sourceLocationId)));
+    const originItemSnapshot = req.items.map((i, idx) => ({ productId: i.productId, ...originPlStatuses[idx] }));
     void auditService.log({
       entityType:  'STOCK_TRANSFER_REQUEST',
       entityId:    requestId,
       action:      'STATUS_CHANGE',
-      afterValue:  { status: 'ORIGIN_MANAGER_APPROVED' },
+      afterValue:  { status: 'ORIGIN_MANAGER_APPROVED', itemSnapshot: originItemSnapshot, inactiveItemCount: inactiveAtOrigin.length },
       performedBy: user.id,
     });
 
@@ -454,6 +482,26 @@ export class TransferService {
 
     await assertUserCanAccessLocation(user.id, user.isAdmin, req.destinationLocationId);
 
+    // Stage 8.2.1.1: validate all items are registered at destination (blocking)
+    const destStatuses = await Promise.all(
+      req.items.map((item) => validateProductActive(item.productId, req.destinationLocationId)),
+    );
+    const notAtDest = req.items.filter((_, idx) => !destStatuses[idx].valid);
+    if (notAtDest.length > 0) {
+      throw new ValidationError(
+        `Products not registered at destination location: ${notAtDest.map((i) => i.productId).join(', ')}`,
+      );
+    }
+
+    // Stage 8.2.1.1: non-blocking warning for now-inactive items at source
+    const inactiveAtFinalize = req.items.filter((i) => (i as any).isActiveNow === false);
+    if (inactiveAtFinalize.length > 0) {
+      logger.warn('[Stage8] Transfer finalize — some items now inactive at source', {
+        requestId,
+        inactiveProductIds: inactiveAtFinalize.map((i) => i.productId),
+      });
+    }
+
     const now = new Date();
 
     // ONE transaction: status claim + consume reservations + stock mutations.
@@ -476,11 +524,19 @@ export class TransferService {
       });
     });
 
+    // Build snapshot: isActiveNow = source status, isRegisteredNow = destination status
+    const finalizeSrcStatuses  = await Promise.all(req.items.map((i) => getProductLocationStatus(i.productId, req.sourceLocationId)));
+    const finalizeDestStatuses = await Promise.all(req.items.map((i) => getProductLocationStatus(i.productId, req.destinationLocationId)));
+    const finalizeItemSnapshot = req.items.map((i, idx) => ({
+      productId:          i.productId,
+      isActiveNow:        finalizeSrcStatuses[idx].isActiveNow,
+      isRegisteredNow:    finalizeDestStatuses[idx].isRegisteredNow,
+    }));
     void auditService.log({
       entityType:  'STOCK_TRANSFER_REQUEST',
       entityId:    requestId,
       action:      'STATUS_CHANGE',
-      afterValue:  { status: 'FINALIZED' },
+      afterValue:  { status: 'FINALIZED', itemSnapshot: finalizeItemSnapshot, inactiveItemCount: inactiveAtFinalize.length },
       performedBy: user.id,
     });
 

@@ -21,6 +21,8 @@ export type StockOverviewItem = {
   finalQty: number;
   pendingInbound: number;
   pendingOutbound: number;
+  isRegisteredNow: boolean;
+  isInactiveNow: boolean;
 };
 
 export type StockQueryParams = {
@@ -80,6 +82,16 @@ export class StockService {
       prisma.stockBalance.count({ where: whereClause }),
     ]);
 
+    // Batch-fetch ProductLocation status for all balance rows (avoids N+1)
+    const plRows: any[] = await (prisma as any).productLocation.findMany({
+      where: {
+        OR: balances.map((b: any) => ({ productId: b.productId, locationId: b.locationId })),
+      },
+    });
+    const plMap = new Map<string, { isActive: boolean }>(
+      plRows.map((m: any) => [`${m.productId}:${m.locationId}`, { isActive: !!m.isActive }]),
+    );
+
     // For each balance, compute period-based metrics
     const overviewItems: StockOverviewItem[] = await Promise.all(
       balances.map(async (b: any) => {
@@ -138,6 +150,10 @@ export class StockService {
         const displayOnHand    = periodActive ? finalQty : onHand;
         const displayAvailable = periodActive ? Math.max(0, finalQty) : Math.max(0, onHand - reserved);
 
+        const plStatus = plMap.get(`${b.productId}:${b.locationId}`);
+        const isRegisteredNow = plStatus !== undefined;
+        const isInactiveNow   = isRegisteredNow && !plStatus!.isActive;
+
         return {
           productId:      b.productId,
           productSku:     b.product.sku,
@@ -155,6 +171,8 @@ export class StockService {
           finalQty,
           pendingInbound:  0,
           pendingOutbound: reserved,
+          isRegisteredNow,
+          isInactiveNow,
         };
       }),
     );
