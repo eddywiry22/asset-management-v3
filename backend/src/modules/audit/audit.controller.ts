@@ -11,23 +11,27 @@ export class AuditController {
         userId,
         entityType,
         action,
-        locationId,
-        page    = '1',
-        limit   = '20',
+        locationId,           // backward-compat alias for sourceLocationId
+        sourceLocationId,
+        destinationLocationId,
+        page  = '1',
+        limit = '20',
       } = req.query as Record<string, string | undefined>;
 
       const pageNum  = Math.max(1, parseInt(page, 10) || 1);
       const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
 
       const result = await auditQueryService.findAll({
-        dateStart:  dateStart  ? new Date(dateStart)  : undefined,
-        dateEnd:    dateEnd    ? new Date(dateEnd)    : undefined,
-        userId:     userId     ?? undefined,
-        entityType: entityType ?? undefined,
-        action:     action     ?? undefined,
-        locationId: locationId ?? undefined,
-        page:       pageNum,
-        limit:      limitNum,
+        dateStart:            dateStart            ? new Date(dateStart)            : undefined,
+        dateEnd:              dateEnd              ? new Date(dateEnd)              : undefined,
+        userId:               userId               ?? undefined,
+        entityType:           entityType           ?? undefined,
+        action:               action               ?? undefined,
+        locationId:           locationId           ?? undefined,
+        sourceLocationId:     sourceLocationId     ?? undefined,
+        destinationLocationId: destinationLocationId ?? undefined,
+        page:  pageNum,
+        limit: limitNum,
       });
 
       res.json({

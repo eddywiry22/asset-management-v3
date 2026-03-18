@@ -229,7 +229,7 @@ export class StockAdjustmentService {
     const updated = await stockAdjustmentRepository.updateStatus(requestId, {
       status: AdjustmentRequestStatus.SUBMITTED,
     });
-    void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', afterValue: { status: 'SUBMITTED' }, performedBy: userId });
+    void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', beforeValue: { status: 'DRAFT' }, afterValue: { status: 'SUBMITTED' }, performedBy: userId });
     return updated;
   }
 
@@ -296,7 +296,7 @@ export class StockAdjustmentService {
     });
     const plStatuses = await Promise.all(req.items.map((i) => getProductLocationStatus(i.productId, i.locationId)));
     const itemSnapshot = req.items.map((i, idx) => ({ productId: i.productId, locationId: i.locationId, ...plStatuses[idx] }));
-    void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', afterValue: { status: 'APPROVED', itemSnapshot, inactiveItemCount: inactiveItems.length }, performedBy: userId });
+    void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', beforeValue: { status: 'SUBMITTED' }, afterValue: { status: 'APPROVED', itemSnapshot, inactiveItemCount: inactiveItems.length }, performedBy: userId });
     return updated;
   }
 
@@ -333,7 +333,7 @@ export class StockAdjustmentService {
     if (!claimed) {
       throw new ValidationError(`Cannot reject a request with status ${req.status}`);
     }
-    void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', afterValue: { status: 'REJECTED' }, performedBy: userId });
+    void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', beforeValue: { status: 'SUBMITTED' }, afterValue: { status: 'REJECTED' }, performedBy: userId });
     return (await stockAdjustmentRepository.findById(requestId))!;
   }
 
@@ -410,7 +410,7 @@ export class StockAdjustmentService {
 
     const finalizePlStatuses = await Promise.all(req.items.map((i) => getProductLocationStatus(i.productId, i.locationId)));
     const finalizeItemSnapshot = req.items.map((i, idx) => ({ productId: i.productId, locationId: i.locationId, ...finalizePlStatuses[idx] }));
-    void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', afterValue: { status: 'FINALIZED', itemSnapshot: finalizeItemSnapshot }, performedBy: userId });
+    void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', beforeValue: { status: 'APPROVED' }, afterValue: { status: 'FINALIZED', itemSnapshot: finalizeItemSnapshot }, performedBy: userId });
     return (await stockAdjustmentRepository.findById(requestId))!;
   }
   // -------------------------------------------------------------------------
@@ -453,7 +453,7 @@ export class StockAdjustmentService {
       throw new ValidationError(`Cannot cancel a request with status ${req.status}`);
     }
 
-    void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', afterValue: { status: 'CANCELLED' }, performedBy: user.id });
+    void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', beforeValue: { status: req.status }, afterValue: { status: 'CANCELLED' }, performedBy: user.id });
     return (await stockAdjustmentRepository.findById(requestId))!;
   }
 }

@@ -32,16 +32,25 @@ const mockAuditLog = {
   create:   jest.fn().mockResolvedValue({}),
 };
 
+const mockTransferRequest    = { findMany: jest.fn() };
+const mockAdjustmentItem     = { findMany: jest.fn() };
+
 jest.mock('../src/config/database', () => ({
   __esModule: true,
   default: {
-    auditLog:         {
+    auditLog: {
       findMany: (...args: any[]) => mockAuditLog.findMany(...args),
       count:    (...args: any[]) => mockAuditLog.count(...args),
       create:   (...args: any[]) => mockAuditLog.create(...args),
     },
-    $connect:    jest.fn(),
-    $disconnect: jest.fn(),
+    stockTransferRequest: {
+      findMany: (...args: any[]) => mockTransferRequest.findMany(...args),
+    },
+    stockAdjustmentItem: {
+      findMany: (...args: any[]) => mockAdjustmentItem.findMany(...args),
+    },
+    $connect:     jest.fn(),
+    $disconnect:  jest.fn(),
     $transaction: jest.fn(),
   },
   connectDatabase:    jest.fn(),
@@ -103,6 +112,9 @@ describe('GET /v1/admin/audit-logs', () => {
     mockVerify.mockReturnValue(ADMIN_USER);
     mockAuditLog.findMany.mockResolvedValue([SAMPLE_LOG]);
     mockAuditLog.count.mockResolvedValue(1);
+    // Location subquery mocks default to empty (no matching entities)
+    mockTransferRequest.findMany.mockResolvedValue([]);
+    mockAdjustmentItem.findMany.mockResolvedValue([]);
   });
 
   // -------------------------------------------------------------------------
@@ -301,5 +313,123 @@ describe('GET /v1/admin/audit-logs', () => {
       entityType: 'PRODUCT',
       entityId:   'prod-id-1',
     })).resolves.toBeUndefined();
+  });
+
+  // -------------------------------------------------------------------------
+  // Location filtering (Stage 8.3.1)
+  // -------------------------------------------------------------------------
+  it('sourceLocationId filter queries stockTransferRequest and stockAdjustmentItem', async () => {
+    const SRC_LOC = 'loc-src-id';
+    mockTransferRequest.findMany.mockResolvedValue([{ id: 'trf-id-1' }]);
+    mockAdjustmentItem.findMany.mockResolvedValue([{ requestId: 'adj-id-1' }]);
+    mockAuditLog.findMany.mockResolvedValue([SAMPLE_LOG_2]);
+    mockAuditLog.count.mockResolvedValue(1);
+
+    const res = await request(app)
+      .get(`/v1/admin/audit-logs?sourceLocationId=${SRC_LOC}`)
+      .set(ADMIN_AUTH);
+
+    expect(res.status).toBe(200);
+    // Verify both subqueries were called with the location id
+    expect(mockTransferRequest.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { sourceLocationId: SRC_LOC } }),
+    );
+    expect(mockAdjustmentItem.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { locationId: SRC_LOC } }),
+    );
+    // Combined entity ids passed to auditLog.findMany
+    const auditCall = mockAuditLog.findMany.mock.calls[0][0];
+    expect(auditCall.where.entityId).toEqual({ in: expect.arrayContaining(['trf-id-1', 'adj-id-1']) });
+  });
+
+  it('destinationLocationId filter queries only stockTransferRequest', async () => {
+    const DEST_LOC = 'loc-dest-id';
+    mockTransferRequest.findMany.mockResolvedValue([{ id: 'trf-id-2' }]);
+
+    await request(app)
+      .get(`/v1/admin/audit-logs?destinationLocationId=${DEST_LOC}`)
+      .set(ADMIN_AUTH);
+
+    expect(mockTransferRequest.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { destinationLocationId: DEST_LOC } }),
+    );
+    // Adjustments should NOT be queried for destination-only filter
+    expect(mockAdjustmentItem.findMany).not.toHaveBeenCalled();
+    const auditCall = mockAuditLog.findMany.mock.calls[0][0];
+    expect(auditCall.where.entityId).toEqual({ in: ['trf-id-2'] });
+  });
+
+  it('combined sourceLocationId + destinationLocationId filters both on transfer', async () => {
+    const SRC_LOC  = 'loc-src-id';
+    const DEST_LOC = 'loc-dest-id';
+    mockTransferRequest.findMany.mockResolvedValue([{ id: 'trf-id-3' }]);
+
+    await request(app)
+      .get(`/v1/admin/audit-logs?sourceLocationId=${SRC_LOC}&destinationLocationId=${DEST_LOC}`)
+      .set(ADMIN_AUTH);
+
+    expect(mockTransferRequest.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { sourceLocationId: SRC_LOC, destinationLocationId: DEST_LOC },
+      }),
+    );
+    // Adjustments should NOT be queried when dest is specified
+    expect(mockAdjustmentItem.findMany).not.toHaveBeenCalled();
+  });
+
+  it('returns empty result when no entities match source location', async () => {
+    mockTransferRequest.findMany.mockResolvedValue([]);
+    mockAdjustmentItem.findMany.mockResolvedValue([]);
+    mockAuditLog.findMany.mockResolvedValue([]);
+    mockAuditLog.count.mockResolvedValue(0);
+
+    const res = await request(app)
+      .get('/v1/admin/audit-logs?sourceLocationId=no-match-loc')
+      .set(ADMIN_AUTH);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual([]);
+    // Should pass sentinel value to force empty result
+    const auditCall = mockAuditLog.findMany.mock.calls[0][0];
+    expect(auditCall.where.entityId).toEqual({ in: ['__no_match__'] });
+  });
+
+  it('backward-compat locationId is treated as sourceLocationId', async () => {
+    const LOC = 'legacy-loc-id';
+    mockTransferRequest.findMany.mockResolvedValue([{ id: 'trf-id-4' }]);
+    mockAdjustmentItem.findMany.mockResolvedValue([]);
+
+    await request(app)
+      .get(`/v1/admin/audit-logs?locationId=${LOC}`)
+      .set(ADMIN_AUTH);
+
+    // Transfer subquery uses locationId as sourceLocationId
+    expect(mockTransferRequest.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { sourceLocationId: LOC } }),
+    );
+    expect(mockAdjustmentItem.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { locationId: LOC } }),
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // beforeSnapshot in status transitions (Stage 8.3.1)
+  // -------------------------------------------------------------------------
+  it('status transition logs include both beforeSnapshot and afterSnapshot', async () => {
+    const logWithBefore = {
+      ...SAMPLE_LOG_2,
+      beforeSnapshot: { status: 'DRAFT' },
+      afterSnapshot:  { status: 'SUBMITTED' },
+    };
+    mockAuditLog.findMany.mockResolvedValue([logWithBefore]);
+    mockAuditLog.count.mockResolvedValue(1);
+
+    const res = await request(app)
+      .get('/v1/admin/audit-logs')
+      .set(ADMIN_AUTH);
+
+    const log = res.body.data[0];
+    expect(log.beforeSnapshot).toEqual({ status: 'DRAFT' });
+    expect(log.afterSnapshot).toEqual({ status: 'SUBMITTED' });
   });
 });

@@ -60,15 +60,15 @@ const ACTIONS: AuditAction[] = [
 ];
 
 const ACTION_COLORS: Record<string, 'default' | 'success' | 'warning' | 'error' | 'info' | 'primary'> = {
-  CREATE:          'success',
-  UPDATE:          'info',
-  DELETE:          'error',
-  APPROVE:         'success',
-  FINALIZE:        'primary',
-  CANCEL:          'error',
-  STATUS_CHANGE:   'warning',
-  TRANSFER_CREATE: 'info',
-  FINALIZE_BLOCKED:'error',
+  CREATE:           'success',
+  UPDATE:           'info',
+  DELETE:           'error',
+  APPROVE:          'success',
+  FINALIZE:         'primary',
+  CANCEL:           'error',
+  STATUS_CHANGE:    'warning',
+  TRANSFER_CREATE:  'info',
+  FINALIZE_BLOCKED: 'error',
 };
 
 // ---------------------------------------------------------------------------
@@ -84,12 +84,14 @@ function userLabel(u: { email: string | null; phone: string | null } | null | un
 }
 
 function summarize(log: AuditLog): string {
-  const snap = log.afterSnapshot as any;
-  if (!snap) return '—';
-  if (snap.status) return `Status → ${snap.status}`;
-  if (snap.name)   return `Name: ${snap.name}`;
-  if (snap.sku)    return `SKU: ${snap.sku}`;
-  return JSON.stringify(snap).slice(0, 80);
+  const before = log.beforeSnapshot as any;
+  const after  = log.afterSnapshot  as any;
+  if (before?.status && after?.status) return `${before.status} → ${after.status}`;
+  if (after?.status) return `Status → ${after.status}`;
+  if (after?.name)   return `Name: ${after.name}`;
+  if (after?.sku)    return `SKU: ${after.sku}`;
+  if (after)         return JSON.stringify(after).slice(0, 80);
+  return '—';
 }
 
 // ---------------------------------------------------------------------------
@@ -170,25 +172,45 @@ function AuditLogRow({ log }: { log: AuditLog }) {
 }
 
 // ---------------------------------------------------------------------------
+// Applied filter state shape
+// ---------------------------------------------------------------------------
+interface AppliedFilters {
+  startDate:            string;
+  endDate:              string;
+  entityType:           string;
+  action:               string;
+  sourceLocationId:     string;
+  destinationLocationId: string;
+}
+
+const EMPTY_FILTERS: AppliedFilters = {
+  startDate:            '',
+  endDate:              '',
+  entityType:           '',
+  action:               '',
+  sourceLocationId:     '',
+  destinationLocationId: '',
+};
+
+// ---------------------------------------------------------------------------
 // Main Page
 // ---------------------------------------------------------------------------
 export default function AuditLogsPage() {
   const { isAdmin } = useAuth();
 
-  const [page, setPage]           = useState(0);
+  const [page, setPage]               = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(20);
 
   // Staging filters (not yet applied)
-  const [startDate,     setStartDate]     = useState('');
-  const [endDate,       setEndDate]       = useState('');
-  const [entityTypeFilter, setEntityTypeFilter] = useState('');
-  const [actionFilter,  setActionFilter]  = useState('');
-  const [locationFilter, setLocationFilter] = useState('');
+  const [startDate,          setStartDate]          = useState('');
+  const [endDate,            setEndDate]            = useState('');
+  const [entityTypeFilter,   setEntityTypeFilter]   = useState('');
+  const [actionFilter,       setActionFilter]       = useState('');
+  const [srcLocationFilter,  setSrcLocationFilter]  = useState('');
+  const [destLocationFilter, setDestLocationFilter] = useState('');
 
-  // Applied filters (sent to API)
-  const [applied, setApplied] = useState({
-    startDate: '', endDate: '', entityType: '', action: '', locationId: '',
-  });
+  // Applied filters — only committed on Apply click
+  const [applied, setApplied] = useState<AppliedFilters>(EMPTY_FILTERS);
 
   const { data: locationsRes } = useQuery({
     queryKey: ['locations-all'],
@@ -199,13 +221,14 @@ export default function AuditLogsPage() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['audit-logs', applied, page, rowsPerPage],
     queryFn: () => auditLogsService.getAll({
-      dateStart:  applied.startDate  || undefined,
-      dateEnd:    applied.endDate    || undefined,
-      entityType: applied.entityType || undefined,
-      action:     applied.action     || undefined,
-      locationId: applied.locationId || undefined,
-      page:       page + 1,
-      limit:      rowsPerPage,
+      dateStart:            applied.startDate             || undefined,
+      dateEnd:              applied.endDate               || undefined,
+      entityType:           applied.entityType            || undefined,
+      action:               applied.action                || undefined,
+      sourceLocationId:     applied.sourceLocationId      || undefined,
+      destinationLocationId: applied.destinationLocationId || undefined,
+      page:  page + 1,
+      limit: rowsPerPage,
     }),
     enabled: isAdmin,
   });
@@ -213,11 +236,12 @@ export default function AuditLogsPage() {
   function applyFilters() {
     setPage(0);
     setApplied({
-      startDate:  startDate,
-      endDate:    endDate,
-      entityType: entityTypeFilter,
-      action:     actionFilter,
-      locationId: locationFilter,
+      startDate:            startDate,
+      endDate:              endDate,
+      entityType:           entityTypeFilter,
+      action:               actionFilter,
+      sourceLocationId:     srcLocationFilter,
+      destinationLocationId: destLocationFilter,
     });
   }
 
@@ -226,13 +250,15 @@ export default function AuditLogsPage() {
     setEndDate('');
     setEntityTypeFilter('');
     setActionFilter('');
-    setLocationFilter('');
+    setSrcLocationFilter('');
+    setDestLocationFilter('');
     setPage(0);
-    setApplied({ startDate: '', endDate: '', entityType: '', action: '', locationId: '' });
+    setApplied(EMPTY_FILTERS);
   }
 
   const logs  = data?.data ?? [];
   const total = data?.meta.total ?? 0;
+  const locations = (locationsRes?.data ?? []) as Array<{ id: string; code: string; name: string }>;
 
   if (!isAdmin) {
     return (
@@ -298,14 +324,27 @@ export default function AuditLogsPage() {
             </Select>
           </FormControl>
           <FormControl size="small" sx={{ minWidth: 180 }}>
-            <InputLabel>Location</InputLabel>
+            <InputLabel>Source Location</InputLabel>
             <Select
-              value={locationFilter}
-              label="Location"
-              onChange={(e) => setLocationFilter(e.target.value)}
+              value={srcLocationFilter}
+              label="Source Location"
+              onChange={(e) => setSrcLocationFilter(e.target.value)}
             >
               <MenuItem value="">All</MenuItem>
-              {(locationsRes?.data ?? []).map((loc: any) => (
+              {locations.map((loc) => (
+                <MenuItem key={loc.id} value={loc.id}>{loc.code} — {loc.name}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <FormControl size="small" sx={{ minWidth: 180 }}>
+            <InputLabel>Destination Location</InputLabel>
+            <Select
+              value={destLocationFilter}
+              label="Destination Location"
+              onChange={(e) => setDestLocationFilter(e.target.value)}
+            >
+              <MenuItem value="">All</MenuItem>
+              {locations.map((loc) => (
                 <MenuItem key={loc.id} value={loc.id}>{loc.code} — {loc.name}</MenuItem>
               ))}
             </Select>

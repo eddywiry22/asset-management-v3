@@ -49,7 +49,10 @@ export type AuditLogFilters = {
   userId?: string;
   entityType?: string;
   action?: string;
+  /** @deprecated Use sourceLocationId instead */
   locationId?: string;
+  sourceLocationId?: string;
+  destinationLocationId?: string;
   page?: number;
   limit?: number;
 };
@@ -71,9 +74,11 @@ const auditLogsService = {
     if (filters.userId)     params.userId     = filters.userId;
     if (filters.entityType) params.entityType = filters.entityType;
     if (filters.action)     params.action     = filters.action;
-    if (filters.locationId) params.locationId = filters.locationId;
-    if (filters.page)       params.page       = String(filters.page);
-    if (filters.limit)      params.limit      = String(filters.limit);
+    if (filters.locationId)            params.locationId            = filters.locationId;
+    if (filters.sourceLocationId)      params.sourceLocationId      = filters.sourceLocationId;
+    if (filters.destinationLocationId) params.destinationLocationId = filters.destinationLocationId;
+    if (filters.page)                  params.page                  = String(filters.page);
+    if (filters.limit)                 params.limit                 = String(filters.limit);
 
     const res = await apiClient.get('/admin/audit-logs', { params });
     return res.data;

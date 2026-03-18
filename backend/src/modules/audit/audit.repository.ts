@@ -23,7 +23,10 @@ export interface AuditLogFilters {
   userId?: string;
   entityType?: string;
   action?: string;
+  /** Deprecated: use sourceLocationId instead */
   locationId?: string;
+  sourceLocationId?: string;
+  destinationLocationId?: string;
   page: number;
   limit: number;
 }
@@ -35,25 +38,55 @@ export class AuditRepository {
     if (filters.dateStart || filters.dateEnd) {
       where.timestamp = {};
       if (filters.dateStart) where.timestamp.gte = filters.dateStart;
-      if (filters.dateEnd) where.timestamp.lte = filters.dateEnd;
+      if (filters.dateEnd)   where.timestamp.lte = filters.dateEnd;
     }
 
-    if (filters.userId) {
-      where.userId = filters.userId;
-    }
+    if (filters.userId)     where.userId     = filters.userId;
+    if (filters.entityType) where.entityType = filters.entityType;
+    if (filters.action)     where.action     = filters.action;
 
-    if (filters.entityType) {
-      where.entityType = filters.entityType;
-    }
+    // Location-based filtering via subquery on related entity tables.
+    // sourceLocationId maps to: transfer source OR adjustment item location.
+    // destinationLocationId maps to: transfer destination only.
+    // Backward-compat: bare locationId treated as sourceLocationId.
+    const effectiveSrc  = filters.sourceLocationId ?? filters.locationId;
+    const effectiveDest = filters.destinationLocationId;
 
-    if (filters.action) {
-      where.action = filters.action;
-    }
+    if (effectiveSrc || effectiveDest) {
+      const entityIds = new Set<string>();
+      const et = filters.entityType; // may narrow which tables we query
 
-    // locationId filter: match logs where entityId relates to a transfer/adjustment
-    // touching that location — approximate by filtering via entityType + a subquery
-    // For simplicity, we filter by entityId matching transfer/adjustment requests
-    // that involve the locationId. This is handled at the service layer.
+      const includeTransfers   = !et || et === 'STOCK_TRANSFER_REQUEST'  || et === 'STOCK_TRANSFER';
+      const includeAdjustments = !et || et === 'STOCK_ADJUSTMENT_REQUEST' || et === 'STOCK_ADJUSTMENT';
+
+      // --- Stock Transfer subquery ---
+      if (includeTransfers) {
+        const transferWhere: any = {};
+        if (effectiveSrc)  transferWhere.sourceLocationId      = effectiveSrc;
+        if (effectiveDest) transferWhere.destinationLocationId = effectiveDest;
+
+        const transfers = await prisma.stockTransferRequest.findMany({
+          where:  transferWhere,
+          select: { id: true },
+        });
+        transfers.forEach((t) => entityIds.add(t.id));
+      }
+
+      // --- Stock Adjustment subquery (source location only; adjustments have no destination) ---
+      if (includeAdjustments && effectiveSrc && !effectiveDest) {
+        const items = await prisma.stockAdjustmentItem.findMany({
+          where:    { locationId: effectiveSrc },
+          select:   { requestId: true },
+          distinct: ['requestId'],
+        });
+        items.forEach((i) => entityIds.add(i.requestId));
+      }
+
+      // If nothing matched, force empty result set.
+      where.entityId = entityIds.size > 0
+        ? { in: [...entityIds] }
+        : { in: ['__no_match__'] };
+    }
 
     const skip = (filters.page - 1) * filters.limit;
 
