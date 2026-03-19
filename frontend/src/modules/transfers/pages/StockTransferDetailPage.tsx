@@ -23,6 +23,8 @@ import stockTransfersService, {
 import stockService from '../../../services/stock.service';
 import { AuthUser } from '../../../types/auth.types';
 import ActionReasonModal from '../../../components/ActionReasonModal';
+import { WorkflowWarningBanner } from '../../../components/WorkflowWarningBanner';
+import { WORKFLOW_WARNINGS } from '../../../utils/workflowWarnings';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -227,6 +229,18 @@ export default function StockTransferDetailPage() {
   const destRegisteredIds = new Set((destRegisteredProducts ?? []).map((p) => p.id));
   const itemsNotAtDest = (req?.items ?? []).filter((i) => !destRegisteredIds.has(i.productId));
 
+  // Fetch destination readiness — warn if no eligible users can complete the workflow
+  const { data: destReadiness } = useQuery({
+    queryKey: ['location-readiness', dstLocationId],
+    queryFn:  () => stockService.getLocationReadiness(dstLocationId!),
+    enabled:  !!dstLocationId && !isAdmin,
+  });
+  const destHasNoEligibleUsers =
+    !isAdmin &&
+    destReadiness !== undefined &&
+    !destReadiness.transferInboundReady;
+
+
   // Build a Map<locationId, role> from the user's visible locations.
   // Only non-null role values are stored; admin users skip this entirely.
   const myRoleMap = new Map(
@@ -399,6 +413,11 @@ export default function StockTransferDetailPage() {
         <Alert severity="error" sx={{ mb: 2 }}>
           {itemsNotAtDest.length} item(s) are not registered at the destination location and must be registered before finalizing.
         </Alert>
+      )}
+
+      {/* Destination readiness warning — shown from DRAFT onwards for any non-terminal status */}
+      {destHasNoEligibleUsers && !isTerminal && (
+        <WorkflowWarningBanner message={WORKFLOW_WARNINGS.transferDestinationMissingUsers} />
       )}
 
       {/* Meta */}
@@ -630,7 +649,7 @@ export default function StockTransferDetailPage() {
               <Button
                 variant="contained"
                 color="warning"
-                disabled={req.items.length === 0 || itemsNotAtDest.length > 0}
+                disabled={req.items.length === 0 || itemsNotAtDest.length > 0 || destHasNoEligibleUsers}
                 onClick={() => setConfirmAction('finalize')}
               >
                 Finalize Transfer

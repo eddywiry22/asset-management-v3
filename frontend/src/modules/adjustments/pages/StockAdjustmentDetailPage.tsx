@@ -22,6 +22,8 @@ import stockAdjustmentsService, {
 import stockService from '../../../services/stock.service';
 import { useAuth } from '../../../context/AuthContext';
 import ActionReasonModal from '../../../components/ActionReasonModal';
+import { WorkflowWarningBanner } from '../../../components/WorkflowWarningBanner';
+import { WORKFLOW_WARNINGS } from '../../../utils/workflowWarnings';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -212,6 +214,31 @@ export default function StockAdjustmentDetailPage() {
 
   const req: AdjustmentRequest | undefined = reqData?.data;
 
+  // Fetch readiness for all item locations — warn if no managers to approve or eligible users to finalize
+  const itemLocationIds = [...new Set((req?.items ?? []).map((i) => i.locationId))];
+  const { data: itemLocationReadinesses } = useQuery({
+    queryKey: ['location-readiness-adj', id, itemLocationIds.join(',')],
+    queryFn:  async () => {
+      const results = await Promise.all(
+        itemLocationIds.map((lid) => stockService.getLocationReadiness(lid)),
+      );
+      return results;
+    },
+    enabled: !isAdmin && itemLocationIds.length > 0 && !!req && req.status !== 'FINALIZED' && req.status !== 'CANCELLED' && req.status !== 'REJECTED',
+  });
+
+  // No managers at any item location → adjustment may get stuck at SUBMITTED
+  const noManagersAtItemLocations =
+    !isAdmin &&
+    itemLocationReadinesses !== undefined &&
+    itemLocationReadinesses.every((r: { hasManager: boolean }) => !r.hasManager);
+
+  // No eligible users (OPERATOR or MANAGER) at item locations → finalize blocked
+  const noEligibleUsersToFinalize =
+    !isAdmin &&
+    itemLocationReadinesses !== undefined &&
+    itemLocationReadinesses.every((r: { hasOperator: boolean; hasManager: boolean }) => !r.hasOperator && !r.hasManager);
+
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['stock-adjustment', id] });
     queryClient.invalidateQueries({ queryKey: ['stock-adjustments'] });
@@ -292,7 +319,7 @@ export default function StockAdjustmentDetailPage() {
         const inactiveForFinalize = isApproved ? req.items.filter((i) => i.isActiveNow === false) : [];
         return (
           <>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: inactiveForFinalize.length > 0 ? 1 : 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: inactiveForFinalize.length > 0 || (noManagersAtItemLocations && !isTerminal) ? 1 : 2 }}>
               <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/stock-adjustments')}>Back</Button>
               <Typography variant="h5" fontWeight={600} sx={{ flexGrow: 1 }}>
                 {req.requestNumber}
@@ -303,6 +330,11 @@ export default function StockAdjustmentDetailPage() {
               <Alert severity="error" sx={{ mb: 2 }}>
                 {inactiveForFinalize.length} item(s) have inactive product registrations and cannot be finalized. Reactivate or remove them first.
               </Alert>
+            )}
+
+            {/* Manager readiness warning — shown from DRAFT onwards for any non-terminal status */}
+            {noManagersAtItemLocations && !isTerminal && (
+              <WorkflowWarningBanner message={WORKFLOW_WARNINGS.adjustmentMissingManagers} />
             )}
           </>
         );
@@ -495,7 +527,7 @@ export default function StockAdjustmentDetailPage() {
               <Button
                 variant="contained"
                 color="warning"
-                disabled={req.items.length === 0 || req.items.some((i) => i.isActiveNow === false)}
+                disabled={req.items.length === 0 || req.items.some((i) => i.isActiveNow === false) || noManagersAtItemLocations}
                 onClick={() => setConfirmAction('finalize')}
               >
                 Finalize (Apply Stock Changes)

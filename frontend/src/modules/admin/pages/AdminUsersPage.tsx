@@ -94,10 +94,11 @@ export default function AdminUsersPage() {
   const [toggleTarget, setToggleTarget]         = useState<AdminUser | null>(null);
   const [resetPasswordTarget, setResetPasswordTarget] = useState<AdminUser | null>(null);
 
-  // Blocking deactivation detail
+  // Blocking deactivation detail — shape matches the new helper-based backend response
   const [blockingCounts, setBlockingCounts] = useState<{
-    adjustments: { asCreator: number; asApprover: number };
-    transfers: { asCreator: number; asOriginManager: number; asDestinationApprover: number };
+    adjustmentId?: string;
+    transferId?: string;
+    status?: string;
   } | null>(null);
 
   const [apiError, setApiError] = useState('');
@@ -657,25 +658,22 @@ export default function AdminUsersPage() {
           {apiError && <Alert severity="error" sx={{ mb: 2 }}>{apiError}</Alert>}
           {blockingCounts && (
             <Alert severity="error" sx={{ mb: 2 }}>
-              <strong>{toggleTarget?.username}</strong> is involved in active workflows:
+              <strong>{toggleTarget?.username}</strong> is required to complete an active workflow:
               <ul style={{ margin: '8px 0 0', paddingLeft: 20 }}>
-                {blockingCounts.adjustments.asCreator > 0 && (
-                  <li>{blockingCounts.adjustments.asCreator} adjustment(s) as creator</li>
+                {blockingCounts.adjustmentId && (
+                  <li>
+                    Adjustment #{blockingCounts.adjustmentId.slice(-8).toUpperCase()}
+                    {blockingCounts.status ? ` — ${blockingCounts.status.replace(/_/g, ' ')}` : ''}
+                  </li>
                 )}
-                {blockingCounts.adjustments.asApprover > 0 && (
-                  <li>{blockingCounts.adjustments.asApprover} adjustment(s) as approver</li>
-                )}
-                {blockingCounts.transfers.asCreator > 0 && (
-                  <li>{blockingCounts.transfers.asCreator} transfer(s) as creator</li>
-                )}
-                {blockingCounts.transfers.asOriginManager > 0 && (
-                  <li>{blockingCounts.transfers.asOriginManager} transfer(s) as origin manager</li>
-                )}
-                {blockingCounts.transfers.asDestinationApprover > 0 && (
-                  <li>{blockingCounts.transfers.asDestinationApprover} transfer(s) as destination approver</li>
+                {blockingCounts.transferId && (
+                  <li>
+                    Transfer #{blockingCounts.transferId.slice(-8).toUpperCase()}
+                    {blockingCounts.status ? ` — ${blockingCounts.status.replace(/_/g, ' ')}` : ''}
+                  </li>
                 )}
               </ul>
-              Resolve them before deactivating.
+              Resolve this workflow before deactivating.
             </Alert>
           )}
           {toggleTarget && !blockingCounts && (

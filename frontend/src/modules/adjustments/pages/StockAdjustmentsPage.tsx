@@ -94,6 +94,24 @@ export default function StockAdjustmentsPage() {
   const hasAnyInactiveLocation = !isAdmin && myLocations.some((l) => l.isActive === false);
   const hasNoActiveLocation    = hasNoLocation || (!isAdmin && myLocations.length > 0 && myLocations.every((l) => l.isActive === false));
 
+  // Stage 8.6: check workflow readiness for each assigned location (active users only)
+  const activeLocationIds = myLocations.filter((l) => l.isActive !== false).map((l) => l.id);
+  const { data: locationReadinesses } = useQuery({
+    queryKey: ['location-readiness-adj-list', activeLocationIds.join(',')],
+    queryFn: async () => {
+      const results = await Promise.all(
+        activeLocationIds.map((lid) => stockService.getLocationReadiness(lid)),
+      );
+      return results;
+    },
+    enabled: !isAdmin && activeLocationIds.length > 0,
+  });
+  // Warn if any of the user's active locations is not adjustmentReady (no active manager or operator)
+  const hasLocationMissingWorkflowUsers =
+    !isAdmin &&
+    locationReadinesses !== undefined &&
+    locationReadinesses.some((r: { adjustmentReady: boolean }) => !r.adjustmentReady);
+
   const [page, setPage]             = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(20);
   const [statusFilter, setStatusFilter] = useState<AdjustmentRequestStatus | ''>('');
@@ -148,6 +166,11 @@ export default function StockAdjustmentsPage() {
       {!hasNoLocation && hasAnyInactiveLocation && (
         <Alert severity="warning" sx={{ mb: 2 }}>
           Some of your locations are inactive. Requests cannot be created for inactive locations. Contact admin if you need to reactivate.
+        </Alert>
+      )}
+      {!hasNoLocation && !hasNoActiveLocation && hasLocationMissingWorkflowUsers && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          This location does not have the required active users to process the request. Contact admin.
         </Alert>
       )}
 

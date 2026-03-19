@@ -1,11 +1,15 @@
 import bcrypt from 'bcrypt';
-import { Role, AdjustmentRequestStatus, TransferRequestStatus } from '@prisma/client';
+import { Role } from '@prisma/client';
 import { adminUsersRepository, UserRow, UsersFilter } from './repositories/admin-users.repository';
 import { AppError, NotFoundError, ValidationError, ForbiddenError } from '../../utils/errors';
 import { auditService } from '../../services/audit.service';
 import { CreateUserDto, UpdateUserDto, ResetPasswordDto } from './admin-users.validator';
 import logger from '../../utils/logger';
 import prisma from '../../config/database';
+import {
+  getAdjustmentEligibleUsers,
+  getTransferEligibleUsers,
+} from '../stock/utils/workflowResponsibility';
 
 export class AdminUsersService {
   async findAll(filter: UsersFilter): Promise<UserRow[]> {
@@ -150,52 +154,37 @@ export class AdminUsersService {
     const newActive = !user.isActive;
 
     if (!newActive) {
-      const activeAdjStatuses: AdjustmentRequestStatus[] = ['DRAFT', 'SUBMITTED', 'APPROVED'];
-      const activeTrfStatuses: TransferRequestStatus[] = [
-        'DRAFT', 'SUBMITTED', 'ORIGIN_MANAGER_APPROVED',
-        'DESTINATION_OPERATOR_APPROVED', 'READY_TO_FINALIZE',
-      ];
+      // Stage 8.6: check if user is role-eligible to complete any active workflow step.
+      // This prevents deadlocks: if the user is the only one who can progress a workflow,
+      // they cannot be deactivated until the workflow is resolved.
 
-      const [
-        adjAsCreator,
-        adjAsApprover,
-        trfAsCreator,
-        trfAsOriginManager,
-        trfAsDestinationApprover,
-      ] = await Promise.all([
-        prisma.stockAdjustmentRequest.count({
-          where: { createdById: id, status: { in: activeAdjStatuses } },
+      const [activeAdjustments, activeTransfers] = await Promise.all([
+        prisma.stockAdjustmentRequest.findMany({
+          where: { status: { in: ['SUBMITTED', 'APPROVED'] } },
+          include: { items: { select: { locationId: true } } },
         }),
-        prisma.stockAdjustmentRequest.count({
-          where: { approvedById: id, status: { in: activeAdjStatuses } },
-        }),
-        prisma.stockTransferRequest.count({
-          where: { createdById: id, status: { in: activeTrfStatuses } },
-        }),
-        prisma.stockTransferRequest.count({
-          where: { originApprovedById: id, status: { in: activeTrfStatuses } },
-        }),
-        // destinationApprovedById = the destination operator who approved receipt
-        prisma.stockTransferRequest.count({
-          where: { destinationApprovedById: id, status: { in: activeTrfStatuses } },
+        prisma.stockTransferRequest.findMany({
+          where: { status: { in: ['SUBMITTED', 'ORIGIN_MANAGER_APPROVED', 'READY_TO_FINALIZE'] } },
+          select: { id: true, status: true, sourceLocationId: true, destinationLocationId: true },
         }),
       ]);
 
-      const hasBlocking =
-        adjAsCreator > 0 || adjAsApprover > 0 ||
-        trfAsCreator > 0 || trfAsOriginManager > 0 || trfAsDestinationApprover > 0;
+      for (const adj of activeAdjustments) {
+        const eligible = await getAdjustmentEligibleUsers(prisma, adj);
+        if (eligible.some((e: { userId: string }) => e.userId === id)) {
+          throw new AppError(400, 'User is required to complete ongoing adjustment workflows', {
+            blocking: { adjustmentId: adj.id, status: adj.status },
+          });
+        }
+      }
 
-      if (hasBlocking) {
-        throw new AppError(400, 'User is involved in active workflows', {
-          blocking: {
-            adjustments: { asCreator: adjAsCreator, asApprover: adjAsApprover },
-            transfers: {
-              asCreator:              trfAsCreator,
-              asOriginManager:        trfAsOriginManager,
-              asDestinationApprover:  trfAsDestinationApprover,
-            },
-          },
-        });
+      for (const trf of activeTransfers) {
+        const eligible = await getTransferEligibleUsers(prisma, trf);
+        if (eligible.some((e: { userId: string }) => e.userId === id)) {
+          throw new AppError(400, 'User is required to complete ongoing transfer workflows', {
+            blocking: { transferId: trf.id, status: trf.status },
+          });
+        }
       }
     }
 

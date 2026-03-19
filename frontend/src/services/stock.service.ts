@@ -83,6 +83,20 @@ const stockService = {
     return res.data.data;
   },
 
+  async getLocationReadiness(locationId: string): Promise<{
+    hasOperator: boolean;
+    hasManager: boolean;
+    adjustmentReady: boolean;
+    transferOutboundReady: boolean;
+    transferInboundReady: boolean;
+    overallStatus: 'FULL' | 'PARTIAL' | 'NONE';
+  }> {
+    const res = await apiClient.get(
+      `stock/location-readiness?locationId=${encodeURIComponent(locationId)}`,
+    );
+    return res.data.data;
+  },
+
   async getStockOverview(params: StockQueryParams = {}): Promise<PaginatedResponse<StockOverviewItem>> {
     const { locationId, startDate, endDate, page, limit } = params;
     const res = await apiClient.get<PaginatedResponse<StockOverviewItem>>('stock', {

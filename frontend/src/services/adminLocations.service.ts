@@ -1,5 +1,7 @@
 import apiClient from '../api/client';
 
+export type OperationalStatus = 'FULL' | 'PARTIAL' | 'NONE';
+
 export interface AdminLocation {
   id:                   string;
   code:                 string;
@@ -7,6 +9,16 @@ export interface AdminLocation {
   address:              string | null;
   isActive:             boolean;
   blockingRequestCount: number;
+  operationalStatus:    OperationalStatus;
+}
+
+export interface LocationReadiness {
+  hasOperator:           boolean;
+  hasManager:            boolean;
+  adjustmentReady:       boolean;
+  transferOutboundReady: boolean;
+  transferInboundReady:  boolean;
+  overallStatus:         OperationalStatus;
 }
 
 export interface CreateLocationInput {

@@ -17,6 +17,7 @@ import {
   validateProductActive,
   getProductLocationStatus,
 } from '../../utils/validationHelpers';
+import { getTransferEligibleUsers } from '../stock/utils/workflowResponsibility';
 
 type UserCtx = { id: string; isAdmin: boolean };
 
@@ -149,6 +150,17 @@ export class TransferService {
     }
     if (!userAccessResult.valid) {
       logger.warn('[Stage8] Transfer create validation warning', { check: 'userAccess', userId: user.id, locationId: dto.sourceLocationId, ...userAccessResult });
+    }
+
+    // Stage 8.6: warn (non-blocking) if destination has no eligible users
+    const destEligible = await prisma.userLocationRole.findMany({
+      where: { locationId: dto.destinationLocationId, role: { in: ['OPERATOR', 'MANAGER'] } },
+    });
+    if (destEligible.length === 0) {
+      logger.warn('[Stage8.6] Transfer create warning — destination has no eligible users', {
+        destinationLocationId: dto.destinationLocationId,
+        locationCode: dest.code,
+      });
     }
 
     for (let attempt = 0; attempt < 5; attempt++) {
@@ -286,6 +298,16 @@ export class TransferService {
     const claimed = await transferRepository.claimSubmit(requestId, new Date());
     if (!claimed) {
       throw new ValidationError(`Cannot submit a request with status ${req.status}`);
+    }
+
+    // Stage 8.6: warn (non-blocking) if source has no MANAGER to approve
+    const submitEligible = await getTransferEligibleUsers(prisma, {
+      status: 'SUBMITTED',
+      sourceLocationId: req.sourceLocationId,
+      destinationLocationId: req.destinationLocationId,
+    });
+    if (submitEligible.length === 0) {
+      logger.warn('[Stage8.6] Transfer submit warning — source has no manager to approve', { requestId, sourceLocationId: req.sourceLocationId });
     }
 
     void auditService.log({
@@ -555,6 +577,22 @@ export class TransferService {
         performedBy:   user.id,
       });
       throw new ValidationError(`Cannot finalize: location(s) ${inactiveNames.join(', ')} are inactive. Reactivate them first.`);
+    }
+
+    // Stage 8.6: HARD BLOCK — destination must have eligible users to finalize
+    const finalizeEligible = await getTransferEligibleUsers(prisma, req);
+    if (finalizeEligible.length === 0) {
+      logger.warn('[Stage8.6] Transfer finalize blocked — destination has no eligible users', { requestId, destinationLocationId: req.destinationLocationId });
+      void auditService.log({
+        entityType:    'STOCK_TRANSFER_REQUEST',
+        entityId:      requestId,
+        action:        'BLOCKED',
+        afterSnapshot: { reason: 'NO_ELIGIBLE_DESTINATION_USERS', destinationLocationId: req.destinationLocationId },
+        performedBy:   user.id,
+      });
+      throw new ValidationError(
+        'Cannot finalize transfer: destination location has no eligible users (OPERATOR or MANAGER) to complete the workflow',
+      );
     }
 
     // Stage 8.2.1.1: validate all items are registered at destination (blocking)
