@@ -47,7 +47,11 @@ export class LocationRepository {
       Promise.all(locations.map((loc) => this.countPendingRequests(loc.id))),
       Promise.all(
         locations.map((loc) =>
-          prisma.userLocationRole.findMany({ where: { locationId: loc.id }, select: { role: true } }),
+          // Only count active users — deactivating a user must immediately reflect in operationalStatus
+          prisma.userLocationRole.findMany({
+            where: { locationId: loc.id, user: { isActive: true } },
+            select: { role: true },
+          }),
         ),
       ),
     ]);

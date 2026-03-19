@@ -3,10 +3,11 @@ import { PrismaClient } from '@prisma/client';
 type PrismaLike = Pick<PrismaClient, 'userLocationRole'>;
 
 /**
- * Returns users who are eligible to act on the NEXT step of an adjustment.
+ * Returns ACTIVE users who are eligible to act on the NEXT step of an adjustment.
+ * Inactive users are excluded so deactivation correctly updates workflow eligibility.
  *
- * SUBMITTED  → MANAGERs at the item location(s) can approve
- * APPROVED   → OPERATOR or MANAGER at item location(s) can finalize
+ * SUBMITTED  → active MANAGERs at the item location(s) can approve
+ * APPROVED   → active OPERATOR or MANAGER at item location(s) can finalize
  */
 export async function getAdjustmentEligibleUsers(
   prisma: PrismaLike,
@@ -18,12 +19,12 @@ export async function getAdjustmentEligibleUsers(
   switch (adjustment.status) {
     case 'SUBMITTED':
       return prisma.userLocationRole.findMany({
-        where: { locationId: { in: locationIds }, role: 'MANAGER' },
+        where: { locationId: { in: locationIds }, role: 'MANAGER', user: { isActive: true } },
         include: { user: true },
       });
     case 'APPROVED': // called MANAGER_APPROVED in the spec
       return prisma.userLocationRole.findMany({
-        where: { locationId: { in: locationIds }, role: { in: ['OPERATOR', 'MANAGER'] } },
+        where: { locationId: { in: locationIds }, role: { in: ['OPERATOR', 'MANAGER'] }, user: { isActive: true } },
         include: { user: true },
       });
     default:
@@ -32,11 +33,12 @@ export async function getAdjustmentEligibleUsers(
 }
 
 /**
- * Returns users who are eligible to act on the NEXT step of a transfer.
+ * Returns ACTIVE users who are eligible to act on the NEXT step of a transfer.
+ * Inactive users are excluded so deactivation correctly updates workflow eligibility.
  *
- * SUBMITTED               → MANAGERs at the source (origin) location can approve
- * ORIGIN_MANAGER_APPROVED → OPERATOR or MANAGER at destination can approve
- * READY_TO_FINALIZE       → OPERATOR or MANAGER at destination can finalize
+ * SUBMITTED               → active MANAGERs at the source (origin) location can approve
+ * ORIGIN_MANAGER_APPROVED → active OPERATOR or MANAGER at destination can approve
+ * READY_TO_FINALIZE       → active OPERATOR or MANAGER at destination can finalize
  */
 export async function getTransferEligibleUsers(
   prisma: PrismaLike,
@@ -49,7 +51,7 @@ export async function getTransferEligibleUsers(
   switch (transfer.status) {
     case 'SUBMITTED':
       return prisma.userLocationRole.findMany({
-        where: { locationId: transfer.sourceLocationId, role: 'MANAGER' },
+        where: { locationId: transfer.sourceLocationId, role: 'MANAGER', user: { isActive: true } },
         include: { user: true },
       });
     case 'ORIGIN_MANAGER_APPROVED':
@@ -58,6 +60,7 @@ export async function getTransferEligibleUsers(
         where: {
           locationId: transfer.destinationLocationId,
           role: { in: ['OPERATOR', 'MANAGER'] },
+          user: { isActive: true },
         },
         include: { user: true },
       });

@@ -76,6 +76,23 @@ function CreateTransferDialog({
   });
   const allLocations: SimpleLocation[] = allLocationsRes ?? [];
 
+  // Stage 8.6: fetch readiness for selected source and destination
+  const { data: srcReadiness } = useQuery({
+    queryKey: ['location-readiness', sourceLocationId],
+    queryFn:  () => stockService.getLocationReadiness(sourceLocationId),
+    enabled:  open && !!sourceLocationId,
+  });
+  const { data: dstReadiness } = useQuery({
+    queryKey: ['location-readiness', destinationLocationId],
+    queryFn:  () => stockService.getLocationReadiness(destinationLocationId),
+    enabled:  open && !!destinationLocationId,
+  });
+
+  // Source needs an active MANAGER to approve at origin
+  const srcMissingManager = srcReadiness !== undefined && !srcReadiness.transferOutboundReady;
+  // Destination needs an active OPERATOR or MANAGER to receive and finalize
+  const dstMissingUsers   = dstReadiness !== undefined && !dstReadiness.transferInboundReady;
+
   const handleCreate = () => {
     if (!sourceLocationId || !destinationLocationId) return;
     onCreate({ sourceLocationId, destinationLocationId, notes: notes || undefined });
@@ -101,6 +118,11 @@ function CreateTransferDialog({
               ))}
             </Select>
           </FormControl>
+          {srcMissingManager && (
+            <Alert severity="warning" sx={{ py: 0.5 }}>
+              This location does not have the required active users to process the request. Contact admin.
+            </Alert>
+          )}
           <FormControl fullWidth size="small">
             <InputLabel>Destination Location</InputLabel>
             <Select
@@ -115,6 +137,11 @@ function CreateTransferDialog({
                 ))}
             </Select>
           </FormControl>
+          {dstMissingUsers && (
+            <Alert severity="warning" sx={{ py: 0.5 }}>
+              This location does not have the required active users to process the request. Contact admin.
+            </Alert>
+          )}
           <TextField
             label="Notes (optional)"
             fullWidth
@@ -157,6 +184,24 @@ export default function StockTransfersPage() {
   // Stage 8.4.2: show banner when ANY location is inactive; disable button only when ALL are inactive
   const hasAnyInactiveLocation = !isAdmin && myLocations.some((l) => l.isActive === false);
   const hasNoActiveLocation    = hasNoLocation || (!isAdmin && myLocations.length > 0 && myLocations.every((l) => l.isActive === false));
+
+  // Stage 8.6: check workflow readiness for the user's active source locations
+  const activeSourceIds = myLocations.filter((l) => l.isActive !== false).map((l) => l.id);
+  const { data: sourceReadinesses } = useQuery({
+    queryKey: ['location-readiness-trf-list', activeSourceIds.join(',')],
+    queryFn: async () => {
+      const results = await Promise.all(
+        activeSourceIds.map((lid) => stockService.getLocationReadiness(lid)),
+      );
+      return results;
+    },
+    enabled: !isAdmin && activeSourceIds.length > 0,
+  });
+  // Warn if any source location is missing an active manager (can't approve the transfer out)
+  const hasSourceMissingManager =
+    !isAdmin &&
+    sourceReadinesses !== undefined &&
+    sourceReadinesses.some((r: { transferOutboundReady: boolean }) => !r.transferOutboundReady);
 
   const [page, setPage]               = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(20);
@@ -213,6 +258,11 @@ export default function StockTransfersPage() {
       {!hasNoLocation && hasAnyInactiveLocation && (
         <Alert severity="warning" sx={{ mb: 2 }}>
           Some of your locations are inactive. Requests cannot be created for inactive locations. Contact admin if you need to reactivate.
+        </Alert>
+      )}
+      {!hasNoLocation && !hasNoActiveLocation && hasSourceMissingManager && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          This location does not have the required active users to process the request. Contact admin.
         </Alert>
       )}
 
