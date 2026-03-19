@@ -12,7 +12,12 @@ const TRF_TERMINAL: TransferRequestStatus[] = [
   TransferRequestStatus.REJECTED,
 ];
 
-export type LocationRow = Location & { blockingRequestCount: number };
+export type OperationalStatus = 'FULL' | 'PARTIAL' | 'NONE';
+
+export type LocationRow = Location & {
+  blockingRequestCount: number;
+  operationalStatus: OperationalStatus;
+};
 
 export class LocationRepository {
   async findById(id: string): Promise<Location | null> {
@@ -38,14 +43,29 @@ export class LocationRepository {
       orderBy: { code: 'asc' },
     });
 
-    const counts = await Promise.all(
-      locations.map((loc) => this.countPendingRequests(loc.id)),
-    );
+    const [counts, roleGroups] = await Promise.all([
+      Promise.all(locations.map((loc) => this.countPendingRequests(loc.id))),
+      Promise.all(
+        locations.map((loc) =>
+          prisma.userLocationRole.findMany({ where: { locationId: loc.id }, select: { role: true } }),
+        ),
+      ),
+    ]);
 
-    return locations.map((loc, i) => ({
-      ...loc,
-      blockingRequestCount: counts[i],
-    }));
+    return locations.map((loc, i) => {
+      const roles = roleGroups[i];
+      const hasOperator = roles.some((r) => r.role === 'OPERATOR');
+      const hasManager  = roles.some((r) => r.role === 'MANAGER');
+      const operationalStatus: OperationalStatus =
+        hasOperator && hasManager ? 'FULL' :
+        hasOperator || hasManager ? 'PARTIAL' :
+        'NONE';
+      return {
+        ...loc,
+        blockingRequestCount: counts[i],
+        operationalStatus,
+      };
+    });
   }
 
   async create(data: { code: string; name: string; address?: string }): Promise<Location> {

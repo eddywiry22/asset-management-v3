@@ -33,6 +33,7 @@ import { z } from 'zod';
 import {
   adminLocationsService,
   AdminLocation,
+  OperationalStatus,
 } from '../../../services/adminLocations.service';
 
 // ── Schemas ──────────────────────────────────────────────────────────────────
@@ -51,6 +52,12 @@ const editSchema = z.object({
 type CreateForm = z.infer<typeof createSchema>;
 type EditForm   = z.infer<typeof editSchema>;
 type StatusFilter = 'ALL' | 'ACTIVE' | 'INACTIVE';
+
+const OPERATIONAL_STATUS_CONFIG: Record<OperationalStatus, { label: string; color: 'success' | 'warning' | 'default'; title: string }> = {
+  FULL:    { label: 'Full',    color: 'success', title: 'Has both OPERATOR and MANAGER assigned' },
+  PARTIAL: { label: 'Partial', color: 'warning', title: 'Missing one role (OPERATOR or MANAGER)' },
+  NONE:    { label: 'None',    color: 'default', title: 'No users assigned to this location' },
+};
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -214,6 +221,7 @@ export default function AdminLocationsPage() {
               <TableCell>Name</TableCell>
               <TableCell>Address</TableCell>
               <TableCell>Status</TableCell>
+              <TableCell>Operational Status</TableCell>
               <TableCell align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
@@ -235,6 +243,16 @@ export default function AdminLocationsPage() {
                       color={loc.isActive ? 'success' : 'default'}
                       size="small"
                     />
+                  </TableCell>
+                  <TableCell>
+                    {(() => {
+                      const cfg = OPERATIONAL_STATUS_CONFIG[loc.operationalStatus ?? 'NONE'];
+                      return (
+                        <Tooltip title={cfg.title} arrow>
+                          <Chip label={cfg.label} color={cfg.color} size="small" />
+                        </Tooltip>
+                      );
+                    })()}
                   </TableCell>
                   <TableCell align="right">
                     <Button
@@ -261,7 +279,7 @@ export default function AdminLocationsPage() {
             })}
             {locations.length === 0 && (
               <TableRow>
-                <TableCell colSpan={5} align="center">No locations found</TableCell>
+                <TableCell colSpan={6} align="center">No locations found</TableCell>
               </TableRow>
             )}
           </TableBody>

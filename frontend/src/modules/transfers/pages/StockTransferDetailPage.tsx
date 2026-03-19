@@ -227,6 +227,18 @@ export default function StockTransferDetailPage() {
   const destRegisteredIds = new Set((destRegisteredProducts ?? []).map((p) => p.id));
   const itemsNotAtDest = (req?.items ?? []).filter((i) => !destRegisteredIds.has(i.productId));
 
+  // Fetch destination readiness — warn if no eligible users can complete the workflow
+  const { data: destReadiness } = useQuery({
+    queryKey: ['location-readiness', dstLocationId],
+    queryFn:  () => stockService.getLocationReadiness(dstLocationId!),
+    enabled:  !!dstLocationId && !isAdmin,
+  });
+  const destHasNoEligibleUsers =
+    !isAdmin &&
+    destReadiness !== undefined &&
+    !destReadiness.transferInboundReady;
+
+
   // Build a Map<locationId, role> from the user's visible locations.
   // Only non-null role values are stored; admin users skip this entirely.
   const myRoleMap = new Map(
@@ -398,6 +410,18 @@ export default function StockTransferDetailPage() {
       {itemsNotAtDest.length > 0 && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {itemsNotAtDest.length} item(s) are not registered at the destination location and must be registered before finalizing.
+        </Alert>
+      )}
+
+      {/* Stage 8.6: Destination readiness warnings */}
+      {destHasNoEligibleUsers && !isTerminal && !isReady && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          Destination location has no assigned users (OPERATOR or MANAGER). This transfer may not be completable — assign users to the destination location.
+        </Alert>
+      )}
+      {destHasNoEligibleUsers && isReady && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          Cannot finalize: destination location has no eligible users (OPERATOR or MANAGER) to complete the workflow.
         </Alert>
       )}
 
@@ -630,7 +654,7 @@ export default function StockTransferDetailPage() {
               <Button
                 variant="contained"
                 color="warning"
-                disabled={req.items.length === 0 || itemsNotAtDest.length > 0}
+                disabled={req.items.length === 0 || itemsNotAtDest.length > 0 || destHasNoEligibleUsers}
                 onClick={() => setConfirmAction('finalize')}
               >
                 Finalize Transfer

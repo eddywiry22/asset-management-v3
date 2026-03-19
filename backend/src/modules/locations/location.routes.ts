@@ -22,4 +22,8 @@ router.patch('/:id/toggle-active', (req, res, next) =>
   locationController.toggleActive(req as AuthenticatedRequest, res, next)
 );
 
+router.get('/:id/readiness', (req, res, next) =>
+  locationController.getReadiness(req as AuthenticatedRequest, res, next)
+);
+
 export default router;

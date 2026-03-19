@@ -4,6 +4,7 @@ import { stockQuerySchema, ledgerQuerySchema } from './stock.validator';
 import { AuthenticatedRequest } from '../../types/request.types';
 import { ValidationError } from '../../utils/errors';
 import { getRegisteredProductsAtLocation } from '../../utils/validationHelpers';
+import { evaluateLocationReadiness } from '../locations/locationReadiness.service';
 
 import prisma from '../../config/database';
 import { buildDateRangeFilter } from '../../utils/dateFilter';
@@ -77,6 +78,19 @@ export class StockController {
         data,
         meta: { page, limit, total },
       });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async getLocationReadiness(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { locationId } = req.query as { locationId?: string };
+      if (!locationId || typeof locationId !== 'string') {
+        throw new ValidationError('locationId query parameter is required');
+      }
+      const data = await evaluateLocationReadiness(locationId);
+      res.status(200).json({ success: true, data });
     } catch (err) {
       next(err);
     }

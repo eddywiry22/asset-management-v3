@@ -18,6 +18,7 @@ import {
   validateProductActive,
   getProductLocationStatus,
 } from '../../utils/validationHelpers';
+import { getAdjustmentEligibleUsers } from '../stock/utils/workflowResponsibility';
 
 type UserCtx = { id: string; isAdmin: boolean };
 
@@ -244,6 +245,13 @@ export class StockAdjustmentService {
     const updated = await stockAdjustmentRepository.updateStatus(requestId, {
       status: AdjustmentRequestStatus.SUBMITTED,
     });
+
+    // Stage 8.6: warn (non-blocking) if no MANAGER exists to approve at item location(s)
+    const submitEligible = await getAdjustmentEligibleUsers(prisma, { status: 'SUBMITTED', items: req.items });
+    if (submitEligible.length === 0) {
+      logger.warn('[Stage8.6] Adjustment submit warning — no managers at item location(s) to approve', { requestId });
+    }
+
     void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', beforeValue: { status: 'DRAFT' }, afterValue: { status: 'SUBMITTED' }, performedBy: userId });
     return updated;
   }
@@ -420,6 +428,22 @@ export class StockAdjustmentService {
       });
       throw new ValidationError(
         `Cannot finalize: location(s) ${adjFinalizeInactiveLocs.join(', ')} are inactive. Reactivate them first.`,
+      );
+    }
+
+    // Stage 8.6: HARD BLOCK — item location(s) must have eligible users to finalize
+    const finalizeEligible = await getAdjustmentEligibleUsers(prisma, { status: 'APPROVED', items: req.items });
+    if (finalizeEligible.length === 0) {
+      logger.warn('[Stage8.6] Adjustment finalize blocked — no eligible users at item location(s)', { requestId });
+      void auditService.log({
+        entityType:    'STOCK_ADJUSTMENT_REQUEST',
+        entityId:      requestId,
+        action:        'BLOCKED',
+        afterSnapshot: { reason: 'NO_ELIGIBLE_USERS_TO_FINALIZE' },
+        performedBy:   userId,
+      });
+      throw new ValidationError(
+        'Cannot finalize adjustment: no eligible users (OPERATOR or MANAGER) at the item location(s) to complete the workflow',
       );
     }
 

@@ -3,6 +3,7 @@ import { locationRepository, LocationRow } from './repositories/location.reposit
 import { NotFoundError, ValidationError } from '../../utils/errors';
 import { auditService } from '../../services/audit.service';
 import { CreateLocationDto, UpdateLocationDto } from './location.validator';
+import { evaluateLocationReadiness, LocationReadiness } from './locationReadiness.service';
 import logger from '../../utils/logger';
 
 export class LocationsService {
@@ -102,7 +103,13 @@ export class LocationsService {
       performedBy,
     });
 
-    return { ...updated, blockingRequestCount: 0 };
+    return { ...updated, blockingRequestCount: 0, operationalStatus: 'NONE' as const };
+  }
+
+  async getReadiness(id: string): Promise<LocationReadiness> {
+    const location = await locationRepository.findById(id);
+    if (!location) throw new NotFoundError(`Location not found: ${id}`);
+    return evaluateLocationReadiness(id);
   }
 }
 

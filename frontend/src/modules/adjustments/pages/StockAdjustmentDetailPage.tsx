@@ -212,6 +212,31 @@ export default function StockAdjustmentDetailPage() {
 
   const req: AdjustmentRequest | undefined = reqData?.data;
 
+  // Fetch readiness for all item locations — warn if no managers to approve or eligible users to finalize
+  const itemLocationIds = [...new Set((req?.items ?? []).map((i) => i.locationId))];
+  const { data: itemLocationReadinesses } = useQuery({
+    queryKey: ['location-readiness-adj', id, itemLocationIds.join(',')],
+    queryFn:  async () => {
+      const results = await Promise.all(
+        itemLocationIds.map((lid) => stockService.getLocationReadiness(lid)),
+      );
+      return results;
+    },
+    enabled: !isAdmin && itemLocationIds.length > 0 && !!req && req.status !== 'FINALIZED' && req.status !== 'CANCELLED' && req.status !== 'REJECTED',
+  });
+
+  // No managers at any item location → adjustment may get stuck at SUBMITTED
+  const noManagersAtItemLocations =
+    !isAdmin &&
+    itemLocationReadinesses !== undefined &&
+    itemLocationReadinesses.every((r: { hasManager: boolean }) => !r.hasManager);
+
+  // No eligible users (OPERATOR or MANAGER) at item locations → finalize blocked
+  const noEligibleUsersToFinalize =
+    !isAdmin &&
+    itemLocationReadinesses !== undefined &&
+    itemLocationReadinesses.every((r: { hasOperator: boolean; hasManager: boolean }) => !r.hasOperator && !r.hasManager);
+
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['stock-adjustment', id] });
     queryClient.invalidateQueries({ queryKey: ['stock-adjustments'] });
@@ -302,6 +327,18 @@ export default function StockAdjustmentDetailPage() {
             {inactiveForFinalize.length > 0 && (
               <Alert severity="error" sx={{ mb: 2 }}>
                 {inactiveForFinalize.length} item(s) have inactive product registrations and cannot be finalized. Reactivate or remove them first.
+              </Alert>
+            )}
+
+            {/* Stage 8.6: readiness warnings */}
+            {noManagersAtItemLocations && req.status === 'SUBMITTED' && (
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                No managers are assigned to the item location(s). This adjustment cannot be approved until a manager is assigned.
+              </Alert>
+            )}
+            {noEligibleUsersToFinalize && req.status === 'APPROVED' && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                Cannot finalize: no eligible users (OPERATOR or MANAGER) are assigned to the item location(s).
               </Alert>
             )}
           </>
@@ -495,7 +532,7 @@ export default function StockAdjustmentDetailPage() {
               <Button
                 variant="contained"
                 color="warning"
-                disabled={req.items.length === 0 || req.items.some((i) => i.isActiveNow === false)}
+                disabled={req.items.length === 0 || req.items.some((i) => i.isActiveNow === false) || noEligibleUsersToFinalize}
                 onClick={() => setConfirmAction('finalize')}
               >
                 Finalize (Apply Stock Changes)

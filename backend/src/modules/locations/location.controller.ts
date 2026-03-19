@@ -39,6 +39,15 @@ export class LocationController {
       next(err);
     }
   }
+
+  async getReadiness(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const data = await locationsService.getReadiness(req.params.id);
+      res.status(200).json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 export const locationController = new LocationController();
