@@ -22,6 +22,8 @@ import stockAdjustmentsService, {
 import stockService from '../../../services/stock.service';
 import { useAuth } from '../../../context/AuthContext';
 import ActionReasonModal from '../../../components/ActionReasonModal';
+import { WorkflowWarningBanner } from '../../../components/WorkflowWarningBanner';
+import { WORKFLOW_WARNINGS } from '../../../utils/workflowWarnings';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -317,7 +319,7 @@ export default function StockAdjustmentDetailPage() {
         const inactiveForFinalize = isApproved ? req.items.filter((i) => i.isActiveNow === false) : [];
         return (
           <>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: inactiveForFinalize.length > 0 ? 1 : 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: inactiveForFinalize.length > 0 || (noManagersAtItemLocations && !isTerminal) ? 1 : 2 }}>
               <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/stock-adjustments')}>Back</Button>
               <Typography variant="h5" fontWeight={600} sx={{ flexGrow: 1 }}>
                 {req.requestNumber}
@@ -330,16 +332,9 @@ export default function StockAdjustmentDetailPage() {
               </Alert>
             )}
 
-            {/* Stage 8.6: readiness warnings */}
-            {noManagersAtItemLocations && req.status === 'SUBMITTED' && (
-              <Alert severity="warning" sx={{ mb: 2 }}>
-                No managers are assigned to the item location(s). This adjustment cannot be approved until a manager is assigned.
-              </Alert>
-            )}
-            {noEligibleUsersToFinalize && req.status === 'APPROVED' && (
-              <Alert severity="error" sx={{ mb: 2 }}>
-                Cannot finalize: no eligible users (OPERATOR or MANAGER) are assigned to the item location(s).
-              </Alert>
+            {/* Manager readiness warning — shown from DRAFT onwards for any non-terminal status */}
+            {noManagersAtItemLocations && !isTerminal && (
+              <WorkflowWarningBanner message={WORKFLOW_WARNINGS.adjustmentMissingManagers} />
             )}
           </>
         );
@@ -532,7 +527,7 @@ export default function StockAdjustmentDetailPage() {
               <Button
                 variant="contained"
                 color="warning"
-                disabled={req.items.length === 0 || req.items.some((i) => i.isActiveNow === false) || noEligibleUsersToFinalize}
+                disabled={req.items.length === 0 || req.items.some((i) => i.isActiveNow === false) || noManagersAtItemLocations}
                 onClick={() => setConfirmAction('finalize')}
               >
                 Finalize (Apply Stock Changes)

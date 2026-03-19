@@ -23,6 +23,8 @@ import stockTransfersService, {
 import stockService from '../../../services/stock.service';
 import { AuthUser } from '../../../types/auth.types';
 import ActionReasonModal from '../../../components/ActionReasonModal';
+import { WorkflowWarningBanner } from '../../../components/WorkflowWarningBanner';
+import { WORKFLOW_WARNINGS } from '../../../utils/workflowWarnings';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -413,16 +415,9 @@ export default function StockTransferDetailPage() {
         </Alert>
       )}
 
-      {/* Stage 8.6: Destination readiness warnings */}
-      {destHasNoEligibleUsers && !isTerminal && !isReady && (
-        <Alert severity="warning" sx={{ mb: 2 }}>
-          Destination location has no assigned users (OPERATOR or MANAGER). This transfer may not be completable — assign users to the destination location.
-        </Alert>
-      )}
-      {destHasNoEligibleUsers && isReady && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          Cannot finalize: destination location has no eligible users (OPERATOR or MANAGER) to complete the workflow.
-        </Alert>
+      {/* Destination readiness warning — shown from DRAFT onwards for any non-terminal status */}
+      {destHasNoEligibleUsers && !isTerminal && (
+        <WorkflowWarningBanner message={WORKFLOW_WARNINGS.transferDestinationMissingUsers} />
       )}
 
       {/* Meta */}
