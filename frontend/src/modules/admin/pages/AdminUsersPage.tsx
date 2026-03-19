@@ -11,6 +11,7 @@ import {
   DialogTitle,
   FormControl,
   FormHelperText,
+  Grid,
   InputLabel,
   MenuItem,
   OutlinedInput,
@@ -29,6 +30,7 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
+import FilterListIcon from '@mui/icons-material/FilterList';
 import LockResetIcon from '@mui/icons-material/LockReset';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm, Controller } from 'react-hook-form';
@@ -283,35 +285,47 @@ export default function AdminUsersPage() {
       </Box>
 
       {/* Filters */}
-      <Paper sx={{ p: 2, mb: 2, display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-        <FormControl size="small" sx={{ minWidth: 140 }}>
-          <InputLabel>Status</InputLabel>
-          <Select
-            label="Status"
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value as StatusFilter)}
-          >
-            <MenuItem value="ALL">All</MenuItem>
-            <MenuItem value="ACTIVE">Active</MenuItem>
-            <MenuItem value="INACTIVE">Inactive</MenuItem>
-          </Select>
-        </FormControl>
-
-        <FormControl size="small" sx={{ minWidth: 140 }}>
-          <InputLabel>Role</InputLabel>
-          <Select
-            label="Role"
-            value={filterRole}
-            onChange={(e) => setFilterRole(e.target.value as UserRole | '')}
-          >
-            <MenuItem value="">All Roles</MenuItem>
-            <MenuItem value="OPERATOR">Operator</MenuItem>
-            <MenuItem value="MANAGER">Manager</MenuItem>
-          </Select>
-        </FormControl>
-
-        <Button variant="contained" size="small" onClick={applyFilter}>Apply</Button>
-        <Button variant="outlined" size="small" onClick={clearFilter}>Clear</Button>
+      <Paper sx={{ p: 2, mb: 2 }}>
+        <Grid container spacing={2} alignItems="center">
+          <Grid item xs={12} md={3}>
+            <TextField
+              select
+              size="small"
+              fullWidth
+              label="Status"
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value as StatusFilter)}
+            >
+              <MenuItem value="ALL">All</MenuItem>
+              <MenuItem value="ACTIVE">Active</MenuItem>
+              <MenuItem value="INACTIVE">Inactive</MenuItem>
+            </TextField>
+          </Grid>
+          <Grid item xs={12} md={3}>
+            <TextField
+              select
+              size="small"
+              fullWidth
+              label="Role"
+              value={filterRole}
+              onChange={(e) => setFilterRole(e.target.value as UserRole | '')}
+            >
+              <MenuItem value="">All Roles</MenuItem>
+              <MenuItem value="OPERATOR">Operator</MenuItem>
+              <MenuItem value="MANAGER">Manager</MenuItem>
+            </TextField>
+          </Grid>
+          <Grid item xs={12} md="auto">
+            <Button variant="outlined" startIcon={<FilterListIcon />} onClick={applyFilter}>
+              Apply
+            </Button>
+          </Grid>
+          <Grid item xs={12} md="auto">
+            <Button variant="text" onClick={clearFilter}>
+              Clear
+            </Button>
+          </Grid>
+        </Grid>
       </Paper>
 
       {/* Table */}
