@@ -29,6 +29,11 @@ import { WORKFLOW_WARNINGS } from '../../../utils/workflowWarnings';
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+function fmtQty(n: number | null | undefined): string {
+  if (n == null) return '—';
+  return Number(n).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 4 });
+}
+
 const STATUS_COLORS: Record<string, 'default' | 'success' | 'warning' | 'error' | 'info'> = {
   DRAFT:                        'default',
   SUBMITTED:                    'info',
@@ -517,52 +522,97 @@ export default function StockTransferDetailPage() {
             <TableHead>
               <TableRow>
                 <TableCell>Product (SKU)</TableCell>
-                <TableCell align="right">Quantity</TableCell>
+                <TableCell align="right">Qty Transfer</TableCell>
                 <TableCell>UOM</TableCell>
+                <TableCell align="right">
+                  <Tooltip title={isDraft ? 'Live stock at source before transfer' : 'Source stock snapshot at time of submission'} arrow>
+                    <span style={{ cursor: 'help', borderBottom: '1px dashed' }}>Origin Before</span>
+                  </Tooltip>
+                </TableCell>
+                <TableCell align="right">
+                  <Tooltip title={isDraft ? 'Projected source stock after transfer (live)' : 'Projected source stock after transfer (snapshot)'} arrow>
+                    <span style={{ cursor: 'help', borderBottom: '1px dashed' }}>Origin After</span>
+                  </Tooltip>
+                </TableCell>
+                <TableCell align="right">
+                  <Tooltip title="Destination stock snapshot at time of finalization" arrow>
+                    <span style={{ cursor: 'help', borderBottom: '1px dashed' }}>Dest. Before</span>
+                  </Tooltip>
+                </TableCell>
+                <TableCell align="right">
+                  <Tooltip title="Destination stock after receiving transfer (snapshot)" arrow>
+                    <span style={{ cursor: 'help', borderBottom: '1px dashed' }}>Dest. After</span>
+                  </Tooltip>
+                </TableCell>
                 {isDraft && isCreator && <TableCell align="center">Actions</TableCell>}
               </TableRow>
             </TableHead>
             <TableBody>
               {req.items.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={4} align="center">No items yet.</TableCell>
+                  <TableCell colSpan={9} align="center">No items yet.</TableCell>
                 </TableRow>
               )}
-              {req.items.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      {item.product?.sku} — {item.product?.name}
-                      {!isTerminal && item.isActiveNow === false && (
-                        <Chip label="Now Inactive" size="small" color="warning" />
-                      )}
-                    </Box>
-                  </TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 600 }}>{Number(item.qty)}</TableCell>
-                  <TableCell>{item.product?.uom?.code}</TableCell>
-                  {isDraft && isCreator && (
-                    <TableCell align="center">
-                      <Tooltip title="Edit">
-                        <IconButton
-                          size="small"
-                          onClick={() => { setEditingItem(item); setItemDialogOpen(true); }}
-                        >
-                          <EditIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Remove">
-                        <IconButton
-                          size="small"
-                          color="error"
-                          onClick={() => deleteItemMutation.mutate(item.id)}
-                        >
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
+              {req.items.map((item) => {
+                const afterOrigin = item.afterQtyOrigin != null ? Number(item.afterQtyOrigin) : null;
+                const isLow       = afterOrigin != null && afterOrigin < 0;
+                return (
+                  <TableRow
+                    key={item.id}
+                    sx={isLow ? { backgroundColor: 'rgba(211,47,47,0.06)' } : undefined}
+                  >
+                    <TableCell>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        {item.product?.sku} — {item.product?.name}
+                        {!isTerminal && item.isActiveNow === false && (
+                          <Chip label="Now Inactive" size="small" color="warning" />
+                        )}
+                        {isLow && (
+                          <Chip label="Low Stock" size="small" color="error" />
+                        )}
+                      </Box>
                     </TableCell>
-                  )}
-                </TableRow>
-              ))}
+                    <TableCell align="right" sx={{ fontWeight: 600 }}>{Number(item.qty)}</TableCell>
+                    <TableCell>{item.product?.uom?.code}</TableCell>
+                    <TableCell align="right" sx={{ color: 'text.secondary' }}>
+                      {fmtQty(item.beforeQtyOrigin)}
+                    </TableCell>
+                    <TableCell
+                      align="right"
+                      sx={{ fontWeight: 600, color: isLow ? 'error.main' : 'text.primary' }}
+                    >
+                      {fmtQty(afterOrigin)}
+                    </TableCell>
+                    <TableCell align="right" sx={{ color: 'text.secondary' }}>
+                      {fmtQty(item.beforeQtyDestination)}
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 600 }}>
+                      {fmtQty(item.afterQtyDestination)}
+                    </TableCell>
+                    {isDraft && isCreator && (
+                      <TableCell align="center">
+                        <Tooltip title="Edit">
+                          <IconButton
+                            size="small"
+                            onClick={() => { setEditingItem(item); setItemDialogOpen(true); }}
+                          >
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Remove">
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => deleteItemMutation.mutate(item.id)}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </TableCell>
+                    )}
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </TableContainer>

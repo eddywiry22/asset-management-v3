@@ -9,6 +9,8 @@ export type AdjustmentItemRow = {
   locationId: string;
   qtyChange: any;
   reason: string | null;
+  beforeQty: any | null;
+  afterQty: any | null;
   createdAt: Date;
   product: { id: string; sku: string; name: string; uom: { code: string } };
   location: { id: string; code: string; name: string };
@@ -134,6 +136,8 @@ export class StockAdjustmentRepository {
     locationId: string;
     qtyChange: number;
     reason?: string;
+    beforeQty?: number;
+    afterQty?: number;
   }): Promise<AdjustmentItemRow> {
     return prisma.stockAdjustmentItem.create({
       data,
@@ -146,12 +150,21 @@ export class StockAdjustmentRepository {
     locationId?: string;
     qtyChange?: number;
     reason?: string;
+    beforeQty?: number;
+    afterQty?: number;
   }): Promise<AdjustmentItemRow> {
     return prisma.stockAdjustmentItem.update({
       where: { id: itemId },
       data,
       include: ITEM_INCLUDE,
     }) as Promise<AdjustmentItemRow>;
+  }
+
+  async updateItemQtySnapshot(itemId: string, beforeQty: number, afterQty: number): Promise<void> {
+    await prisma.stockAdjustmentItem.update({
+      where: { id: itemId },
+      data: { beforeQty, afterQty },
+    });
   }
 
   async deleteItem(itemId: string): Promise<void> {

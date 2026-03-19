@@ -21,6 +21,10 @@ export type TransferItem = {
   requestId: string;
   productId: string;
   qty: number;
+  beforeQtyOrigin: number | null;
+  afterQtyOrigin: number | null;
+  beforeQtyDestination: number | null;
+  afterQtyDestination: number | null;
   createdAt: string;
   product: { id: string; sku: string; name: string; uom: { code: string } };
   isActiveNow?: boolean;
