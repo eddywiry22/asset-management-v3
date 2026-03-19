@@ -10,7 +10,8 @@ export type AuditAction =
   | 'STATUS_CHANGE'
   | 'TRANSFER_CREATE'
   | 'FINALIZE_BLOCKED'
-  | 'BLOCKED';
+  | 'BLOCKED'
+  | 'USER_PASSWORD_RESET';
 
 export type AuditEntityType =
   | 'PRODUCT'

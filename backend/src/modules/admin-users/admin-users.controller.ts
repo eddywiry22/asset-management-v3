@@ -50,6 +50,15 @@ export class AdminUsersController {
       next(err);
     }
   }
+
+  async resetPassword(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      await adminUsersService.resetPassword(req.params.id, req.body.newPassword, req.user.id);
+      res.status(200).json({ success: true, message: 'Password reset successfully' });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 export const adminUsersController = new AdminUsersController();

@@ -19,5 +19,10 @@ export const updateUserSchema = z.object({
   locationIds: z.array(z.string().uuid('Each locationId must be a valid UUID')).optional(),
 });
 
+export const resetPasswordSchema = z.object({
+  newPassword: z.string().min(6, 'Password must be at least 6 characters'),
+});
+
 export type CreateUserDto = z.infer<typeof createUserSchema>;
 export type UpdateUserDto = z.infer<typeof updateUserSchema>;
+export type ResetPasswordDto = z.infer<typeof resetPasswordSchema>;

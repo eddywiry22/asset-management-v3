@@ -126,6 +126,10 @@ export class AdminUsersRepository {
     return prisma.user.update({ where: { id }, data: { isActive } });
   }
 
+  async updatePasswordHash(id: string, passwordHash: string): Promise<void> {
+    await prisma.user.update({ where: { id }, data: { passwordHash } });
+  }
+
   /** Replace all location-role assignments for a user */
   async replaceLocationRoles(
     userId: string,
