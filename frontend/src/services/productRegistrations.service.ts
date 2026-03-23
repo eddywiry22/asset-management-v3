@@ -29,9 +29,10 @@ export interface DeactivationCheck {
 }
 
 export const productRegistrationsService = {
-  async getAll(): Promise<ProductRegistration[]> {
+  async getAll(status: 'ALL' | 'ACTIVE' | 'INACTIVE' = 'ALL'): Promise<ProductRegistration[]> {
     const res = await apiClient.get<{ success: boolean; data: ProductRegistration[] }>(
       '/admin/product-registrations',
+      { params: { status } },
     );
     return res.data.data;
   },

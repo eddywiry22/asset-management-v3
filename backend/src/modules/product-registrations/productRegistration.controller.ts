@@ -5,9 +5,12 @@ import { AuthenticatedRequest } from '../../types/request.types';
 export class ProductLocationController {
   async getAll(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-      const page  = parseInt(req.query.page  as string) || 1;
-      const limit = parseInt(req.query.limit as string) || 20;
-      const { data, total } = await productLocationService.findAll(page, limit);
+      const page   = parseInt(req.query.page  as string) || 1;
+      const limit  = parseInt(req.query.limit as string) || 20;
+      const status = (['ALL', 'ACTIVE', 'INACTIVE'].includes(req.query.status as string)
+        ? req.query.status as 'ALL' | 'ACTIVE' | 'INACTIVE'
+        : 'ALL');
+      const { data, total } = await productLocationService.findAll(page, limit, status);
       res.status(200).json({ success: true, data, meta: { page, limit, total } });
     } catch (err) {
       next(err);

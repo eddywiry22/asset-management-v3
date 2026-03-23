@@ -22,11 +22,19 @@ const INCLUDE = {
 };
 
 export class ProductLocationRepository {
-  async findAll(page = 1, limit = 20): Promise<{ data: ProductLocationRow[]; total: number }> {
+  async findAll(
+    page = 1,
+    limit = 20,
+    status: 'ALL' | 'ACTIVE' | 'INACTIVE' = 'ALL',
+  ): Promise<{ data: ProductLocationRow[]; total: number }> {
     const skip = (page - 1) * limit;
+    const where =
+      status === 'ACTIVE'   ? { isActive: true }  :
+      status === 'INACTIVE' ? { isActive: false } :
+      {};
     const [data, total] = await Promise.all([
-      pl().findMany({ skip, take: limit, include: INCLUDE, orderBy: { createdAt: 'asc' } }),
-      pl().count(),
+      pl().findMany({ where, skip, take: limit, include: INCLUDE, orderBy: { createdAt: 'asc' } }),
+      pl().count({ where }),
     ]);
     return { data, total };
   }
