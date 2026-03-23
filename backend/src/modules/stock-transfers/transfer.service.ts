@@ -80,47 +80,55 @@ export class TransferService {
   }
 
   // -------------------------------------------------------------------------
-  // Get by id — enriches items with isActiveNow for non-terminal requests
-  //             and live beforeQtyOrigin/afterQtyOrigin for DRAFT requests
+  // Get by id — enriches items with isActiveNow for non-terminal requests.
+  // For all active (non-FINALIZED) statuses, returns live qty for both origin
+  // and destination. FINALIZED returns the stored historical snapshot.
+  // CANCELLED/REJECTED return raw stored values (may be null).
   // -------------------------------------------------------------------------
   async findById(id: string): Promise<TransferRequestRow> {
     const req = await transferRepository.findById(id);
     if (!req) throw new NotFoundError(`Stock transfer request not found: ${id}`);
 
+    // FINALIZED/CANCELLED/REJECTED: return raw DB data (snapshot or null)
     const TERMINAL: TransferRequestStatus[] = [
       TransferRequestStatus.FINALIZED,
       TransferRequestStatus.CANCELLED,
       TransferRequestStatus.REJECTED,
     ];
-    if (!TERMINAL.includes(req.status) && req.items?.length) {
-      const enriched = await Promise.all(
-        req.items.map(async (item) => {
-          const result = await validateProductActive(item.productId, req.sourceLocationId);
-          const enrichedItem: typeof item & { isActiveNow: boolean } = { ...item, isActiveNow: result.valid };
+    if (TERMINAL.includes(req.status)) return req;
 
-          // For DRAFT requests: recalculate live beforeQtyOrigin/afterQtyOrigin from current stock
-          if (req.status === TransferRequestStatus.DRAFT) {
-            const balance = await prisma.stockBalance.findUnique({
-              where: { productId_locationId: { productId: item.productId, locationId: req.sourceLocationId } },
-            });
-            const liveBeforeQtyOrigin = balance ? Number(balance.onHandQty) : 0;
-            const liveAfterQtyOrigin  = liveBeforeQtyOrigin - Number(item.qty);
-            return {
-              ...enrichedItem,
-              beforeQtyOrigin: liveBeforeQtyOrigin,
-              afterQtyOrigin:  liveAfterQtyOrigin,
-              beforeQtyDestination: null,
-              afterQtyDestination:  null,
-            };
-          }
+    if (!req.items?.length) return req;
 
-          return enrichedItem;
-        }),
-      );
-      return { ...req, items: enriched };
-    }
+    // Active statuses (DRAFT, SUBMITTED, ORIGIN_MANAGER_APPROVED, READY_TO_FINALIZE):
+    // enrich with live isActiveNow + live origin and destination qty
+    const enriched = await Promise.all(
+      req.items.map(async (item) => {
+        const [activeResult, originBalance, destBalance] = await Promise.all([
+          validateProductActive(item.productId, req.sourceLocationId),
+          prisma.stockBalance.findUnique({
+            where: { productId_locationId: { productId: item.productId, locationId: req.sourceLocationId } },
+          }),
+          prisma.stockBalance.findUnique({
+            where: { productId_locationId: { productId: item.productId, locationId: req.destinationLocationId } },
+          }),
+        ]);
 
-    return req;
+        const liveBeforeQtyOrigin      = originBalance ? Number(originBalance.onHandQty) : 0;
+        const liveAfterQtyOrigin       = liveBeforeQtyOrigin - Number(item.qty);
+        const liveBeforeQtyDestination = destBalance   ? Number(destBalance.onHandQty)   : 0;
+        const liveAfterQtyDestination  = liveBeforeQtyDestination + Number(item.qty);
+
+        return {
+          ...item,
+          isActiveNow:          activeResult.valid,
+          beforeQtyOrigin:      liveBeforeQtyOrigin,
+          afterQtyOrigin:       liveAfterQtyOrigin,
+          beforeQtyDestination: liveBeforeQtyDestination,
+          afterQtyDestination:  liveAfterQtyDestination,
+        };
+      }),
+    );
+    return { ...req, items: enriched };
   }
 
   // -------------------------------------------------------------------------
@@ -314,22 +322,25 @@ export class TransferService {
     }
     await assertUserCanAccessLocation(user.id, user.isAdmin, req.sourceLocationId);
 
+    // Validate origin stock sufficiency before submission (block if any item
+    // would result in negative available qty at source).
+    for (const item of req.items) {
+      const { availableQty } = await reservationService.getAvailableStock(
+        item.productId,
+        req.sourceLocationId,
+      );
+      if (availableQty < Number(item.qty)) {
+        throw new ValidationError(
+          `Insufficient available stock for product ${item.product?.sku ?? item.productId} ` +
+          `at source location. Available: ${availableQty}, required: ${Number(item.qty)}`,
+        );
+      }
+    }
+
     const claimed = await transferRepository.claimSubmit(requestId, new Date());
     if (!claimed) {
       throw new ValidationError(`Cannot submit a request with status ${req.status}`);
     }
-
-    // Snapshot beforeQtyOrigin / afterQtyOrigin for each item at submit time
-    await Promise.all(
-      req.items.map(async (item) => {
-        const balance = await prisma.stockBalance.findUnique({
-          where: { productId_locationId: { productId: item.productId, locationId: req.sourceLocationId } },
-        });
-        const beforeQtyOrigin = balance ? Number(balance.onHandQty) : 0;
-        const afterQtyOrigin  = beforeQtyOrigin - Number(item.qty);
-        await transferRepository.updateItemOriginSnapshot(item.id, beforeQtyOrigin, afterQtyOrigin);
-      }),
-    );
 
     // Stage 8.6: warn (non-blocking) if source has no MANAGER to approve
     const submitEligible = await getTransferEligibleUsers(prisma, {
@@ -646,15 +657,27 @@ export class TransferService {
       });
     }
 
-    // Snapshot beforeQtyDestination / afterQtyDestination for each item before finalizing
+    // Snapshot origin and destination qty for all items immediately before
+    // applying mutations — this is the authoritative historical record.
     await Promise.all(
       req.items.map(async (item) => {
-        const balance = await prisma.stockBalance.findUnique({
-          where: { productId_locationId: { productId: item.productId, locationId: req.destinationLocationId } },
-        });
-        const beforeQtyDestination = balance ? Number(balance.onHandQty) : 0;
+        const [originBalance, destBalance] = await Promise.all([
+          prisma.stockBalance.findUnique({
+            where: { productId_locationId: { productId: item.productId, locationId: req.sourceLocationId } },
+          }),
+          prisma.stockBalance.findUnique({
+            where: { productId_locationId: { productId: item.productId, locationId: req.destinationLocationId } },
+          }),
+        ]);
+        const beforeQtyOrigin      = originBalance ? Number(originBalance.onHandQty) : 0;
+        const afterQtyOrigin       = beforeQtyOrigin - Number(item.qty);
+        const beforeQtyDestination = destBalance   ? Number(destBalance.onHandQty)   : 0;
         const afterQtyDestination  = beforeQtyDestination + Number(item.qty);
-        await transferRepository.updateItemDestinationSnapshot(item.id, beforeQtyDestination, afterQtyDestination);
+
+        await Promise.all([
+          transferRepository.updateItemOriginSnapshot(item.id, beforeQtyOrigin, afterQtyOrigin),
+          transferRepository.updateItemDestinationSnapshot(item.id, beforeQtyDestination, afterQtyDestination),
+        ]);
       }),
     );
 

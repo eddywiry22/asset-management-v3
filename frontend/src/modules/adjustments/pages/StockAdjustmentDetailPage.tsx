@@ -425,12 +425,12 @@ export default function StockAdjustmentDetailPage() {
                 <TableCell>Location</TableCell>
                 <TableCell align="right">Qty Change</TableCell>
                 <TableCell align="right">
-                  <Tooltip title={isDraft ? 'Live available stock before this adjustment' : 'Stock snapshot taken at time of request creation'} arrow>
+                  <Tooltip title={isDraft ? 'Live available stock at this location (updates in real-time)' : 'Stock snapshot captured when item was added to the request'} arrow>
                     <span style={{ cursor: 'help', borderBottom: '1px dashed' }}>Qty Before</span>
                   </Tooltip>
                 </TableCell>
                 <TableCell align="right">
-                  <Tooltip title={isDraft ? 'Projected stock after applying this adjustment (live)' : 'Projected stock after adjustment (historical snapshot)'} arrow>
+                  <Tooltip title={isDraft ? 'Projected stock after this adjustment (live, recalculated)' : 'Projected stock after adjustment (from creation snapshot)'} arrow>
                     <span style={{ cursor: 'help', borderBottom: '1px dashed' }}>Qty After</span>
                   </Tooltip>
                 </TableCell>

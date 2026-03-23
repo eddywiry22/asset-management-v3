@@ -525,22 +525,22 @@ export default function StockTransferDetailPage() {
                 <TableCell align="right">Qty Transfer</TableCell>
                 <TableCell>UOM</TableCell>
                 <TableCell align="right">
-                  <Tooltip title={isDraft ? 'Live stock at source before transfer' : 'Source stock snapshot at time of submission'} arrow>
+                  <Tooltip title={status === 'FINALIZED' ? 'Source stock at time of finalization (historical snapshot)' : 'Live available stock at source location'} arrow>
                     <span style={{ cursor: 'help', borderBottom: '1px dashed' }}>Origin Before</span>
                   </Tooltip>
                 </TableCell>
                 <TableCell align="right">
-                  <Tooltip title={isDraft ? 'Projected source stock after transfer (live)' : 'Projected source stock after transfer (snapshot)'} arrow>
+                  <Tooltip title={status === 'FINALIZED' ? 'Source stock after transfer (historical snapshot)' : 'Projected source stock after transfer (live)'} arrow>
                     <span style={{ cursor: 'help', borderBottom: '1px dashed' }}>Origin After</span>
                   </Tooltip>
                 </TableCell>
                 <TableCell align="right">
-                  <Tooltip title="Destination stock snapshot at time of finalization" arrow>
+                  <Tooltip title={status === 'FINALIZED' ? 'Destination stock at time of finalization (historical snapshot)' : 'Live available stock at destination location'} arrow>
                     <span style={{ cursor: 'help', borderBottom: '1px dashed' }}>Dest. Before</span>
                   </Tooltip>
                 </TableCell>
                 <TableCell align="right">
-                  <Tooltip title="Destination stock after receiving transfer (snapshot)" arrow>
+                  <Tooltip title={status === 'FINALIZED' ? 'Destination stock after receiving transfer (historical snapshot)' : 'Projected destination stock after transfer (live)'} arrow>
                     <span style={{ cursor: 'help', borderBottom: '1px dashed' }}>Dest. After</span>
                   </Tooltip>
                 </TableCell>
