@@ -56,15 +56,18 @@ export class StockController {
         throw new ValidationError(msgs.join(', '));
       }
 
-      const { locationId, productId, page, limit, startDate, endDate } = parsed.data;
+      const { locationId, productId, locationIds, productIds, page, limit, startDate, endDate } = parsed.data;
+
+      const normalizedProductIds  = productIds  ?? (productId  ? [productId]  : undefined);
+      const normalizedLocationIds = locationIds ?? (locationId ? [locationId] : undefined);
 
       // Normalise: start → 00:00:00.000, end → 23:59:59.999 (inclusive end-of-day)
       const overviewDateFilter = buildDateRangeFilter(startDate, endDate);
 
       const { data, total } = await stockService.getStockOverview(
         {
-          locationId,
-          productId,
+          productIds:  normalizedProductIds,
+          locationIds: normalizedLocationIds,
           page,
           limit,
           startDate: overviewDateFilter?.gte,
@@ -118,15 +121,18 @@ export class StockController {
         throw new ValidationError(msgs.join(', '));
       }
 
-      const { productId, locationId, startDate, endDate, page, limit } = parsed.data;
+      const { productId, locationId, productIds, locationIds, startDate, endDate, page, limit } = parsed.data;
+
+      const normalizedProductIds  = productIds  ?? (productId  ? [productId]  : undefined);
+      const normalizedLocationIds = locationIds ?? (locationId ? [locationId] : undefined);
 
       // Normalise: start → 00:00:00.000, end → 23:59:59.999 (inclusive end-of-day)
       const ledgerDateFilter = buildDateRangeFilter(startDate, endDate);
 
       const { data, total } = await stockService.getLedger(
         {
-          productId,
-          locationId,
+          productIds:  normalizedProductIds,
+          locationIds: normalizedLocationIds,
           startDate: ledgerDateFilter?.gte,
           endDate:   ledgerDateFilter?.lte,
           page,

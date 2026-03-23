@@ -7,13 +7,17 @@ import logger from '../../utils/logger';
 
 export class ProductLocationService {
   async findAll(params: {
-    page:        number;
-    pageSize:    number;
-    status:      'ALL' | 'ACTIVE' | 'INACTIVE';
-    productId?:  string;
-    locationId?: string;
+    page:         number;
+    pageSize:     number;
+    status:       'ALL' | 'ACTIVE' | 'INACTIVE';
+    productIds?:  string[];
+    locationIds?: string[];
   }): Promise<{ data: ProductLocationRow[]; total: number }> {
-    logger.info('[Stage8] ProductRegistration findAll', params);
+    logger.info('[Stage8] ProductRegistration findAll', {
+      productIds:  params.productIds,
+      locationIds: params.locationIds,
+      status:      params.status,
+    });
     return productLocationRepository.findAll(params);
   }
 
