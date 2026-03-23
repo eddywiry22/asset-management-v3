@@ -28,6 +28,7 @@ export type StockOverviewItem = {
 
 export type StockQueryParams = {
   locationId?: string;
+  productId?: string;
   page: number;
   limit: number;
   startDate?: Date;
@@ -54,7 +55,7 @@ export class StockService {
     userId: string,
     isAdmin: boolean,
   ): Promise<{ data: StockOverviewItem[]; total: number }> {
-    const { locationId, page, limit, startDate, endDate } = params;
+    const { locationId, productId, page, limit, startDate, endDate } = params;
 
     // Determine visible locations
     const visibleLocationIds = await this.getVisibleLocationIds(userId, isAdmin, locationId);
@@ -67,6 +68,7 @@ export class StockService {
     const skip = (page - 1) * limit;
     const whereClause: Record<string, unknown> = {
       locationId: { in: visibleLocationIds },
+      ...(productId && { productId }),
     };
 
     const [balances, total] = await Promise.all([

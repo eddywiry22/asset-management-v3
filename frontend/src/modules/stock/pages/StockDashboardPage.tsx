@@ -10,6 +10,7 @@ import FilterListIcon from '@mui/icons-material/FilterList';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { useQuery } from '@tanstack/react-query';
 import stockService, { StockOverviewItem, StockLedgerEntry } from '../../../services/stock.service';
+import { goodsService } from '../../../services/goods.service';
 import { useAuth } from '../../../context/AuthContext';
 
 // ---------------------------------------------------------------------------
@@ -123,6 +124,7 @@ export default function StockDashboardPage() {
 
   // Filters
   const [filterLocationId, setFilterLocationId] = useState('');
+  const [filterProductId,  setFilterProductId]  = useState('');
   const [startDate, setStartDate] = useState<string | null>(null);
   const [endDate,   setEndDate]   = useState<string | null>(null);
   const [page, setPage]  = useState(0);
@@ -130,7 +132,7 @@ export default function StockDashboardPage() {
 
   // Applied filters (submitted on click)
   const [appliedFilters, setAppliedFilters] = useState<{
-    locationId?: string; startDate?: string; endDate?: string;
+    locationId?: string; productId?: string; startDate?: string; endDate?: string;
   }>({});
   const [applyVersion, setApplyVersion] = useState(0);
 
@@ -144,6 +146,12 @@ export default function StockDashboardPage() {
   const { data: visibleLocations = [], isSuccess: locationsLoaded } = useQuery({
     queryKey: ['stock-visible-locations'],
     queryFn:  stockService.getVisibleLocations,
+  });
+
+  // Fetch all products for the product filter dropdown
+  const { data: products = [] } = useQuery({
+    queryKey: ['goods'],
+    queryFn:  goodsService.getAll,
   });
 
   const hasNoLocation     = !isAdmin && locationsLoaded && visibleLocations.length === 0;
@@ -172,6 +180,7 @@ export default function StockDashboardPage() {
     setPage(0);
     setAppliedFilters({
       locationId: filterLocationId || undefined,
+      productId:  filterProductId  || undefined,
       startDate:  startDate ?? undefined,
       endDate:    endDate   ?? undefined,
     });
@@ -180,6 +189,7 @@ export default function StockDashboardPage() {
 
   function clearFilters() {
     setFilterLocationId('');
+    setFilterProductId('');
     setStartDate(null);
     setEndDate(null);
     setPage(0);
@@ -224,6 +234,23 @@ export default function StockDashboardPage() {
               </Select>
             </FormControl>
           )}
+
+          {/* Product filter */}
+          <FormControl size="small" sx={{ minWidth: 200 }}>
+            <InputLabel>Product</InputLabel>
+            <Select
+              value={filterProductId}
+              label="Product"
+              onChange={(e) => setFilterProductId(e.target.value)}
+            >
+              <MenuItem value=""><em>All</em></MenuItem>
+              {products.map((p) => (
+                <MenuItem key={p.id} value={p.id}>
+                  {p.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
 
           <TextField
             label="Period Start"

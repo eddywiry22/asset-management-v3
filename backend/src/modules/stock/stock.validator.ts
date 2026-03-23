@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 export const stockQuerySchema = z.object({
   locationId: z.string().uuid().optional(),
+  productId:  z.string().uuid().optional(),
   page:       z.coerce.number().int().positive().default(1),
   limit:      z.coerce.number().int().positive().max(100).default(20),
   startDate:  z.string().optional(),
