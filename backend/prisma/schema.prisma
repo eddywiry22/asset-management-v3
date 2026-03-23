@@ -263,13 +263,15 @@ model StockAdjustmentRequest {
 }
 
 model StockAdjustmentItem {
-  id        String   @id @default(uuid())
-  requestId String
-  productId String
+  id         String   @id @default(uuid())
+  requestId  String
+  productId  String
   locationId String
-  qtyChange Decimal  @db.Decimal(15, 4)
-  reason    String?  @db.Text
-  createdAt DateTime @default(now())
+  qtyChange  Decimal  @db.Decimal(15, 4)
+  reason     String?  @db.Text
+  beforeQty  Decimal? @db.Decimal(15, 4)
+  afterQty   Decimal? @db.Decimal(15, 4)
+  createdAt  DateTime @default(now())
 
   request  StockAdjustmentRequest @relation(fields: [requestId], references: [id])
   product  Product                @relation(fields: [productId], references: [id])
@@ -350,11 +352,15 @@ model StockTransferRequest {
 }
 
 model StockTransferItem {
-  id        String   @id @default(uuid())
-  requestId String
-  productId String
-  qty       Decimal  @db.Decimal(15, 4)
-  createdAt DateTime @default(now())
+  id                   String   @id @default(uuid())
+  requestId            String
+  productId            String
+  qty                  Decimal  @db.Decimal(15, 4)
+  beforeQtyOrigin      Decimal? @db.Decimal(15, 4)
+  afterQtyOrigin       Decimal? @db.Decimal(15, 4)
+  beforeQtyDestination Decimal? @db.Decimal(15, 4)
+  afterQtyDestination  Decimal? @db.Decimal(15, 4)
+  createdAt            DateTime @default(now())
 
   request StockTransferRequest @relation(fields: [requestId], references: [id])
   product Product              @relation(fields: [productId], references: [id])

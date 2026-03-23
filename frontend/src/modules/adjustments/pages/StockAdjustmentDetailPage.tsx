@@ -28,6 +28,11 @@ import { WORKFLOW_WARNINGS } from '../../../utils/workflowWarnings';
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+function fmtQty(n: number | null | undefined): string {
+  if (n == null) return '—';
+  return Number(n).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 4 });
+}
+
 const STATUS_COLORS: Record<string, 'default' | 'warning' | 'info' | 'success' | 'error'> = {
   DRAFT:     'default',
   SUBMITTED: 'warning',
@@ -419,6 +424,16 @@ export default function StockAdjustmentDetailPage() {
                 <TableCell>Product (SKU)</TableCell>
                 <TableCell>Location</TableCell>
                 <TableCell align="right">Qty Change</TableCell>
+                <TableCell align="right">
+                  <Tooltip title={isDraft ? 'Live available stock at this location (updates in real-time)' : 'Stock snapshot captured when item was added to the request'} arrow>
+                    <span style={{ cursor: 'help', borderBottom: '1px dashed' }}>Qty Before</span>
+                  </Tooltip>
+                </TableCell>
+                <TableCell align="right">
+                  <Tooltip title={isDraft ? 'Projected stock after this adjustment (live, recalculated)' : 'Projected stock after adjustment (from creation snapshot)'} arrow>
+                    <span style={{ cursor: 'help', borderBottom: '1px dashed' }}>Qty After</span>
+                  </Tooltip>
+                </TableCell>
                 <TableCell>Reason</TableCell>
                 {isDraft && isCreator && <TableCell align="center">Actions</TableCell>}
               </TableRow>
@@ -426,43 +441,62 @@ export default function StockAdjustmentDetailPage() {
             <TableBody>
               {req.items.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={5} align="center">No items yet.</TableCell>
+                  <TableCell colSpan={7} align="center">No items yet.</TableCell>
                 </TableRow>
               )}
-              {req.items.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      {item.product?.sku} — {item.product?.name}
-                      {!isTerminal && item.isActiveNow === false && (
-                        <Chip label="Now Inactive" size="small" color="warning" />
-                      )}
-                    </Box>
-                  </TableCell>
-                  <TableCell>{item.location?.code} — {item.location?.name}</TableCell>
-                  <TableCell
-                    align="right"
-                    sx={{ color: Number(item.qtyChange) >= 0 ? 'success.main' : 'error.main', fontWeight: 600 }}
+              {req.items.map((item) => {
+                const afterQty = item.afterQty != null ? Number(item.afterQty) : null;
+                const isLow    = afterQty != null && afterQty < 0;
+                return (
+                  <TableRow
+                    key={item.id}
+                    sx={isLow ? { backgroundColor: 'rgba(211,47,47,0.06)' } : undefined}
                   >
-                    {Number(item.qtyChange) >= 0 ? '+' : ''}{Number(item.qtyChange)}
-                  </TableCell>
-                  <TableCell>{item.reason ?? '—'}</TableCell>
-                  {isDraft && isCreator && (
-                    <TableCell align="center">
-                      <Tooltip title="Edit">
-                        <IconButton size="small" onClick={() => { setEditingItem(item); setItemDialogOpen(true); }}>
-                          <EditIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Remove">
-                        <IconButton size="small" color="error" onClick={() => deleteItemMutation.mutate(item.id)}>
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
+                    <TableCell>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        {item.product?.sku} — {item.product?.name}
+                        {!isTerminal && item.isActiveNow === false && (
+                          <Chip label="Now Inactive" size="small" color="warning" />
+                        )}
+                        {isLow && (
+                          <Chip label="Negative Stock" size="small" color="error" />
+                        )}
+                      </Box>
                     </TableCell>
-                  )}
-                </TableRow>
-              ))}
+                    <TableCell>{item.location?.code} — {item.location?.name}</TableCell>
+                    <TableCell
+                      align="right"
+                      sx={{ color: Number(item.qtyChange) >= 0 ? 'success.main' : 'error.main', fontWeight: 600 }}
+                    >
+                      {Number(item.qtyChange) >= 0 ? '+' : ''}{Number(item.qtyChange)}
+                    </TableCell>
+                    <TableCell align="right" sx={{ color: 'text.secondary' }}>
+                      {fmtQty(item.beforeQty)}
+                    </TableCell>
+                    <TableCell
+                      align="right"
+                      sx={{ fontWeight: 600, color: isLow ? 'error.main' : 'text.primary' }}
+                    >
+                      {fmtQty(afterQty)}
+                    </TableCell>
+                    <TableCell>{item.reason ?? '—'}</TableCell>
+                    {isDraft && isCreator && (
+                      <TableCell align="center">
+                        <Tooltip title="Edit">
+                          <IconButton size="small" onClick={() => { setEditingItem(item); setItemDialogOpen(true); }}>
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Remove">
+                          <IconButton size="small" color="error" onClick={() => deleteItemMutation.mutate(item.id)}>
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </TableCell>
+                    )}
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </TableContainer>

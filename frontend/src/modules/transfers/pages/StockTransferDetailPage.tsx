@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent,
   DialogTitle, Divider, FormControl, IconButton, InputLabel, MenuItem, Select,
@@ -29,6 +29,11 @@ import { WORKFLOW_WARNINGS } from '../../../utils/workflowWarnings';
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+function fmtQty(n: number | null | undefined): string {
+  if (n == null) return '—';
+  return Number(n).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 4 });
+}
+
 const STATUS_COLORS: Record<string, 'default' | 'success' | 'warning' | 'error' | 'info'> = {
   DRAFT:                        'default',
   SUBMITTED:                    'info',
@@ -219,15 +224,36 @@ export default function StockTransferDetailPage() {
     enabled:  !isAdmin,
   });
 
-  // Fetch products registered at destination — used to block finalize if items are missing
+  // Fetch products registered at destination — used to warn early and hard-block finalize.
+  // Query is enabled for all post-DRAFT statuses so the warning appears as soon as the
+  // request is submitted; it is NOT enabled while still in DRAFT because the destination
+  // registration check is informational, not a creation blocker.
+  // Source of truth: ProductLocation table (isActive=true) via backend API — never stock
+  // balances or ledger, so the result is deterministic for the same input.
   const dstLocationId = req?.destinationLocationId;
   const { data: destRegisteredProducts } = useQuery({
-    queryKey: ['registered-products', dstLocationId],
+    queryKey: ['registered-products-dest', dstLocationId],
     queryFn:  () => stockService.getRegisteredProducts(dstLocationId!),
-    enabled:  !!dstLocationId && req?.status === 'READY_TO_FINALIZE',
+    enabled:  !!dstLocationId && !!req && req.status !== 'DRAFT',
+    staleTime: 30_000,
   });
-  const destRegisteredIds = new Set((destRegisteredProducts ?? []).map((p) => p.id));
-  const itemsNotAtDest = (req?.items ?? []).filter((i) => !destRegisteredIds.has(i.productId));
+
+  // Stable lookup map — built once when the query result changes, not on every render.
+  // Guards against stale .find() / Set comparisons on partial data.
+  const destRegisteredIds = useMemo(
+    () => new Set((destRegisteredProducts ?? []).map((p) => p.id)),
+    [destRegisteredProducts],
+  );
+
+  // Only flag items once the registration data is actually loaded.
+  // When destRegisteredProducts is undefined (query pending/disabled), treat as empty
+  // list of unregistered items so we never show a false warning.
+  const itemsNotAtDest = useMemo(
+    () => destRegisteredProducts !== undefined
+      ? (req?.items ?? []).filter((i) => !destRegisteredIds.has(i.productId))
+      : [],
+    [destRegisteredProducts, destRegisteredIds, req?.items],
+  );
 
   // Fetch destination readiness — warn if no eligible users can complete the workflow
   const { data: destReadiness } = useQuery({
@@ -408,11 +434,18 @@ export default function StockTransferDetailPage() {
         <Chip label={req.status.replace(/_/g, ' ')} color={STATUS_COLORS[req.status] as any} />
       </Box>
 
-      {/* Destination registration blocking alert — shown near header so it is always visible */}
-      {itemsNotAtDest.length > 0 && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {itemsNotAtDest.length} item(s) are not registered at the destination location and must be registered before finalizing.
-        </Alert>
+      {/* Destination registration alert — only shown once registration data is loaded and
+          a genuine mismatch exists. Never shown during data loading to avoid false positives. */}
+      {itemsNotAtDest.length > 0 && !isTerminal && (
+        <Tooltip
+          title="Products must have an active registration at the destination location before this transfer can be finalized. Contact an admin to register the missing products."
+          arrow
+          placement="bottom-start"
+        >
+          <Alert severity="error" sx={{ mb: 2, cursor: 'help' }}>
+            {itemsNotAtDest.length} item(s) — {itemsNotAtDest.map((i) => i.product?.sku ?? i.productId).join(', ')} — are not registered at the destination location and must be registered before finalizing.
+          </Alert>
+        </Tooltip>
       )}
 
       {/* Destination readiness warning — shown from DRAFT onwards for any non-terminal status */}
@@ -517,52 +550,97 @@ export default function StockTransferDetailPage() {
             <TableHead>
               <TableRow>
                 <TableCell>Product (SKU)</TableCell>
-                <TableCell align="right">Quantity</TableCell>
+                <TableCell align="right">Qty Transfer</TableCell>
                 <TableCell>UOM</TableCell>
+                <TableCell align="right">
+                  <Tooltip title={status === 'FINALIZED' ? 'Source stock at time of finalization (historical snapshot)' : 'Live available stock at source location'} arrow>
+                    <span style={{ cursor: 'help', borderBottom: '1px dashed' }}>Origin Before</span>
+                  </Tooltip>
+                </TableCell>
+                <TableCell align="right">
+                  <Tooltip title={status === 'FINALIZED' ? 'Source stock after transfer (historical snapshot)' : 'Projected source stock after transfer (live)'} arrow>
+                    <span style={{ cursor: 'help', borderBottom: '1px dashed' }}>Origin After</span>
+                  </Tooltip>
+                </TableCell>
+                <TableCell align="right">
+                  <Tooltip title={status === 'FINALIZED' ? 'Destination stock at time of finalization (historical snapshot)' : 'Live available stock at destination location'} arrow>
+                    <span style={{ cursor: 'help', borderBottom: '1px dashed' }}>Dest. Before</span>
+                  </Tooltip>
+                </TableCell>
+                <TableCell align="right">
+                  <Tooltip title={status === 'FINALIZED' ? 'Destination stock after receiving transfer (historical snapshot)' : 'Projected destination stock after transfer (live)'} arrow>
+                    <span style={{ cursor: 'help', borderBottom: '1px dashed' }}>Dest. After</span>
+                  </Tooltip>
+                </TableCell>
                 {isDraft && isCreator && <TableCell align="center">Actions</TableCell>}
               </TableRow>
             </TableHead>
             <TableBody>
               {req.items.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={4} align="center">No items yet.</TableCell>
+                  <TableCell colSpan={9} align="center">No items yet.</TableCell>
                 </TableRow>
               )}
-              {req.items.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      {item.product?.sku} — {item.product?.name}
-                      {!isTerminal && item.isActiveNow === false && (
-                        <Chip label="Now Inactive" size="small" color="warning" />
-                      )}
-                    </Box>
-                  </TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 600 }}>{Number(item.qty)}</TableCell>
-                  <TableCell>{item.product?.uom?.code}</TableCell>
-                  {isDraft && isCreator && (
-                    <TableCell align="center">
-                      <Tooltip title="Edit">
-                        <IconButton
-                          size="small"
-                          onClick={() => { setEditingItem(item); setItemDialogOpen(true); }}
-                        >
-                          <EditIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Remove">
-                        <IconButton
-                          size="small"
-                          color="error"
-                          onClick={() => deleteItemMutation.mutate(item.id)}
-                        >
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
+              {req.items.map((item) => {
+                const afterOrigin = item.afterQtyOrigin != null ? Number(item.afterQtyOrigin) : null;
+                const isLow       = afterOrigin != null && afterOrigin < 0;
+                return (
+                  <TableRow
+                    key={item.id}
+                    sx={isLow ? { backgroundColor: 'rgba(211,47,47,0.06)' } : undefined}
+                  >
+                    <TableCell>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        {item.product?.sku} — {item.product?.name}
+                        {!isTerminal && item.isActiveNow === false && (
+                          <Chip label="Now Inactive" size="small" color="warning" />
+                        )}
+                        {isLow && (
+                          <Chip label="Low Stock" size="small" color="error" />
+                        )}
+                      </Box>
                     </TableCell>
-                  )}
-                </TableRow>
-              ))}
+                    <TableCell align="right" sx={{ fontWeight: 600 }}>{Number(item.qty)}</TableCell>
+                    <TableCell>{item.product?.uom?.code}</TableCell>
+                    <TableCell align="right" sx={{ color: 'text.secondary' }}>
+                      {fmtQty(item.beforeQtyOrigin)}
+                    </TableCell>
+                    <TableCell
+                      align="right"
+                      sx={{ fontWeight: 600, color: isLow ? 'error.main' : 'text.primary' }}
+                    >
+                      {fmtQty(afterOrigin)}
+                    </TableCell>
+                    <TableCell align="right" sx={{ color: 'text.secondary' }}>
+                      {fmtQty(item.beforeQtyDestination)}
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 600 }}>
+                      {fmtQty(item.afterQtyDestination)}
+                    </TableCell>
+                    {isDraft && isCreator && (
+                      <TableCell align="center">
+                        <Tooltip title="Edit">
+                          <IconButton
+                            size="small"
+                            onClick={() => { setEditingItem(item); setItemDialogOpen(true); }}
+                          >
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Remove">
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => deleteItemMutation.mutate(item.id)}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </TableCell>
+                    )}
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </TableContainer>

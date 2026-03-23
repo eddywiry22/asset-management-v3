@@ -7,6 +7,10 @@ export type TransferItemRow = {
   requestId: string;
   productId: string;
   qty: any;
+  beforeQtyOrigin: any | null;
+  afterQtyOrigin: any | null;
+  beforeQtyDestination: any | null;
+  afterQtyDestination: any | null;
   createdAt: Date;
   product: { id: string; sku: string; name: string; uom: { code: string } };
   isActiveNow?: boolean;
@@ -147,6 +151,20 @@ export class TransferRepository {
       data,
       include: ITEM_INCLUDE,
     }) as Promise<TransferItemRow>;
+  }
+
+  async updateItemOriginSnapshot(itemId: string, beforeQtyOrigin: number, afterQtyOrigin: number): Promise<void> {
+    await prisma.stockTransferItem.update({
+      where: { id: itemId },
+      data: { beforeQtyOrigin, afterQtyOrigin },
+    });
+  }
+
+  async updateItemDestinationSnapshot(itemId: string, beforeQtyDestination: number, afterQtyDestination: number): Promise<void> {
+    await prisma.stockTransferItem.update({
+      where: { id: itemId },
+      data: { beforeQtyDestination, afterQtyDestination },
+    });
   }
 
   async updateItem(itemId: string, qty: number): Promise<TransferItemRow> {

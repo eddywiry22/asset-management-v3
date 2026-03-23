@@ -53,6 +53,26 @@ export async function validateLocationActive(
 }
 
 /**
+ * Deterministic check: is a product actively registered at a location?
+ * Source of truth: ProductLocation table ONLY (isActive = true).
+ * Never uses stock balances, ledger, or movement history.
+ */
+export async function isProductRegisteredAtLocation(
+  productId: string,
+  locationId: string,
+): Promise<boolean> {
+  try {
+    const mapping = await (prisma as any).productLocation.findFirst({
+      where: { productId, locationId, isActive: true },
+      select: { id: true },
+    });
+    return !!mapping;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Check whether a product has an active mapping to a location
  * in the ProductLocation table.
  */

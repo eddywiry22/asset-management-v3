@@ -21,6 +21,8 @@ export type AdjustmentItem = {
   locationId: string;
   qtyChange: number;
   reason: string | null;
+  beforeQty: number | null;
+  afterQty: number | null;
   createdAt: string;
   product: { id: string; sku: string; name: string; uom: { code: string } };
   location: { id: string; code: string; name: string };

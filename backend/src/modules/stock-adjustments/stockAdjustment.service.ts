@@ -61,6 +61,7 @@ export class StockAdjustmentService {
 
   // -------------------------------------------------------------------------
   // Get by id — enriches items with isActiveNow for non-terminal requests
+  //             and live beforeQty/afterQty for DRAFT requests
   // -------------------------------------------------------------------------
   async findById(id: string): Promise<AdjustmentRequestRow> {
     const req = await stockAdjustmentRepository.findById(id);
@@ -75,7 +76,19 @@ export class StockAdjustmentService {
       const enriched = await Promise.all(
         req.items.map(async (item) => {
           const result = await validateProductActive(item.productId, item.locationId);
-          return { ...item, isActiveNow: result.valid };
+          const enrichedItem: typeof item & { isActiveNow: boolean } = { ...item, isActiveNow: result.valid };
+
+          // For DRAFT requests: recalculate live beforeQty/afterQty from current stock balance
+          if (req.status === AdjustmentRequestStatus.DRAFT) {
+            const balance = await prisma.stockBalance.findUnique({
+              where: { productId_locationId: { productId: item.productId, locationId: item.locationId } },
+            });
+            const liveBeforeQty = balance ? Number(balance.onHandQty) : 0;
+            const liveAfterQty  = liveBeforeQty + Number(item.qtyChange);
+            return { ...enrichedItem, beforeQty: liveBeforeQty, afterQty: liveAfterQty };
+          }
+
+          return enrichedItem;
         }),
       );
       return { ...req, items: enriched };
@@ -177,12 +190,21 @@ export class StockAdjustmentService {
       throw new ValidationError(`Product is not registered or not active at this location: ${dto.productId}`);
     }
 
+    // Snapshot beforeQty at time of item addition; calculate afterQty
+    const balance = await prisma.stockBalance.findUnique({
+      where: { productId_locationId: { productId: dto.productId, locationId: dto.locationId } },
+    });
+    const beforeQty = balance ? Number(balance.onHandQty) : 0;
+    const afterQty  = beforeQty + dto.qtyChange;
+
     return stockAdjustmentRepository.addItem({
       requestId,
       productId:  dto.productId,
       locationId: dto.locationId,
       qtyChange:  dto.qtyChange,
       reason:     dto.reason,
+      beforeQty,
+      afterQty,
     });
   }
 
@@ -204,7 +226,16 @@ export class StockAdjustmentService {
     // Guard: user must have access to the item's location
     await assertUserCanAccessLocation(user.id, user.isAdmin, item.locationId);
 
-    return stockAdjustmentRepository.updateItem(itemId, dto);
+    // If qtyChange or locationId is being updated, refresh beforeQty/afterQty snapshot
+    const newLocationId = dto.locationId ?? item.locationId;
+    const newQtyChange  = dto.qtyChange  ?? Number(item.qtyChange);
+    const balance = await prisma.stockBalance.findUnique({
+      where: { productId_locationId: { productId: item.productId, locationId: newLocationId } },
+    });
+    const beforeQty = balance ? Number(balance.onHandQty) : 0;
+    const afterQty  = beforeQty + newQtyChange;
+
+    return stockAdjustmentRepository.updateItem(itemId, { ...dto, beforeQty, afterQty });
   }
 
   // -------------------------------------------------------------------------
