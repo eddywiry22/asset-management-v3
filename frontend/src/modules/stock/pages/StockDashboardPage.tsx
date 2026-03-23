@@ -149,7 +149,7 @@ export default function StockDashboardPage() {
   });
 
   // Fetch all products for the product filter dropdown
-  const { data: products = [] } = useQuery({
+  const { data: products = [], isError: productsError } = useQuery({
     queryKey: ['goods'],
     queryFn:  goodsService.getAll,
   });
@@ -236,7 +236,7 @@ export default function StockDashboardPage() {
           )}
 
           {/* Product filter */}
-          <FormControl size="small" sx={{ minWidth: 200 }}>
+          <FormControl size="small" sx={{ minWidth: 200 }} error={productsError}>
             <InputLabel>Product</InputLabel>
             <Select
               value={filterProductId}
