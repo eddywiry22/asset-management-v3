@@ -1,13 +1,17 @@
 import { Router } from 'express';
 import { productLocationController } from './productRegistration.controller';
 import { validateBody } from '../../utils/validation';
-import { createProductRegistrationSchema, updateProductRegistrationSchema } from './productRegistration.validator';
+import { createProductRegistrationSchema, updateProductRegistrationSchema, bulkToggleSchema } from './productRegistration.validator';
 import { AuthenticatedRequest } from '../../types/request.types';
 
 const router = Router();
 
 router.get('/', (req, res, next) =>
   productLocationController.getAll(req as AuthenticatedRequest, res, next)
+);
+
+router.post('/bulk-toggle', validateBody(bulkToggleSchema), (req, res, next) =>
+  productLocationController.bulkToggle(req as AuthenticatedRequest, res, next)
 );
 
 router.post('/', validateBody(createProductRegistrationSchema), (req, res, next) =>

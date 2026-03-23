@@ -69,6 +69,15 @@ export class ProductLocationController {
     }
   }
 
+  async bulkToggle(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const result = await productLocationService.bulkToggle(req.body, req.user.id);
+      res.status(200).json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async delete(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       await productLocationService.delete(req.params.id, req.user.id);

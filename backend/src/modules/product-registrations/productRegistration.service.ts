@@ -1,7 +1,7 @@
 import { productLocationRepository, ProductLocationRow } from './productRegistration.repository';
 import { auditService } from '../../services/audit.service';
 import { NotFoundError, ValidationError } from '../../utils/errors';
-import { CreateProductRegistrationDto, UpdateProductRegistrationDto } from './productRegistration.validator';
+import { CreateProductRegistrationDto, UpdateProductRegistrationDto, BulkToggleDto } from './productRegistration.validator';
 import prisma from '../../config/database';
 import logger from '../../utils/logger';
 
@@ -109,36 +109,57 @@ export class ProductLocationService {
     return updated;
   }
 
-  async delete(id: string, performedBy: string): Promise<void> {
-    const mapping = await this.findById(id);
+  async bulkToggle(
+    dto: BulkToggleDto,
+    performedBy: string,
+  ): Promise<{ successCount: number; failed: { id: string; reason: string }[] }> {
+    const failed: { id: string; reason: string }[] = [];
+    let successCount = 0;
 
-    // Disallow deletion if ledger entries exist — preserve historical data
-    const hasLedger = await productLocationRepository.hasLedgerEntries(
-      mapping.productId,
-      mapping.locationId,
-    );
-    if (hasLedger) {
-      throw new ValidationError(
-        `Cannot delete: ledger entries exist for product "${mapping.product?.name}" ` +
-        `at location "${mapping.location?.name}". Deactivate instead.`,
-      );
+    for (const id of dto.ids) {
+      const record = await productLocationRepository.findById(id);
+      if (!record) {
+        failed.push({ id, reason: 'NOT_FOUND' });
+        continue;
+      }
+
+      // Reuse existing blocking logic: block deactivation when pending requests exist
+      if (dto.isActive === false && record.isActive === true) {
+        const { adjustments, transfers } = await productLocationRepository.countPendingRequests(
+          record.productId,
+          record.locationId,
+        );
+        if (adjustments + transfers > 0) {
+          logger.warn('[Stage8] BulkToggle deactivation blocked — pending requests', {
+            id, productId: record.productId, locationId: record.locationId, adjustments, transfers,
+          });
+          failed.push({ id, reason: 'HAS_PENDING_REQUEST' });
+          continue;
+        }
+      }
+
+      await productLocationRepository.update(id, { isActive: dto.isActive });
+
+      void auditService.log({
+        entityType:  'PRODUCT_LOCATION',
+        entityId:    id,
+        action:      'UPDATE',
+        afterValue:  { isActive: dto.isActive },
+        performedBy,
+      });
+
+      successCount++;
     }
 
-    await productLocationRepository.delete(id);
+    logger.info('[Stage8] BulkToggle completed', { successCount, failedCount: failed.length, isActive: dto.isActive });
 
-    logger.info('[Stage8] ProductRegistration deleted', {
-      id,
-      productId:  mapping.productId,
-      locationId: mapping.locationId,
-    });
+    return { successCount, failed };
+  }
 
-    void auditService.log({
-      entityType:  'PRODUCT_LOCATION',
-      entityId:    id,
-      action:      'DELETE',
-      beforeValue: mapping,
-      performedBy,
-    });
+  async delete(_id: string, _performedBy: string): Promise<void> {
+    throw new ValidationError(
+      'Product registration cannot be deleted. Use activate/deactivate instead.',
+    );
   }
 }
 
