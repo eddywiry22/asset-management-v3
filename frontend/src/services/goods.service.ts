@@ -34,7 +34,9 @@ export interface UpdateGoodsInput {
 
 export const goodsService = {
   async getAll(): Promise<Goods[]> {
-    const res = await apiClient.get<{ success: boolean; data: Goods[] }>('/goods');
+    const res = await apiClient.get<{ success: boolean; data: Goods[]; meta: unknown }>('products', {
+      params: { limit: 200 },
+    });
     return res.data.data;
   },
 
