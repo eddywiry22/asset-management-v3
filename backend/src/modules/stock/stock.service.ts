@@ -3,6 +3,7 @@ import { LedgerSourceType } from '@prisma/client';
 import { stockBalanceRepository, StockBalanceRow } from './repositories/stockBalance.repository';
 import { stockLedgerRepository, StockLedgerRow } from './repositories/stockLedger.repository';
 import { ValidationError, ForbiddenError } from '../../utils/errors';
+import logger from '../../utils/logger';
 
 export type StockOverviewItem = {
   productId: string;
@@ -27,8 +28,8 @@ export type StockOverviewItem = {
 };
 
 export type StockQueryParams = {
-  locationId?: string;
-  productId?: string;
+  locationIds?: string[];
+  productIds?: string[];
   page: number;
   limit: number;
   startDate?: Date;
@@ -36,8 +37,8 @@ export type StockQueryParams = {
 };
 
 export type LedgerQueryParams = {
-  productId?: string;
-  locationId?: string;
+  productIds?: string[];
+  locationIds?: string[];
   startDate?: Date;
   endDate?: Date;
   page: number;
@@ -55,10 +56,12 @@ export class StockService {
     userId: string,
     isAdmin: boolean,
   ): Promise<{ data: StockOverviewItem[]; total: number }> {
-    const { locationId, productId, page, limit, startDate, endDate } = params;
+    const { locationIds, productIds, page, limit, startDate, endDate } = params;
+
+    logger.info('Stock query filters', { productIds, locationIds });
 
     // Determine visible locations
-    const visibleLocationIds = await this.getVisibleLocationIds(userId, isAdmin, locationId);
+    const visibleLocationIds = await this.getVisibleLocationIds(userId, isAdmin, locationIds);
 
     if (visibleLocationIds.length === 0) {
       return { data: [], total: 0 };
@@ -68,7 +71,7 @@ export class StockService {
     const skip = (page - 1) * limit;
     const whereClause: Record<string, unknown> = {
       locationId: { in: visibleLocationIds },
-      ...(productId && { productId }),
+      ...(productIds?.length && { productId: { in: productIds } }),
     };
 
     const [balances, total] = await Promise.all([
@@ -192,29 +195,34 @@ export class StockService {
     userId: string,
     isAdmin: boolean,
   ): Promise<{ data: StockLedgerRow[]; total: number }> {
-    const { productId, locationId, startDate, endDate, page, limit } = params;
+    const { productIds, locationIds, startDate, endDate, page, limit } = params;
 
-    // Determine visible locations
-    const visibleLocationIds = await this.getVisibleLocationIds(userId, isAdmin, locationId);
+    logger.info('Stock ledger query filters', { productIds, locationIds });
+
+    // Determine visible locations — if specific locationIds were requested,
+    // validate access to each; otherwise use all visible locations.
+    const visibleLocationIds = await this.getVisibleLocationIds(userId, isAdmin, locationIds);
 
     if (visibleLocationIds.length === 0) {
       return { data: [], total: 0 };
     }
 
-    // If a specific locationId was requested but it's not visible, throw forbidden
-    if (locationId && !visibleLocationIds.includes(locationId)) {
-      throw new ForbiddenError('You do not have access to this location');
+    // If specific locationIds were requested, ensure all are visible
+    if (locationIds?.length) {
+      for (const locId of locationIds) {
+        if (!visibleLocationIds.includes(locId)) {
+          throw new ForbiddenError('You do not have access to this location');
+        }
+      }
     }
 
-    // Always scope results to visible locations.
-    // Pass a single locationId when one was explicitly requested,
-    // otherwise pass the full visibleLocationIds array so the repository
-    // adds a WHERE locationId IN (...) clause — preventing data leakage
-    // for non-admin users who have roles in multiple locations.
+    // Scope to requested locationIds (if any) intersected with visible ones,
+    // otherwise scope to all visible locations to prevent data leakage.
+    const scopedLocationIds = locationIds?.length ? locationIds : visibleLocationIds;
+
     return stockLedgerRepository.findMany({
-      productId,
-      locationId,
-      visibleLocationIds: locationId ? undefined : visibleLocationIds,
+      productIds,
+      visibleLocationIds: scopedLocationIds,
       startDate,
       endDate,
       page,
@@ -531,10 +539,10 @@ export class StockService {
   private async getVisibleLocationIds(
     userId: string,
     isAdmin: boolean,
-    requestedLocationId?: string,
+    requestedLocationIds?: string[],
   ): Promise<string[]> {
     if (isAdmin) {
-      if (requestedLocationId) return [requestedLocationId];
+      if (requestedLocationIds?.length) return requestedLocationIds;
 
       // Stage 8.4.2: admins see stock for all locations, including inactive
       const locations = await prisma.location.findMany({ select: { id: true } });
@@ -548,11 +556,13 @@ export class StockService {
     });
     const userLocationIds = roles.map((r) => r.locationId);
 
-    if (requestedLocationId) {
-      if (!userLocationIds.includes(requestedLocationId)) {
-        throw new ForbiddenError('You do not have access to this location');
+    if (requestedLocationIds?.length) {
+      for (const locId of requestedLocationIds) {
+        if (!userLocationIds.includes(locId)) {
+          throw new ForbiddenError('You do not have access to this location');
+        }
       }
-      return [requestedLocationId];
+      return requestedLocationIds;
     }
 
     return userLocationIds;
