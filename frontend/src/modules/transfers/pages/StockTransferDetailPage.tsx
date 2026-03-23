@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent,
   DialogTitle, Divider, FormControl, IconButton, InputLabel, MenuItem, Select,
@@ -224,15 +224,36 @@ export default function StockTransferDetailPage() {
     enabled:  !isAdmin,
   });
 
-  // Fetch products registered at destination — used to block finalize if items are missing
+  // Fetch products registered at destination — used to warn early and hard-block finalize.
+  // Query is enabled for all post-DRAFT statuses so the warning appears as soon as the
+  // request is submitted; it is NOT enabled while still in DRAFT because the destination
+  // registration check is informational, not a creation blocker.
+  // Source of truth: ProductLocation table (isActive=true) via backend API — never stock
+  // balances or ledger, so the result is deterministic for the same input.
   const dstLocationId = req?.destinationLocationId;
   const { data: destRegisteredProducts } = useQuery({
-    queryKey: ['registered-products', dstLocationId],
+    queryKey: ['registered-products-dest', dstLocationId],
     queryFn:  () => stockService.getRegisteredProducts(dstLocationId!),
-    enabled:  !!dstLocationId && req?.status === 'READY_TO_FINALIZE',
+    enabled:  !!dstLocationId && !!req && req.status !== 'DRAFT',
+    staleTime: 30_000,
   });
-  const destRegisteredIds = new Set((destRegisteredProducts ?? []).map((p) => p.id));
-  const itemsNotAtDest = (req?.items ?? []).filter((i) => !destRegisteredIds.has(i.productId));
+
+  // Stable lookup map — built once when the query result changes, not on every render.
+  // Guards against stale .find() / Set comparisons on partial data.
+  const destRegisteredIds = useMemo(
+    () => new Set((destRegisteredProducts ?? []).map((p) => p.id)),
+    [destRegisteredProducts],
+  );
+
+  // Only flag items once the registration data is actually loaded.
+  // When destRegisteredProducts is undefined (query pending/disabled), treat as empty
+  // list of unregistered items so we never show a false warning.
+  const itemsNotAtDest = useMemo(
+    () => destRegisteredProducts !== undefined
+      ? (req?.items ?? []).filter((i) => !destRegisteredIds.has(i.productId))
+      : [],
+    [destRegisteredProducts, destRegisteredIds, req?.items],
+  );
 
   // Fetch destination readiness — warn if no eligible users can complete the workflow
   const { data: destReadiness } = useQuery({
@@ -413,11 +434,18 @@ export default function StockTransferDetailPage() {
         <Chip label={req.status.replace(/_/g, ' ')} color={STATUS_COLORS[req.status] as any} />
       </Box>
 
-      {/* Destination registration blocking alert — shown near header so it is always visible */}
-      {itemsNotAtDest.length > 0 && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {itemsNotAtDest.length} item(s) are not registered at the destination location and must be registered before finalizing.
-        </Alert>
+      {/* Destination registration alert — only shown once registration data is loaded and
+          a genuine mismatch exists. Never shown during data loading to avoid false positives. */}
+      {itemsNotAtDest.length > 0 && !isTerminal && (
+        <Tooltip
+          title="Products must have an active registration at the destination location before this transfer can be finalized. Contact an admin to register the missing products."
+          arrow
+          placement="bottom-start"
+        >
+          <Alert severity="error" sx={{ mb: 2, cursor: 'help' }}>
+            {itemsNotAtDest.length} item(s) — {itemsNotAtDest.map((i) => i.product?.sku ?? i.productId).join(', ')} — are not registered at the destination location and must be registered before finalizing.
+          </Alert>
+        </Tooltip>
       )}
 
       {/* Destination readiness warning — shown from DRAFT onwards for any non-terminal status */}

@@ -15,6 +15,7 @@ import {
   validateUserAccess,
   validateLocationActive,
   validateProductActive,
+  isProductRegisteredAtLocation,
   getProductLocationStatus,
 } from '../../utils/validationHelpers';
 import { getTransferEligibleUsers } from '../stock/utils/workflowResponsibility';
@@ -637,14 +638,15 @@ export class TransferService {
       );
     }
 
-    // Stage 8.2.1.1: validate all items are registered at destination (blocking)
-    const destStatuses = await Promise.all(
-      req.items.map((item) => validateProductActive(item.productId, req.destinationLocationId)),
+    // Stage 8.2.1.1: validate all items are registered at destination (blocking).
+    // Uses ProductLocation table exclusively — never stock balances or ledger.
+    const registeredAtDest = await Promise.all(
+      req.items.map((item) => isProductRegisteredAtLocation(item.productId, req.destinationLocationId)),
     );
-    const notAtDest = req.items.filter((_, idx) => !destStatuses[idx].valid);
+    const notAtDest = req.items.filter((_, idx) => !registeredAtDest[idx]);
     if (notAtDest.length > 0) {
       throw new ValidationError(
-        `Products not registered at destination location: ${notAtDest.map((i) => i.productId).join(', ')}`,
+        `Products not registered at destination location: ${notAtDest.map((i) => i.product?.sku ?? i.productId).join(', ')}`,
       );
     }
 
