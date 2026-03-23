@@ -12,7 +12,7 @@ export class ProductLocationService {
     status: 'ALL' | 'ACTIVE' | 'INACTIVE' = 'ALL',
   ): Promise<{ data: ProductLocationRow[]; total: number }> {
     logger.info('[Stage8] ProductRegistration findAll', { page, limit, status });
-    return productLocationRepository.findAll(page, limit, status);
+    return productLocationRepository.findAll({ status, page, pageSize: limit });
   }
 
   async findById(id: string): Promise<ProductLocationRow> {

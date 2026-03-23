@@ -22,20 +22,35 @@ const INCLUDE = {
 };
 
 export class ProductLocationRepository {
-  async findAll(
-    page = 1,
-    limit = 20,
-    status: 'ALL' | 'ACTIVE' | 'INACTIVE' = 'ALL',
-  ): Promise<{ data: ProductLocationRow[]; total: number }> {
-    const skip = (page - 1) * limit;
-    const where =
-      status === 'ACTIVE'   ? { isActive: true }  :
-      status === 'INACTIVE' ? { isActive: false } :
-      {};
+  async findAll(params: {
+    status?:   'ALL' | 'ACTIVE' | 'INACTIVE';
+    page?:     number;
+    pageSize?: number;
+  }): Promise<{ data: ProductLocationRow[]; total: number }> {
+    const { status = 'ALL', page = 1, pageSize = 20 } = params;
+
+    const where = {
+      ...(status === 'ACTIVE'   && { isActive: true }),
+      ...(status === 'INACTIVE' && { isActive: false }),
+    };
+
     const [data, total] = await Promise.all([
-      pl().findMany({ where, skip, take: limit, include: INCLUDE, orderBy: { createdAt: 'asc' } }),
-      pl().count({ where }),
+      prisma.productLocation.findMany({
+        where,
+        include: {
+          product:  { select: { id: true, name: true, sku: true } },
+          location: { select: { id: true, code: true, name: true } },
+        },
+        orderBy: [
+          { product:  { name: 'asc' } },
+          { location: { code: 'asc' } },
+        ],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      prisma.productLocation.count({ where }),
     ]);
+
     return { data, total };
   }
 
