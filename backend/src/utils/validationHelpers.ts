@@ -4,6 +4,10 @@
  * All helpers return a structured result and NEVER throw.
  * They are designed for warning-only integration; enforcement
  * will be added in Stage 8.2+.
+ *
+ * M1 compatibility: "NOT REGISTERED" (missing row) is treated identically
+ * to "INACTIVE" in all validation logic.  Use isProductActiveAtLocation()
+ * instead of checking row existence directly.
  */
 
 import prisma from '../config/database';
@@ -53,9 +57,28 @@ export async function validateLocationActive(
 }
 
 /**
+ * M1 compatibility helper — synchronous, takes a fetched ProductLocation record.
+ *
+ * Treats "NOT REGISTERED" (missing / null row) as "INACTIVE":
+ *   - Returns true  if the row exists AND isActive === true
+ *   - Returns false if the row is missing OR isActive === false
+ *
+ * Use this instead of checking row existence directly so that all callers
+ * behave consistently regardless of whether a ProductLocation row exists.
+ */
+export function isProductActiveAtLocation(
+  productLocation: { isActive: boolean } | null | undefined,
+): boolean {
+  return !!productLocation && productLocation.isActive === true;
+}
+
+/**
  * Deterministic check: is a product actively registered at a location?
  * Source of truth: ProductLocation table ONLY (isActive = true).
  * Never uses stock balances, ledger, or movement history.
+ *
+ * M1: returns false for both "no row" and "row with isActive=false" so that
+ * missing registrations are treated exactly like inactive ones.
  */
 export async function isProductRegisteredAtLocation(
   productId: string,
@@ -85,11 +108,11 @@ export async function validateProductActive(
       where: { productId, locationId, isActive: true },
     });
     if (!mapping) {
-      return { valid: false, reason: 'PRODUCT_NOT_REGISTERED' };
+      return { valid: false, reason: 'PRODUCT_INACTIVE' };
     }
     return { valid: true };
   } catch {
-    return { valid: false, reason: 'PRODUCT_NOT_REGISTERED' };
+    return { valid: false, reason: 'PRODUCT_INACTIVE' };
   }
 }
 

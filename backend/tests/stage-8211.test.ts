@@ -6,7 +6,7 @@
  *  2. Adjustments: approve warns about inactive items (non-blocking)
  *  3. Adjustments: finalize warns about inactive items (non-blocking)
  *  4. Transfers: approveOrigin warns about inactive items (non-blocking)
- *  5. Transfers: finalize blocked when item not registered at destination
+ *  5. Transfers: finalize blocked when item inactive (or not registered) at destination
  *  6. Transfers: finalize warns about inactive items at source (non-blocking)
  *  7. getProductLocationStatus helper: registered+active, registered+inactive, not registered
  */
@@ -367,23 +367,23 @@ describe('POST /v1/stock-transfers/:id/approve-origin — inactive items warning
 // ===========================================================================
 
 describe('POST /v1/stock-transfers/:id/finalize — destination registration check', () => {
-  it('returns 400 when item is not registered at destination', async () => {
+  it('returns 400 when item is inactive (or not registered) at destination', async () => {
     const item  = makeTransferItem();
     const tReq  = makeTransferRequest('READY_TO_FINALIZE', [item]);
 
     db.stockTransferRequest.findUnique.mockResolvedValue(tReq);
     // Source: product is active
-    // Destination: product is NOT active (validateProductActive at destination returns false)
+    // Destination: product is NOT active — M1: missing row treated as inactive
     db.productLocation.findFirst
       .mockResolvedValueOnce({ id: 'pl-src', productId: PRODUCT_ID, locationId: LOCATION_ID, isActive: true }) // isActiveNow (source)
-      .mockResolvedValueOnce(null); // validateProductActive at destination
+      .mockResolvedValueOnce(null); // isProductRegisteredAtLocation at destination
 
     const res = await request(app)
       .post(`/v1/stock-transfers/${REQ_ID}/finalize`)
       .set(AUTH);
 
     expect(res.status).toBe(400);
-    expect(res.body.error.message).toMatch(/not registered at destination/);
+    expect(res.body.error.message).toMatch(/Product is inactive at this location/);
     expect(res.body.error.message).toContain(PRODUCT_ID);
   });
 

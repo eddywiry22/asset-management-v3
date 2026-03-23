@@ -186,12 +186,13 @@ describe('validateProductActive', () => {
     expect(result).toEqual({ valid: true });
   });
 
-  it('returns { valid: false, reason: PRODUCT_NOT_REGISTERED } when no active mapping exists', async () => {
+  it('returns { valid: false, reason: PRODUCT_INACTIVE } when no active mapping exists', async () => {
     db.productLocation.findFirst.mockResolvedValue(null);
 
     const result = await validateProductActive(PRODUCT_ID, LOCATION_ID);
 
-    expect(result).toEqual({ valid: false, reason: 'PRODUCT_NOT_REGISTERED' });
+    // M1: missing row is treated identically to inactive
+    expect(result).toEqual({ valid: false, reason: 'PRODUCT_INACTIVE' });
   });
 
   it('returns { valid: false } and does NOT throw when prisma throws', async () => {

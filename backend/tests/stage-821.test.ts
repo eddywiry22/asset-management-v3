@@ -383,11 +383,11 @@ describe('GET /v1/stock-transfers/:id — isActiveNow enrichment', () => {
 // ===========================================================================
 
 describe('POST /v1/stock-adjustments/:id/items — standardized error message', () => {
-  it('returns 400 with standardized message when product is not registered at location', async () => {
+  it('returns 400 with standardized message when product is inactive at location', async () => {
     const req = makeAdjRequest('DRAFT', []);
     db.stockAdjustmentRequest.findUnique.mockResolvedValue(req);
     db.location.findUnique.mockResolvedValue({ ...fakeLocation, isActive: true });
-    // Product NOT registered at location
+    // M1: Product NOT registered → treated identically to INACTIVE
     db.productLocation.findFirst.mockResolvedValue(null);
 
     const res = await request(app)
@@ -396,16 +396,15 @@ describe('POST /v1/stock-adjustments/:id/items — standardized error message', 
       .send({ productId: PRODUCT_ID, locationId: LOCATION_ID, qtyChange: 5 });
 
     expect(res.status).toBe(400);
-    expect(res.body.error.message).toMatch(/Product is not registered or not active at this location/);
-    expect(res.body.error.message).toContain(PRODUCT_ID);
+    expect(res.body.error.message).toMatch(/Product is inactive at this location/);
   });
 });
 
 describe('POST /v1/stock-transfers/:id/items — standardized error message', () => {
-  it('returns 400 with standardized message when product is not registered at source location', async () => {
+  it('returns 400 with standardized message when product is inactive at source location', async () => {
     const tReq = makeTransferRequest('DRAFT', []);
     db.stockTransferRequest.findUnique.mockResolvedValue(tReq);
-    // Product NOT registered at source location
+    // M1: Product NOT registered → treated identically to INACTIVE
     db.productLocation.findFirst.mockResolvedValue(null);
 
     const res = await request(app)
@@ -414,7 +413,6 @@ describe('POST /v1/stock-transfers/:id/items — standardized error message', ()
       .send({ productId: PRODUCT_ID, qty: 10 });
 
     expect(res.status).toBe(400);
-    expect(res.body.error.message).toMatch(/Product is not registered or not active at source location/);
-    expect(res.body.error.message).toContain(PRODUCT_ID);
+    expect(res.body.error.message).toMatch(/Product is inactive at this location/);
   });
 });

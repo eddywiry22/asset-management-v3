@@ -118,7 +118,7 @@ function ItemDialog({
             </Select>
           </FormControl>
           {noProducts && (
-            <Alert severity="warning">No products registered for this location</Alert>
+            <Alert severity="warning">No active products at this location</Alert>
           )}
           <FormControl fullWidth size="small" disabled={!locationId || noProducts}>
             <InputLabel>Product</InputLabel>
