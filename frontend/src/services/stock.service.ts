@@ -43,6 +43,7 @@ export type PaginatedResponse<T> = {
 
 export type StockQueryParams = {
   locationId?: string;
+  productId?: string;
   page?: number;
   limit?: number;
   startDate?: string;
@@ -98,12 +99,13 @@ const stockService = {
   },
 
   async getStockOverview(params: StockQueryParams = {}): Promise<PaginatedResponse<StockOverviewItem>> {
-    const { locationId, startDate, endDate, page, limit } = params;
+    const { locationId, productId, startDate, endDate, page, limit } = params;
     const res = await apiClient.get<PaginatedResponse<StockOverviewItem>>('stock', {
       params: {
         page,
         limit,
         ...(locationId && { locationId }),
+        ...(productId  && { productId }),
         ...(startDate  && { startDate }),
         ...(endDate    && { endDate }),
       },

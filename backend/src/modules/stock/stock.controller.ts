@@ -56,7 +56,7 @@ export class StockController {
         throw new ValidationError(msgs.join(', '));
       }
 
-      const { locationId, page, limit, startDate, endDate } = parsed.data;
+      const { locationId, productId, page, limit, startDate, endDate } = parsed.data;
 
       // Normalise: start → 00:00:00.000, end → 23:59:59.999 (inclusive end-of-day)
       const overviewDateFilter = buildDateRangeFilter(startDate, endDate);
@@ -64,6 +64,7 @@ export class StockController {
       const { data, total } = await stockService.getStockOverview(
         {
           locationId,
+          productId,
           page,
           limit,
           startDate: overviewDateFilter?.gte,
