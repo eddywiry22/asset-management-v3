@@ -112,7 +112,7 @@ function ItemDialog({
           {!initial && (
             <>
               {noProducts && (
-                <Alert severity="warning">No products registered for this location</Alert>
+                <Alert severity="warning">No active products at this location</Alert>
               )}
               <FormControl fullWidth size="small" disabled={noProducts}>
                 <InputLabel>Product</InputLabel>
@@ -443,7 +443,7 @@ export default function StockTransferDetailPage() {
           placement="bottom-start"
         >
           <Alert severity="error" sx={{ mb: 2, cursor: 'help' }}>
-            {itemsNotAtDest.length} item(s) — {itemsNotAtDest.map((i) => i.product?.sku ?? i.productId).join(', ')} — are not registered at the destination location and must be registered before finalizing.
+            {itemsNotAtDest.length} item(s) — {itemsNotAtDest.map((i) => i.product?.sku ?? i.productId).join(', ')} — are inactive at the selected location and must be activated before finalizing.
           </Alert>
         </Tooltip>
       )}

@@ -186,8 +186,9 @@ export class StockAdjustmentService {
       logger.info('[Stage8] Adjustment addItem blocked — user has no access', { check: 'userAccess', userId: user.id, locationId: dto.locationId, ...userAccessResult });
     }
     if (!productActiveResult.valid) {
-      logger.info('[Stage8] Adjustment addItem blocked — product not registered/active', { check: 'productActive', productId: dto.productId, locationId: dto.locationId, ...productActiveResult });
-      throw new ValidationError(`Product is not registered or not active at this location: ${dto.productId}`);
+      // M1: missing row is treated identically to inactive (PRODUCT_INACTIVE).
+      logger.info('[Stage8] Adjustment addItem blocked — product inactive at location', { check: 'productActive', productId: dto.productId, locationId: dto.locationId, ...productActiveResult });
+      throw new ValidationError('Product is inactive at this location');
     }
 
     // Snapshot beforeQty at time of item addition; calculate afterQty

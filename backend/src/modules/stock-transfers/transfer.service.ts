@@ -254,10 +254,11 @@ export class TransferService {
     if (!product) throw new NotFoundError(`Product not found: ${dto.productId}`);
 
     // Stage 8.2: Hard-blocking product-location validation
+    // M1: missing row is treated identically to inactive (PRODUCT_INACTIVE).
     const productActiveResult = await validateProductActive(dto.productId, req.sourceLocationId);
     if (!productActiveResult.valid) {
-      logger.info('[Stage8] Transfer addItem blocked — product not registered/active', { check: 'productActive', productId: dto.productId, locationId: req.sourceLocationId, ...productActiveResult });
-      throw new ValidationError(`Product is not registered or not active at source location: ${dto.productId}`);
+      logger.info('[Stage8] Transfer addItem blocked — product inactive at source', { check: 'productActive', productId: dto.productId, locationId: req.sourceLocationId, ...productActiveResult });
+      throw new ValidationError('Product is inactive at this location');
     }
 
     return transferRepository.addItem({
@@ -638,15 +639,16 @@ export class TransferService {
       );
     }
 
-    // Stage 8.2.1.1: validate all items are registered at destination (blocking).
+    // Stage 8.2.1.1: validate all items are active at destination (blocking).
+    // M1: missing row is treated identically to inactive — both are HARD BLOCKED.
     // Uses ProductLocation table exclusively — never stock balances or ledger.
-    const registeredAtDest = await Promise.all(
+    const activeAtDest = await Promise.all(
       req.items.map((item) => isProductRegisteredAtLocation(item.productId, req.destinationLocationId)),
     );
-    const notAtDest = req.items.filter((_, idx) => !registeredAtDest[idx]);
+    const notAtDest = req.items.filter((_, idx) => !activeAtDest[idx]);
     if (notAtDest.length > 0) {
       throw new ValidationError(
-        `Products not registered at destination location: ${notAtDest.map((i) => i.product?.sku ?? i.productId).join(', ')}`,
+        `Product is inactive at this location: ${notAtDest.map((i) => i.product?.sku ?? i.productId).join(', ')}`,
       );
     }
 

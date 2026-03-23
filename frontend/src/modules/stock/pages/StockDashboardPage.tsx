@@ -304,8 +304,8 @@ export default function StockDashboardPage() {
                           <Chip label="Inactive" size="small" color="warning" />
                         </Tooltip>
                       ) : !row.isRegisteredNow ? (
-                        <Tooltip title="This product is not registered at this location">
-                          <Chip label="Not Registered" size="small" color="error" />
+                        <Tooltip title="This product is inactive at this location">
+                          <Chip label="Inactive" size="small" color="warning" />
                         </Tooltip>
                       ) : (
                         <Tooltip title="This product is actively registered at this location">
