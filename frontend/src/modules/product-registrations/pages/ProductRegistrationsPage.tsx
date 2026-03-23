@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import {
   Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
-  FormControlLabel, Switch, Table, TableBody, TableCell, TableContainer,
+  FormControl, FormControlLabel, InputLabel, Select, SelectChangeEvent,
+  Switch, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, TextField, Typography, Paper, CircularProgress,
   Alert, MenuItem, Tooltip,
 } from '@mui/material';
@@ -38,10 +39,12 @@ export default function ProductRegistrationsPage() {
   const [editTarget, setEditTarget]       = useState<ProductRegistration | null>(null);
   const [deleteTarget, setDeleteTarget]   = useState<ProductRegistration | null>(null);
   const [apiError, setApiError]           = useState('');
+  const [status, setStatus]               = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
+  const [appliedStatus, setAppliedStatus] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
 
   const { data: registrations = [], isLoading, error } = useQuery({
-    queryKey: ['product-registrations'],
-    queryFn:  productRegistrationsService.getAll,
+    queryKey: ['product-registrations', appliedStatus],
+    queryFn:  () => productRegistrationsService.getAll(appliedStatus),
   });
 
   const { data: products = [] } = useQuery({
@@ -148,6 +151,34 @@ export default function ProductRegistrationsPage() {
           Register Product
         </Button>
       </Box>
+
+      <Paper sx={{ p: 2, mb: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <FormControl size="small" sx={{ minWidth: 160 }}>
+            <InputLabel>Status</InputLabel>
+            <Select
+              value={status}
+              label="Status"
+              onChange={(e: SelectChangeEvent) =>
+                setStatus(e.target.value as 'ALL' | 'ACTIVE' | 'INACTIVE')
+              }
+            >
+              <MenuItem value="ALL">All</MenuItem>
+              <MenuItem value="ACTIVE">Active</MenuItem>
+              <MenuItem value="INACTIVE">Inactive</MenuItem>
+            </Select>
+          </FormControl>
+          <Button variant="outlined" onClick={() => setAppliedStatus(status)}>
+            Apply
+          </Button>
+          <Button
+            variant="text"
+            onClick={() => { setStatus('ALL'); setAppliedStatus('ALL'); }}
+          >
+            Clear
+          </Button>
+        </Box>
+      </Paper>
 
       <TableContainer component={Paper}>
         <Table>

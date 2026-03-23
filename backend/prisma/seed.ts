@@ -253,6 +253,39 @@ async function main() {
     }
   }
 
+  // ------------------------------------------------------------------
+  // M2: ProductLocation matrix backfill
+  // Ensure every product × location pair exists (isActive = false for new rows)
+  // ------------------------------------------------------------------
+  console.log('');
+  console.log('Backfilling ProductLocation matrix...');
+
+  const allLocationsFull = await prisma.location.findMany({ select: { id: true } });
+
+  const before = await prisma.productLocation.count();
+  console.log(`  Before backfill: ${before} rows`);
+
+  const existing = await prisma.productLocation.findMany({
+    select: { productId: true, locationId: true },
+  });
+  const existingSet = new Set(existing.map((e) => `${e.productId}-${e.locationId}`));
+
+  const toInsert: { productId: string; locationId: string; isActive: boolean }[] = [];
+  for (const product of allProducts) {
+    for (const location of allLocationsFull) {
+      if (!existingSet.has(`${product.id}-${location.id}`)) {
+        toInsert.push({ productId: product.id, locationId: location.id, isActive: false });
+      }
+    }
+  }
+
+  if (toInsert.length > 0) {
+    await prisma.productLocation.createMany({ data: toInsert, skipDuplicates: true });
+  }
+
+  const after = await prisma.productLocation.count();
+  console.log(`  After backfill:  ${after} rows (inserted ${toInsert.length})`);
+
   console.log('');
   console.log('=== Seed completed ===');
   console.log('');
