@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, Dialog, DialogContent, DialogTitle,
-  Divider, MenuItem, Select, FormControl, InputLabel, Table, TableBody, TableCell,
+  Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, TextField, Typography, Paper, Snackbar,
   TablePagination, Tooltip,
 } from '@mui/material';
@@ -10,8 +10,8 @@ import FilterListIcon from '@mui/icons-material/FilterList';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { useQuery } from '@tanstack/react-query';
 import stockService, { StockOverviewItem, StockLedgerEntry } from '../../../services/stock.service';
-import { goodsService } from '../../../services/goods.service';
 import { useAuth } from '../../../context/AuthContext';
+import AdvancedFilterModal from '../../../components/AdvancedFilterModal';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -123,17 +123,21 @@ export default function StockDashboardPage() {
   const { isAdmin } = useAuth();
 
   // Filters
-  const [filterLocationId, setFilterLocationId] = useState('');
-  const [filterProductId,  setFilterProductId]  = useState('');
   const [startDate, setStartDate] = useState<string | null>(null);
   const [endDate,   setEndDate]   = useState<string | null>(null);
   const [page, setPage]  = useState(0);
   const [limit]          = useState(20);
 
+  // Advanced filter modal
+  const [filterModalOpen, setFilterModalOpen] = useState(false);
+
   // Applied filters (submitted on click)
   const [appliedFilters, setAppliedFilters] = useState<{
-    locationId?: string; productId?: string; startDate?: string; endDate?: string;
-  }>({});
+    productIds: string[];
+    locationIds: string[];
+    startDate?: string;
+    endDate?: string;
+  }>({ productIds: [], locationIds: [] });
   const [applyVersion, setApplyVersion] = useState(0);
 
   // Ledger modal state
@@ -142,29 +146,24 @@ export default function StockDashboardPage() {
   // Snackbar
   const [snackMsg, setSnackMsg] = useState('');
 
-  // Fetch locations visible to this user (drives the location filter dropdown)
+  // Fetch locations visible to this user (used by the Advanced Filter modal and empty-state check)
   const { data: visibleLocations = [], isSuccess: locationsLoaded } = useQuery({
     queryKey: ['stock-visible-locations'],
     queryFn:  stockService.getVisibleLocations,
   });
 
-  // Fetch all products for the product filter dropdown
-  const { data: products = [], isError: productsError } = useQuery({
-    queryKey: ['goods'],
-    queryFn:  goodsService.getAll,
-  });
-
-  const hasNoLocation     = !isAdmin && locationsLoaded && visibleLocations.length === 0;
-  const showLocationFilter = visibleLocations.length > 1;
+  const hasNoLocation = !isAdmin && locationsLoaded && visibleLocations.length === 0;
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['stock-overview', appliedFilters, page, limit, applyVersion],
-    queryFn:  () => {
-      const { locationId, startDate, endDate } = appliedFilters;
-      console.log('APPLIED FILTERS', appliedFilters);
-      console.log('FETCH', { startDate, endDate, locationId, applyVersion });
-      return stockService.getStockOverview({ ...appliedFilters, page: page + 1, limit });
-    },
+    queryFn:  () => stockService.getStockOverview({
+      productIds:  appliedFilters.productIds,
+      locationIds: appliedFilters.locationIds,
+      startDate:   appliedFilters.startDate,
+      endDate:     appliedFilters.endDate,
+      page: page + 1,
+      limit,
+    }),
     // staleTime: 0 ensures a fresh fetch every time the queryKey changes (e.g. new date filter)
     // regardless of the global 30 s default set in App.tsx
     staleTime: 0,
@@ -175,25 +174,23 @@ export default function StockDashboardPage() {
 
   const isDateRangeInvalid = !!(startDate && endDate && startDate > endDate);
 
-  function applyFilters() {
+  function applyDateFilters() {
     if (isDateRangeInvalid) return;
     setPage(0);
-    setAppliedFilters({
-      locationId: filterLocationId || undefined,
-      productId:  filterProductId  || undefined,
-      startDate:  startDate ?? undefined,
-      endDate:    endDate   ?? undefined,
-    });
+    setAppliedFilters((prev) => ({
+      ...prev,
+      startDate: startDate ?? undefined,
+      endDate:   endDate   ?? undefined,
+    }));
     setApplyVersion((v) => v + 1);
   }
 
   function clearFilters() {
-    setFilterLocationId('');
-    setFilterProductId('');
     setStartDate(null);
     setEndDate(null);
     setPage(0);
-    setAppliedFilters({});
+    setAppliedFilters({ productIds: [], locationIds: [] });
+    setApplyVersion((v) => v + 1);
   }
 
   return (
@@ -215,42 +212,18 @@ export default function StockDashboardPage() {
       {/* Filters */}
       <Paper sx={{ p: 2, mb: 2 }}>
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
-          {/* Location filter — visible when the user has access to more than one location */}
-          {showLocationFilter && (
-            <FormControl size="small" sx={{ minWidth: 200 }}>
-              <InputLabel>Location</InputLabel>
-              <Select
-                value={filterLocationId}
-                label="Location"
-                onChange={(e) => setFilterLocationId(e.target.value)}
-              >
-                <MenuItem value=""><em>All locations</em></MenuItem>
-                {visibleLocations.map((loc) => (
-                  <MenuItem key={loc.id} value={loc.id}>
-                    {loc.code} — {loc.name}
-                    {loc.isActive === false && ' (Inactive)'}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          )}
-
-          {/* Product filter */}
-          <FormControl size="small" sx={{ minWidth: 200 }} error={productsError}>
-            <InputLabel>Product</InputLabel>
-            <Select
-              value={filterProductId}
-              label="Product"
-              onChange={(e) => setFilterProductId(e.target.value)}
-            >
-              <MenuItem value=""><em>All</em></MenuItem>
-              {products.map((p) => (
-                <MenuItem key={p.id} value={p.id}>
-                  {p.name}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+          <Button
+            variant="outlined"
+            startIcon={<FilterListIcon />}
+            onClick={() => setFilterModalOpen(true)}
+          >
+            Advanced Filter
+            {(appliedFilters.productIds.length > 0 || appliedFilters.locationIds.length > 0) && (
+              <Box component="span" sx={{ ml: 1, fontWeight: 700 }}>
+                ({appliedFilters.productIds.length + appliedFilters.locationIds.length})
+              </Box>
+            )}
+          </Button>
 
           <TextField
             label="Period Start"
@@ -271,7 +244,7 @@ export default function StockDashboardPage() {
             error={isDateRangeInvalid}
             helperText={isDateRangeInvalid ? 'End date must be after start date' : undefined}
           />
-          <Button variant="outlined" startIcon={<FilterListIcon />} onClick={applyFilters} disabled={isDateRangeInvalid}>
+          <Button variant="outlined" onClick={applyDateFilters} disabled={isDateRangeInvalid}>
             Apply
           </Button>
           <Button variant="text" onClick={clearFilters}>
@@ -279,6 +252,17 @@ export default function StockDashboardPage() {
           </Button>
         </Box>
       </Paper>
+
+      <AdvancedFilterModal
+        open={filterModalOpen}
+        onClose={() => setFilterModalOpen(false)}
+        initialFilters={appliedFilters}
+        onApply={(filters) => {
+          setAppliedFilters((prev) => ({ ...prev, ...filters }));
+          setPage(0);
+          setApplyVersion((v) => v + 1);
+        }}
+      />
 
       {/* Table */}
       {isLoading && <CircularProgress />}
