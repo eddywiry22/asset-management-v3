@@ -6,13 +6,15 @@ import prisma from '../../config/database';
 import logger from '../../utils/logger';
 
 export class ProductLocationService {
-  async findAll(
-    page: number,
-    limit: number,
-    status: 'ALL' | 'ACTIVE' | 'INACTIVE' = 'ALL',
-  ): Promise<{ data: ProductLocationRow[]; total: number }> {
-    logger.info('[Stage8] ProductRegistration findAll', { page, limit, status });
-    return productLocationRepository.findAll({ status, page, pageSize: limit });
+  async findAll(params: {
+    page:        number;
+    pageSize:    number;
+    status:      'ALL' | 'ACTIVE' | 'INACTIVE';
+    productId?:  string;
+    locationId?: string;
+  }): Promise<{ data: ProductLocationRow[]; total: number }> {
+    logger.info('[Stage8] ProductRegistration findAll', params);
+    return productLocationRepository.findAll(params);
   }
 
   async findById(id: string): Promise<ProductLocationRow> {
