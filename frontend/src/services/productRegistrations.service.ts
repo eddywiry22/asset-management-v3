@@ -28,6 +28,11 @@ export interface DeactivationCheck {
   transfers:     number;
 }
 
+export interface BulkToggleResult {
+  successCount: number;
+  failed:       { id: string; reason: string }[];
+}
+
 export interface ProductRegistrationListResponse {
   data:  ProductRegistration[];
   meta: {
@@ -82,6 +87,14 @@ export const productRegistrationsService = {
   async checkDeactivation(id: string): Promise<DeactivationCheck> {
     const res = await apiClient.get<{ success: boolean; data: DeactivationCheck }>(
       `/admin/product-registrations/${id}/check-deactivate`,
+    );
+    return res.data.data;
+  },
+
+  async bulkToggle(ids: string[], isActive: boolean): Promise<BulkToggleResult> {
+    const res = await apiClient.post<{ success: boolean; data: BulkToggleResult }>(
+      '/admin/product-registrations/bulk-toggle',
+      { ids, isActive },
     );
     return res.data.data;
   },
