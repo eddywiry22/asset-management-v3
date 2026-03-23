@@ -1,17 +1,42 @@
 import { Response, NextFunction } from 'express';
 import { productLocationService } from './productRegistration.service';
 import { AuthenticatedRequest } from '../../types/request.types';
+import { ValidationError } from '../../utils/errors';
 
 export class ProductLocationController {
   async getAll(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-      const page   = parseInt(req.query.page  as string) || 1;
-      const limit  = parseInt(req.query.limit as string) || 20;
-      const status = (['ALL', 'ACTIVE', 'INACTIVE'].includes(req.query.status as string)
-        ? req.query.status as 'ALL' | 'ACTIVE' | 'INACTIVE'
+      const {
+        page       = '1',
+        pageSize   = '20',
+        status     = 'ALL',
+        productId,
+        locationId,
+      } = req.query as Record<string, string | undefined>;
+
+      const pageNum     = Math.max(1, parseInt(page, 10) || 1);
+      const pageSizeNum = Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20));
+
+      if (pageNum < 1)     throw new ValidationError('page must be >= 1');
+      if (pageSizeNum > 100) throw new ValidationError('pageSize must be <= 100');
+
+      const statusVal = (['ALL', 'ACTIVE', 'INACTIVE'].includes(status)
+        ? status as 'ALL' | 'ACTIVE' | 'INACTIVE'
         : 'ALL');
-      const { data, total } = await productLocationService.findAll(page, limit, status);
-      res.status(200).json({ success: true, data, meta: { page, limit, total } });
+
+      const { data, total } = await productLocationService.findAll({
+        page:       pageNum,
+        pageSize:   pageSizeNum,
+        status:     statusVal,
+        productId:  productId  ?? undefined,
+        locationId: locationId ?? undefined,
+      });
+
+      res.status(200).json({
+        success: true,
+        data,
+        meta: { page: pageNum, pageSize: pageSizeNum, total },
+      });
     } catch (err) {
       next(err);
     }

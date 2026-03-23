@@ -3,12 +3,13 @@ import {
   Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
   FormControl, FormControlLabel, InputLabel, Select, SelectChangeEvent,
   Switch, Table, TableBody, TableCell, TableContainer,
-  TableHead, TableRow, TextField, Typography, Paper, CircularProgress,
+  TableHead, TablePagination, TableRow, TextField, Typography, Paper, CircularProgress,
   Alert, MenuItem, Tooltip,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import FilterListIcon from '@mui/icons-material/FilterList';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -39,12 +40,21 @@ export default function ProductRegistrationsPage() {
   const [editTarget, setEditTarget]       = useState<ProductRegistration | null>(null);
   const [deleteTarget, setDeleteTarget]   = useState<ProductRegistration | null>(null);
   const [apiError, setApiError]           = useState('');
-  const [status, setStatus]               = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
-  const [appliedStatus, setAppliedStatus] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
 
-  const { data: registrations = [], isLoading, error } = useQuery({
-    queryKey: ['product-registrations', appliedStatus],
-    queryFn:  () => productRegistrationsService.getAll(appliedStatus),
+  // Pagination state (MUI TablePagination uses 0-based page)
+  const [page, setPage]               = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(20);
+
+  // Staging filters
+  const [productId,  setProductId]  = useState('');
+  const [locationId, setLocationId] = useState('');
+  const [status,     setStatus]     = useState('ALL');
+
+  // Applied filters — committed on Apply, drives the query key
+  const [appliedFilters, setAppliedFilters] = useState({
+    productId:  '',
+    locationId: '',
+    status:     'ALL',
   });
 
   const { data: products = [] } = useQuery({
@@ -56,6 +66,20 @@ export default function ProductRegistrationsPage() {
     queryKey: ['all-locations'],
     queryFn:  stockService.getAllLocations,
   });
+
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['product-registrations', page, rowsPerPage, appliedFilters],
+    queryFn:  () => productRegistrationsService.getAll({
+      page:       page + 1,
+      pageSize:   rowsPerPage,
+      status:     appliedFilters.status,
+      ...(appliedFilters.productId  ? { productId:  appliedFilters.productId  } : {}),
+      ...(appliedFilters.locationId ? { locationId: appliedFilters.locationId } : {}),
+    }),
+  });
+
+  const registrations = data?.data  ?? [];
+  const total         = data?.meta?.total ?? 0;
 
   const createForm = useForm<CreateForm>({
     resolver:      zodResolver(createSchema),
@@ -136,8 +160,16 @@ export default function ProductRegistrationsPage() {
     deleteMutation.mutate(deleteTarget.id);
   };
 
-  if (isLoading) return <CircularProgress />;
-  if (error) return <Alert severity="error">Failed to load product registrations</Alert>;
+  const handleApply = () => {
+    setPage(0);
+    setAppliedFilters({ productId, locationId, status });
+  };
+
+  const handleClear = () => {
+    setProductId(''); setLocationId(''); setStatus('ALL');
+    setPage(0);
+    setAppliedFilters({ productId: '', locationId: '', status: 'ALL' });
+  };
 
   return (
     <Box>
@@ -152,86 +184,127 @@ export default function ProductRegistrationsPage() {
         </Button>
       </Box>
 
+      {/* Filter Bar */}
       <Paper sx={{ p: 2, mb: 2 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+          <FormControl size="small" sx={{ minWidth: 200 }}>
+            <InputLabel>Product</InputLabel>
+            <Select
+              label="Product"
+              value={productId}
+              onChange={(e: SelectChangeEvent) => setProductId(e.target.value)}
+            >
+              <MenuItem value="">All Products</MenuItem>
+              {products.map((p) => (
+                <MenuItem key={p.id} value={p.id}>{p.sku} — {p.name}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <FormControl size="small" sx={{ minWidth: 200 }}>
+            <InputLabel>Location</InputLabel>
+            <Select
+              label="Location"
+              value={locationId}
+              onChange={(e: SelectChangeEvent) => setLocationId(e.target.value)}
+            >
+              <MenuItem value="">All Locations</MenuItem>
+              {locations.map((l) => (
+                <MenuItem key={l.id} value={l.id}>{l.code} — {l.name}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
           <FormControl size="small" sx={{ minWidth: 160 }}>
             <InputLabel>Status</InputLabel>
             <Select
-              value={status}
               label="Status"
-              onChange={(e: SelectChangeEvent) =>
-                setStatus(e.target.value as 'ALL' | 'ACTIVE' | 'INACTIVE')
-              }
+              value={status}
+              onChange={(e: SelectChangeEvent) => setStatus(e.target.value)}
             >
               <MenuItem value="ALL">All</MenuItem>
               <MenuItem value="ACTIVE">Active</MenuItem>
               <MenuItem value="INACTIVE">Inactive</MenuItem>
             </Select>
           </FormControl>
-          <Button variant="outlined" onClick={() => setAppliedStatus(status)}>
+
+          <Button variant="outlined" startIcon={<FilterListIcon />} onClick={handleApply}>
             Apply
           </Button>
-          <Button
-            variant="text"
-            onClick={() => { setStatus('ALL'); setAppliedStatus('ALL'); }}
-          >
+          <Button variant="text" onClick={handleClear}>
             Clear
           </Button>
         </Box>
       </Paper>
 
-      <TableContainer component={Paper}>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell>Product (SKU)</TableCell>
-              <TableCell>Product Name</TableCell>
-              <TableCell>Location</TableCell>
-              <TableCell>Status</TableCell>
-              <TableCell align="right">Actions</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {registrations.map((item) => (
-              <TableRow key={item.id}>
-                <TableCell><strong>{item.product?.sku}</strong></TableCell>
-                <TableCell>{item.product?.name}</TableCell>
-                <TableCell>{item.location?.code} — {item.location?.name}</TableCell>
-                <TableCell>
-                  <Chip
-                    label={item.isActive ? 'Active' : 'Inactive'}
-                    color={item.isActive ? 'success' : 'default'}
-                    size="small"
-                  />
-                </TableCell>
-                <TableCell align="right">
-                  <Button
-                    size="small"
-                    startIcon={<EditIcon />}
-                    onClick={() => openEdit(item)}
-                    sx={{ mr: 1 }}
-                  >
-                    Edit
-                  </Button>
-                  <Button
-                    size="small"
-                    color="error"
-                    startIcon={<DeleteIcon />}
-                    onClick={() => openDelete(item)}
-                  >
-                    Delete
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
-            {registrations.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={5} align="center">No product registrations found</TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </TableContainer>
+      {/* Table */}
+      {isLoading && <CircularProgress />}
+      {error     && <Alert severity="error">Failed to load product registrations</Alert>}
+      {!isLoading && !error && (
+        <Paper>
+          <TableContainer>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Product (SKU)</TableCell>
+                  <TableCell>Product Name</TableCell>
+                  <TableCell>Location</TableCell>
+                  <TableCell>Status</TableCell>
+                  <TableCell align="right">Actions</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {registrations.map((item) => (
+                  <TableRow key={item.id}>
+                    <TableCell><strong>{item.product?.sku}</strong></TableCell>
+                    <TableCell>{item.product?.name}</TableCell>
+                    <TableCell>{item.location?.code} — {item.location?.name}</TableCell>
+                    <TableCell>
+                      <Chip
+                        label={item.isActive ? 'Active' : 'Inactive'}
+                        color={item.isActive ? 'success' : 'default'}
+                        size="small"
+                      />
+                    </TableCell>
+                    <TableCell align="right">
+                      <Button
+                        size="small"
+                        startIcon={<EditIcon />}
+                        onClick={() => openEdit(item)}
+                        sx={{ mr: 1 }}
+                      >
+                        Edit
+                      </Button>
+                      <Button
+                        size="small"
+                        color="error"
+                        startIcon={<DeleteIcon />}
+                        onClick={() => openDelete(item)}
+                      >
+                        Delete
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {registrations.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={5} align="center">No product registrations found</TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+          <TablePagination
+            component="div"
+            count={total}
+            page={page}
+            onPageChange={(_e, p) => setPage(p)}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
+            rowsPerPageOptions={[10, 20, 50]}
+          />
+        </Paper>
+      )}
 
       {/* Create Modal */}
       <Dialog open={createOpen} onClose={() => setCreateOpen(false)} maxWidth="sm" fullWidth>

@@ -23,15 +23,19 @@ const INCLUDE = {
 
 export class ProductLocationRepository {
   async findAll(params: {
-    status?:   'ALL' | 'ACTIVE' | 'INACTIVE';
-    page?:     number;
-    pageSize?: number;
+    status?:     'ALL' | 'ACTIVE' | 'INACTIVE';
+    page?:       number;
+    pageSize?:   number;
+    productId?:  string;
+    locationId?: string;
   }): Promise<{ data: ProductLocationRow[]; total: number }> {
-    const { status = 'ALL', page = 1, pageSize = 20 } = params;
+    const { status = 'ALL', page = 1, pageSize = 20, productId, locationId } = params;
 
-    const where = {
+    const where: any = {
       ...(status === 'ACTIVE'   && { isActive: true }),
       ...(status === 'INACTIVE' && { isActive: false }),
+      ...(productId  && { productId }),
+      ...(locationId && { locationId }),
     };
 
     const [data, total] = await Promise.all([

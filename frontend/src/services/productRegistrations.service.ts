@@ -28,13 +28,35 @@ export interface DeactivationCheck {
   transfers:     number;
 }
 
+export interface ProductRegistrationListResponse {
+  data:  ProductRegistration[];
+  meta: {
+    page:     number;
+    pageSize: number;
+    total:    number;
+  };
+}
+
 export const productRegistrationsService = {
-  async getAll(status: 'ALL' | 'ACTIVE' | 'INACTIVE' = 'ALL'): Promise<ProductRegistration[]> {
-    const res = await apiClient.get<{ success: boolean; data: ProductRegistration[] }>(
+  async getAll(params: {
+    page?:       number;
+    pageSize?:   number;
+    status?:     string;
+    productId?:  string;
+    locationId?: string;
+  } = {}): Promise<ProductRegistrationListResponse> {
+    const query: Record<string, string> = {};
+    if (params.page      != null) query.page      = String(params.page);
+    if (params.pageSize  != null) query.pageSize  = String(params.pageSize);
+    if (params.status)             query.status    = params.status;
+    if (params.productId)          query.productId  = params.productId;
+    if (params.locationId)         query.locationId = params.locationId;
+
+    const res = await apiClient.get<{ success: boolean; data: ProductRegistration[]; meta: { page: number; pageSize: number; total: number } }>(
       '/admin/product-registrations',
-      { params: { status } },
+      { params: query },
     );
-    return res.data.data;
+    return { data: res.data.data, meta: res.data.meta };
   },
 
   async create(input: CreateProductRegistrationInput): Promise<ProductRegistration> {
