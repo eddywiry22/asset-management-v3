@@ -156,36 +156,10 @@ export class ProductLocationService {
     return { successCount, failed };
   }
 
-  async delete(id: string, performedBy: string): Promise<void> {
-    const mapping = await this.findById(id);
-
-    // Disallow deletion if ledger entries exist — preserve historical data
-    const hasLedger = await productLocationRepository.hasLedgerEntries(
-      mapping.productId,
-      mapping.locationId,
+  async delete(_id: string, _performedBy: string): Promise<void> {
+    throw new ValidationError(
+      'Product registration cannot be deleted. Use activate/deactivate instead.',
     );
-    if (hasLedger) {
-      throw new ValidationError(
-        `Cannot delete: ledger entries exist for product "${mapping.product?.name}" ` +
-        `at location "${mapping.location?.name}". Deactivate instead.`,
-      );
-    }
-
-    await productLocationRepository.delete(id);
-
-    logger.info('[Stage8] ProductRegistration deleted', {
-      id,
-      productId:  mapping.productId,
-      locationId: mapping.locationId,
-    });
-
-    void auditService.log({
-      entityType:  'PRODUCT_LOCATION',
-      entityId:    id,
-      action:      'DELETE',
-      beforeValue: mapping,
-      performedBy,
-    });
   }
 }
 

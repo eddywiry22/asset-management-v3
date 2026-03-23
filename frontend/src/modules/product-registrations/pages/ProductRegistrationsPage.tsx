@@ -8,7 +8,6 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
-import DeleteIcon from '@mui/icons-material/Delete';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm, Controller } from 'react-hook-form';
@@ -38,7 +37,6 @@ export default function ProductRegistrationsPage() {
   const queryClient = useQueryClient();
   const [createOpen, setCreateOpen]       = useState(false);
   const [editTarget, setEditTarget]       = useState<ProductRegistration | null>(null);
-  const [deleteTarget, setDeleteTarget]   = useState<ProductRegistration | null>(null);
   const [apiError, setApiError]           = useState('');
 
   // Pagination state (MUI TablePagination uses 0-based page)
@@ -122,18 +120,6 @@ export default function ProductRegistrationsPage() {
     },
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => productRegistrationsService.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['product-registrations'] });
-      setDeleteTarget(null);
-      setApiError('');
-    },
-    onError: (err: any) => {
-      setApiError(err?.response?.data?.error?.message ?? 'Failed to delete registration');
-    },
-  });
-
   const bulkToggleMutation = useMutation({
     mutationFn: ({ ids, isActive }: { ids: string[]; isActive: boolean }) =>
       productRegistrationsService.bulkToggle(ids, isActive),
@@ -169,11 +155,6 @@ export default function ProductRegistrationsPage() {
     setApiError('');
   };
 
-  const openDelete = (item: ProductRegistration) => {
-    setDeleteTarget(item);
-    setApiError('');
-  };
-
   const onCreateSubmit = (data: CreateForm) => {
     setApiError('');
     createMutation.mutate(data);
@@ -183,12 +164,6 @@ export default function ProductRegistrationsPage() {
     if (!editTarget) return;
     setApiError('');
     updateMutation.mutate({ id: editTarget.id, data });
-  };
-
-  const onDeleteConfirm = () => {
-    if (!deleteTarget) return;
-    setApiError('');
-    deleteMutation.mutate(deleteTarget.id);
   };
 
   const handleApply = () => {
@@ -389,17 +364,8 @@ export default function ProductRegistrationsPage() {
                         size="small"
                         startIcon={<EditIcon />}
                         onClick={() => openEdit(item)}
-                        sx={{ mr: 1 }}
                       >
                         Edit
-                      </Button>
-                      <Button
-                        size="small"
-                        color="error"
-                        startIcon={<DeleteIcon />}
-                        onClick={() => openDelete(item)}
-                      >
-                        Delete
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -537,34 +503,6 @@ export default function ProductRegistrationsPage() {
             </Button>
           </DialogActions>
         </form>
-      </Dialog>
-
-      {/* Delete Confirmation Modal */}
-      <Dialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)} maxWidth="sm" fullWidth>
-        <DialogTitle>Delete Registration</DialogTitle>
-        <DialogContent>
-          {apiError && <Alert severity="error" sx={{ mb: 2 }}>{apiError}</Alert>}
-          {deleteTarget && (
-            <Typography>
-              Are you sure you want to delete the registration for{' '}
-              <strong>{deleteTarget.product?.name}</strong> at{' '}
-              <strong>{deleteTarget.location?.name}</strong>?
-              <br /><br />
-              This action is irreversible. If ledger entries exist, deletion will be blocked.
-            </Typography>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteTarget(null)}>Cancel</Button>
-          <Button
-            variant="contained"
-            color="error"
-            onClick={onDeleteConfirm}
-            disabled={deleteMutation.isPending}
-          >
-            {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
-          </Button>
-        </DialogActions>
       </Dialog>
 
       {/* Bulk Toggle Confirmation Dialog */}
