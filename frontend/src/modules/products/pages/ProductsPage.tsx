@@ -1,8 +1,8 @@
 import { useState, useMemo } from 'react';
 import {
   Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
-  FormControl, FormControlLabel, IconButton, InputLabel, MenuItem, Paper,
-  Select, Snackbar, Stack, Switch, Table, TableBody, TableCell,
+  FormControl, IconButton, InputLabel, MenuItem, Paper,
+  Select, Snackbar, Stack, Table, TableBody, TableCell,
   TableContainer, TableHead, TablePagination, TableRow, TextField,
   Typography, CircularProgress, Alert,
 } from '@mui/material';
@@ -39,7 +39,6 @@ const editSchema = z.object({
   categoryId: z.string().min(1, 'Category is required'),
   vendorId:   z.string().min(1, 'Vendor is required'),
   uomId:      z.string().min(1, 'UOM is required'),
-  isActive:   z.boolean(),
 });
 
 type CreateForm = z.infer<typeof createSchema>;
@@ -269,7 +268,6 @@ export default function ProductsPage() {
       categoryId: item.categoryId,
       vendorId:   item.vendorId,
       uomId:      item.uomId,
-      isActive:   item.isActive,
     });
     setApiError('');
   };
@@ -455,7 +453,6 @@ export default function ProductsPage() {
                   <TableCell>Category</TableCell>
                   <TableCell>Vendor</TableCell>
                   <TableCell>UOM</TableCell>
-                  <TableCell>Status</TableCell>
                   <TableCell align="right">Actions</TableCell>
                 </TableRow>
               </TableHead>
@@ -467,13 +464,6 @@ export default function ProductsPage() {
                     <TableCell>{item.category?.name}</TableCell>
                     <TableCell>{item.vendor?.name}</TableCell>
                     <TableCell>{item.uom?.code}</TableCell>
-                    <TableCell>
-                      <Chip
-                        label={item.isActive ? 'Active' : 'Inactive'}
-                        color={item.isActive ? 'success' : 'default'}
-                        size="small"
-                      />
-                    </TableCell>
                     <TableCell align="right">
                       <Button size="small" startIcon={<EditIcon />} onClick={() => openEdit(item)}>
                         Edit
@@ -483,7 +473,7 @@ export default function ProductsPage() {
                 ))}
                 {products.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} align="center">No products found</TableCell>
+                    <TableCell colSpan={6} align="center">No products found</TableCell>
                   </TableRow>
                 )}
               </TableBody>
@@ -644,17 +634,6 @@ export default function ProductsPage() {
                     <MenuItem key={u.id} value={u.id}>{u.code} — {u.name}</MenuItem>
                   ))}
                 </TextField>
-              )}
-            />
-            <Controller
-              name="isActive"
-              control={editForm.control}
-              render={({ field }) => (
-                <FormControlLabel
-                  control={<Switch checked={field.value} onChange={field.onChange} />}
-                  label="Active"
-                  sx={{ mt: 1 }}
-                />
               )}
             />
           </DialogContent>
