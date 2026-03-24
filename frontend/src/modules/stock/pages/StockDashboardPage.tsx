@@ -128,7 +128,8 @@ export default function StockDashboardPage() {
   // Product/location filters via reusable hook
   const {
     filters,
-    applySimpleFilters,
+    applyProductFilter,
+    applyLocationFilter,
     applyAdvancedFilters,
     clearFilters,
     activeCount,
@@ -139,9 +140,10 @@ export default function StockDashboardPage() {
   const [filterLocationId, setFilterLocationId] = useState('');
   const [filterModalOpen, setFilterModalOpen] = useState(false);
 
-  // Date filters (staging + applied)
-  const [startDate, setStartDate] = useState<string | null>(null);
-  const [endDate,   setEndDate]   = useState<string | null>(null);
+  // Date filters (staging + applied); default staging to today
+  const today = new Date().toISOString().slice(0, 10);
+  const [startDate, setStartDate] = useState<string | null>(today);
+  const [endDate,   setEndDate]   = useState<string | null>(today);
   const [appliedStartDate, setAppliedStartDate] = useState<string | undefined>(undefined);
   const [appliedEndDate,   setAppliedEndDate]   = useState<string | undefined>(undefined);
 
@@ -173,8 +175,6 @@ export default function StockDashboardPage() {
     limit,
     startDate: appliedStartDate,
     endDate:   appliedEndDate,
-    ...(filters.productId   && { productId:   filters.productId }),
-    ...(filters.locationId  && { locationId:  filters.locationId }),
     ...(filters.productIds  && { productIds:  filters.productIds }),
     ...(filters.locationIds && { locationIds: filters.locationIds }),
   };
@@ -191,10 +191,8 @@ export default function StockDashboardPage() {
   const isDateRangeInvalid = !!(startDate && endDate && startDate > endDate);
 
   const handleApplySimple = () => {
-    applySimpleFilters(
-      filterProductId  || undefined,
-      filterLocationId || undefined,
-    );
+    applyProductFilter(filterProductId   ? [filterProductId]   : undefined);
+    applyLocationFilter(filterLocationId ? [filterLocationId] : undefined);
     setPage(0);
   };
 
@@ -205,15 +203,19 @@ export default function StockDashboardPage() {
     setPage(0);
   }
 
-  function handleClearAll() {
-    clearFilters();
-    setFilterProductId('');
-    setFilterLocationId('');
+  function handleClearDate() {
     setStartDate(null);
     setEndDate(null);
     setAppliedStartDate(undefined);
     setAppliedEndDate(undefined);
     setPage(0);
+  }
+
+  function handleClearAll() {
+    clearFilters();
+    setFilterProductId('');
+    setFilterLocationId('');
+    handleClearDate();
   }
 
   return (
@@ -303,6 +305,9 @@ export default function StockDashboardPage() {
           />
           <Button variant="outlined" onClick={applyDateFilters} disabled={isDateRangeInvalid}>
             Apply Dates
+          </Button>
+          <Button variant="text" onClick={handleClearDate}>
+            Clear Dates
           </Button>
         </Box>
       </Paper>

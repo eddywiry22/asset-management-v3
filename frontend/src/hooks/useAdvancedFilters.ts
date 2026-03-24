@@ -1,8 +1,6 @@
 import { useState } from 'react';
 
 type Filters = {
-  productId?: string;
-  locationId?: string;
   productIds?: string[];
   locationIds?: string[];
 };
@@ -10,13 +8,18 @@ type Filters = {
 export function useAdvancedFilters(initial?: Filters) {
   const [filters, setFilters] = useState<Filters>(initial ?? {});
 
-  const applySimpleFilters = (productId?: string, locationId?: string) => {
-    setFilters({
-      productId,
-      locationId,
-      productIds: undefined,
-      locationIds: undefined,
-    });
+  const applyProductFilter = (ids?: string[]) => {
+    setFilters(prev => ({
+      ...prev,
+      productIds: ids && ids.length > 0 ? ids : undefined,
+    }));
+  };
+
+  const applyLocationFilter = (ids?: string[]) => {
+    setFilters(prev => ({
+      ...prev,
+      locationIds: ids && ids.length > 0 ? ids : undefined,
+    }));
   };
 
   const applyAdvancedFilters = (data: {
@@ -24,10 +27,8 @@ export function useAdvancedFilters(initial?: Filters) {
     locationIds: string[];
   }) => {
     setFilters({
-      productIds: data.productIds,
-      locationIds: data.locationIds,
-      productId: undefined,
-      locationId: undefined,
+      productIds:  data.productIds.length  > 0 ? data.productIds  : undefined,
+      locationIds: data.locationIds.length > 0 ? data.locationIds : undefined,
     });
   };
 
@@ -36,14 +37,13 @@ export function useAdvancedFilters(initial?: Filters) {
   };
 
   const activeCount =
-    (filters.productId ? 1 : 0) +
-    (filters.locationId ? 1 : 0) +
-    (filters.productIds?.length ?? 0) +
+    (filters.productIds?.length  ?? 0) +
     (filters.locationIds?.length ?? 0);
 
   return {
     filters,
-    applySimpleFilters,
+    applyProductFilter,
+    applyLocationFilter,
     applyAdvancedFilters,
     clearFilters,
     activeCount,
