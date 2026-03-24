@@ -18,12 +18,15 @@ export class ProductsService {
     vendorIds?: string[];
   }): Promise<{ data: ProductWithRelations[]; total: number }> {
     const { page, limit, search, categoryIds, vendorIds } = params;
+    const trimmedSearch = search?.trim();
+
+    logger.info({ search, trimmedSearch }, 'Product search input');
 
     const where: Prisma.ProductWhereInput = {
-      ...(search && {
+      ...(trimmedSearch && {
         OR: [
-          { name: { contains: search, mode: 'insensitive' } },
-          { sku:  { contains: search, mode: 'insensitive' } },
+          { name: { contains: trimmedSearch } },
+          { sku:  { contains: trimmedSearch } },
         ],
       }),
       ...(categoryIds?.length && {
@@ -33,6 +36,8 @@ export class ProductsService {
         vendorId: { in: vendorIds },
       }),
     };
+
+    logger.info({ where }, 'Product query where clause');
 
     return productRepository.findAll({ page, limit, where });
   }
