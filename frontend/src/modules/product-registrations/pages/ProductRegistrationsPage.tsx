@@ -25,6 +25,7 @@ import AdvancedFilterModal from '../../../components/AdvancedFilterModal';
 import SaveFilterModal from '../../../components/SaveFilterModal';
 import { useAdvancedFilters } from '../../../hooks/useAdvancedFilters';
 import { savedFiltersService } from '../../../services/savedFilters.service';
+import { categoriesService } from '../../../services/categories.service';
 
 const createSchema = z.object({
   productId:  z.string().min(1, 'Product is required'),
@@ -54,6 +55,7 @@ export default function ProductRegistrationsPage() {
   // Advanced filters (productIds / locationIds via reusable hook)
   const {
     filters,
+    applyCategoryFilter,
     applyProductFilter,
     applyLocationFilter,
     applyAdvancedFilters,
@@ -62,6 +64,8 @@ export default function ProductRegistrationsPage() {
   } = useAdvancedFilters();
 
   // Simple filter staging state (dropdowns before Apply is clicked)
+  // filterCategoryId is derived from the hook so simple dropdown + advanced modal stay in sync
+  const filterCategoryId = filters.categoryIds?.[0] ?? '';
   const [filterProductId, setFilterProductId]   = useState('');
   const [filterLocationId, setFilterLocationId] = useState('');
 
@@ -81,6 +85,11 @@ export default function ProductRegistrationsPage() {
   const [snack, setSnack] = useState<{ msg: string; severity: 'success' | 'warning' | 'error' } | null>(null);
 
   // ── Data fetches ────────────────────────────────────────────────────────────
+
+  const { data: categories = [] } = useQuery({
+    queryKey: ['categories'],
+    queryFn:  categoriesService.getAll,
+  });
 
   const { data: products = [] } = useQuery({
     queryKey: ['products'],
@@ -110,7 +119,13 @@ export default function ProductRegistrationsPage() {
     return map;
   }, [locations]);
 
-  // Main table query — combines hook filters + status
+  // Filter product list by selected categories (supports multi-category from advanced filter)
+  const filteredProducts = useMemo(() => {
+    if (!filters.categoryIds?.length) return products;
+    return products.filter(p => filters.categoryIds!.includes(p.categoryId));
+  }, [products, filters.categoryIds]);
+
+  // Main table query — combines hook filters + status + category
   const { data, isLoading, error } = useQuery({
     queryKey: ['product-registrations', page, rowsPerPage, filters, statusFilter],
     queryFn:  () => productRegistrationsService.getAll({
@@ -119,6 +134,7 @@ export default function ProductRegistrationsPage() {
       status:   statusFilter,
       ...(filters.productIds?.length  && { productIds:  filters.productIds }),
       ...(filters.locationIds?.length && { locationIds: filters.locationIds }),
+      ...(filters.categoryIds?.length && { categoryIds: filters.categoryIds }),
     }),
   });
 
@@ -189,6 +205,7 @@ export default function ProductRegistrationsPage() {
         name,
         module: 'PRODUCT_REGISTRATION',
         filterJson: {
+          categoryIds: filters.categoryIds,
           productIds:  filters.productIds,
           locationIds: filters.locationIds,
           status:      statusFilter,
@@ -235,6 +252,12 @@ export default function ProductRegistrationsPage() {
     updateMutation.mutate({ id: editTarget.id, data });
   };
 
+  const handleCategoryChange = (value: string) => {
+    applyCategoryFilter(value ? [value] : undefined, products);
+    setFilterProductId('');
+    setPage(0);
+  };
+
   // Apply simple dropdown filters
   const handleApplySimple = () => {
     applyProductFilter(filterProductId   ? [filterProductId]   : undefined);
@@ -266,11 +289,13 @@ export default function ProductRegistrationsPage() {
     const saved = savedFilters.find(f => f.id === filterId);
     if (!saved) return;
     const fj = saved.filterJson as {
+      categoryIds?: string[];
       productIds?: string[];
       locationIds?: string[];
       status?: 'ALL' | 'ACTIVE' | 'INACTIVE';
     };
     applyAdvancedFilters({
+      categoryIds: fj.categoryIds ?? [],
       productIds:  fj.productIds  ?? [],
       locationIds: fj.locationIds ?? [],
     });
@@ -318,6 +343,7 @@ export default function ProductRegistrationsPage() {
   };
 
   const hasFilters =
+    (filters.categoryIds?.length ?? 0) > 0 ||
     (filters.productIds?.length ?? 0) > 0 ||
     (filters.locationIds?.length ?? 0) > 0 ||
     statusFilter !== 'ALL';
@@ -341,6 +367,20 @@ export default function ProductRegistrationsPage() {
       <Paper sx={{ p: 2, mb: 2 }}>
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
           <FormControl size="small" sx={{ minWidth: 200 }}>
+            <InputLabel>Category</InputLabel>
+            <Select
+              label="Category"
+              value={filterCategoryId}
+              onChange={(e: SelectChangeEvent) => handleCategoryChange(e.target.value)}
+            >
+              <MenuItem value="">All Categories</MenuItem>
+              {categories.map((c) => (
+                <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <FormControl size="small" sx={{ minWidth: 200 }}>
             <InputLabel>Product</InputLabel>
             <Select
               label="Product"
@@ -348,7 +388,7 @@ export default function ProductRegistrationsPage() {
               onChange={(e: SelectChangeEvent) => setFilterProductId(e.target.value)}
             >
               <MenuItem value="">All Products</MenuItem>
-              {products.map((p) => (
+              {filteredProducts.map((p) => (
                 <MenuItem key={p.id} value={p.id}>{p.sku} — {p.name}</MenuItem>
               ))}
             </Select>
@@ -457,6 +497,20 @@ export default function ProductRegistrationsPage() {
       {/* ── Filter Chips ───────────────────────────────────────────────────── */}
       {hasFilters && (
         <Stack direction="row" flexWrap="wrap" sx={{ mb: 2, gap: 1, alignItems: 'center' }}>
+          {/* Category chips */}
+          {filters.categoryIds?.map(cid => (
+            <Chip
+              key={cid}
+              size="small"
+              label={`Category: ${categories.find(c => c.id === cid)?.name ?? cid}`}
+              onDelete={() => {
+                const remaining = filters.categoryIds!.filter(x => x !== cid);
+                applyCategoryFilter(remaining.length > 0 ? remaining : undefined, products);
+                setPage(0);
+              }}
+            />
+          ))}
+
           {/* Product chips */}
           {(filters.productIds?.length ?? 0) > MAX_CHIPS ? (
             <Chip
@@ -551,6 +605,7 @@ export default function ProductRegistrationsPage() {
                     />
                   </TableCell>
                   <TableCell>Product (SKU)</TableCell>
+                  <TableCell>Category</TableCell>
                   <TableCell>Product Name</TableCell>
                   <TableCell>Location</TableCell>
                   <TableCell>Status</TableCell>
@@ -567,6 +622,7 @@ export default function ProductRegistrationsPage() {
                       />
                     </TableCell>
                     <TableCell><strong>{item.product?.sku}</strong></TableCell>
+                    <TableCell>{item.product?.category?.name}</TableCell>
                     <TableCell>{item.product?.name}</TableCell>
                     <TableCell>{item.location?.code} — {item.location?.name}</TableCell>
                     <TableCell>
@@ -585,7 +641,7 @@ export default function ProductRegistrationsPage() {
                 ))}
                 {registrations.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} align="center">No product registrations found</TableCell>
+                    <TableCell colSpan={7} align="center">No product registrations found</TableCell>
                   </TableRow>
                 )}
               </TableBody>
@@ -608,6 +664,7 @@ export default function ProductRegistrationsPage() {
         open={filterModalOpen}
         onClose={() => setFilterModalOpen(false)}
         initialFilters={{
+          categoryIds: filters.categoryIds,
           productIds:  filters.productIds,
           locationIds: filters.locationIds,
         }}

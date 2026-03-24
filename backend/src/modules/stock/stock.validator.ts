@@ -9,6 +9,7 @@ export const stockQuerySchema = z.object({
   productId:   z.string().uuid().optional(),
   locationIds: uuidOrArray,
   productIds:  uuidOrArray,
+  categoryIds: uuidOrArray,
   page:        z.coerce.number().int().positive().default(1),
   limit:       z.coerce.number().int().positive().max(100).default(20),
   startDate:   z.string().optional(),

@@ -9,6 +9,7 @@ export type StockOverviewItem = {
   productId: string;
   productSku: string;
   productName: string;
+  productCategoryName: string;
   uomCode: string;
   locationId: string;
   locationCode: string;
@@ -30,6 +31,7 @@ export type StockOverviewItem = {
 export type StockQueryParams = {
   locationIds?: string[];
   productIds?: string[];
+  categoryIds?: string[];
   page: number;
   limit: number;
   startDate?: Date;
@@ -56,9 +58,9 @@ export class StockService {
     userId: string,
     isAdmin: boolean,
   ): Promise<{ data: StockOverviewItem[]; total: number }> {
-    const { locationIds, productIds, page, limit, startDate, endDate } = params;
+    const { locationIds, productIds, categoryIds, page, limit, startDate, endDate } = params;
 
-    logger.info({ productIds, locationIds }, 'Stock filter params');
+    logger.info({ productIds, locationIds, categoryIds }, 'Stock filter params');
 
     // Determine visible locations (enforces per-user access control)
     const visibleLocationIds = await this.getVisibleLocationIds(userId, isAdmin, locationIds);
@@ -70,8 +72,9 @@ export class StockService {
     // Fetch balances — both dimensions are independent AND conditions
     const skip = (page - 1) * limit;
     const whereClause: Record<string, unknown> = {
-      ...(productIds?.length       && { productId:  { in: productIds } }),
+      ...(productIds?.length        && { productId:  { in: productIds } }),
       ...(visibleLocationIds.length && { locationId: { in: visibleLocationIds } }),
+      ...(categoryIds?.length       && { product: { categoryId: { in: categoryIds } } }),
     };
 
     const [balances, total] = await Promise.all([
@@ -80,7 +83,7 @@ export class StockService {
         skip,
         take: limit,
         include: {
-          product:  { select: { id: true, sku: true, name: true, uom: { select: { code: true } } } },
+          product:  { select: { id: true, sku: true, name: true, uom: { select: { code: true } }, category: { select: { name: true } } } },
           location: { select: { id: true, code: true, name: true, isActive: true } },
         },
         orderBy: [{ location: { code: 'asc' } }, { product: { sku: 'asc' } }],
@@ -161,10 +164,11 @@ export class StockService {
         const isInactiveNow   = isRegisteredNow && !plStatus!.isActive;
 
         return {
-          productId:        b.productId,
-          productSku:       b.product.sku,
-          productName:      b.product.name,
-          uomCode:          b.product.uom.code,
+          productId:           b.productId,
+          productSku:          b.product.sku,
+          productName:         b.product.name,
+          productCategoryName: b.product.category?.name ?? '',
+          uomCode:             b.product.uom.code,
           locationId:       b.locationId,
           locationCode:     b.location.code,
           locationName:     b.location.name,

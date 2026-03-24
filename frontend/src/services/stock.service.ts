@@ -4,6 +4,7 @@ export type StockOverviewItem = {
   productId: string;
   productSku: string;
   productName: string;
+  productCategoryName: string;
   uomCode: string;
   locationId: string;
   locationCode: string;
@@ -46,6 +47,7 @@ export type StockQueryParams = {
   productId?: string;
   productIds?: string[];
   locationIds?: string[];
+  categoryIds?: string[];
   page?: number;
   limit?: number;
   startDate?: string;
@@ -101,7 +103,7 @@ const stockService = {
   },
 
   async getStockOverview(params: StockQueryParams = {}): Promise<PaginatedResponse<StockOverviewItem>> {
-    const { locationId, productId, productIds, locationIds, startDate, endDate, page, limit } = params;
+    const { locationId, productId, productIds, locationIds, categoryIds, startDate, endDate, page, limit } = params;
     const query = new URLSearchParams();
     if (page)       query.set('page',  String(page));
     if (limit)      query.set('limit', String(limit));
@@ -117,6 +119,9 @@ const stockService = {
       locationIds.forEach(id => query.append('locationIds', id));
     } else if (locationId) {
       query.set('locationId', locationId);
+    }
+    if (categoryIds && categoryIds.length > 0) {
+      categoryIds.forEach(id => query.append('categoryIds', id));
     }
     const res = await apiClient.get<PaginatedResponse<StockOverviewItem>>(`stock?${query.toString()}`);
     return res.data;

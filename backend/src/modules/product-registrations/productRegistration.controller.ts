@@ -13,10 +13,11 @@ export class ProductLocationController {
         throw new ValidationError(msgs.join(', '));
       }
 
-      const { productId, locationId, productIds, locationIds, status, page, pageSize } = parsed.data;
+      const { productId, locationId, productIds, locationIds, categoryIds, status, page, pageSize } = parsed.data;
 
       const normalizedProductIds  = productIds  ?? (productId  ? [productId]  : undefined);
       const normalizedLocationIds = locationIds ?? (locationId ? [locationId] : undefined);
+      const normalizedCategoryIds = categoryIds?.length ? categoryIds : undefined;
 
       const { data, total } = await productLocationService.findAll({
         page,
@@ -24,6 +25,7 @@ export class ProductLocationController {
         status,
         productIds:  normalizedProductIds,
         locationIds: normalizedLocationIds,
+        categoryIds: normalizedCategoryIds,
       });
 
       res.status(200).json({

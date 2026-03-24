@@ -7,7 +7,7 @@ export interface ProductRegistration {
   isActive:   boolean;
   createdAt:  string;
   updatedAt:  string;
-  product:    { id: string; sku: string; name: string };
+  product:    { id: string; sku: string; name: string; category?: { id: string; name: string } | null };
   location:   { id: string; code: string; name: string };
 }
 
@@ -44,15 +44,16 @@ export interface ProductRegistrationListResponse {
 
 export const productRegistrationsService = {
   async getAll(params: {
-    page?:        number;
-    pageSize?:    number;
-    status?:      string;
-    productId?:   string;
-    locationId?:  string;
-    productIds?:  string[];
-    locationIds?: string[];
+    page?:         number;
+    pageSize?:     number;
+    status?:       string;
+    productId?:    string;
+    locationId?:   string;
+    productIds?:   string[];
+    locationIds?:  string[];
+    categoryIds?:  string[];
   } = {}): Promise<ProductRegistrationListResponse> {
-    const { page, pageSize, status, productId, locationId, productIds, locationIds } = params;
+    const { page, pageSize, status, productId, locationId, productIds, locationIds, categoryIds } = params;
     const query = new URLSearchParams();
     if (page     != null) query.set('page',     String(page));
     if (pageSize != null) query.set('pageSize', String(pageSize));
@@ -69,6 +70,10 @@ export const productRegistrationsService = {
       locationIds.forEach(id => query.append('locationIds', id));
     } else if (locationId) {
       query.set('locationId', locationId);
+    }
+
+    if (categoryIds && categoryIds.length > 0) {
+      categoryIds.forEach(id => query.append('categoryIds', id));
     }
 
     const res = await apiClient.get<{
