@@ -1,12 +1,16 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
-  FormControlLabel, Switch, Table, TableBody, TableCell, TableContainer,
-  TableHead, TableRow, TextField, Typography, Paper, CircularProgress,
-  Alert, MenuItem,
+  FormControl, FormControlLabel, IconButton, InputLabel, MenuItem, Paper,
+  Select, Snackbar, Stack, Switch, Table, TableBody, TableCell,
+  TableContainer, TableHead, TablePagination, TableRow, TextField,
+  Typography, CircularProgress, Alert,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
+import FilterListIcon from '@mui/icons-material/FilterList';
+import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
+import DeleteIcon from '@mui/icons-material/Delete';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -15,7 +19,13 @@ import { productsService, Product } from '../../../services/products.service';
 import { categoriesService } from '../../../services/categories.service';
 import { vendorsService } from '../../../services/vendors.service';
 import { uomsService } from '../../../services/uoms.service';
+import { savedFiltersService } from '../../../services/savedFilters.service';
+import SaveFilterModal from '../../../components/SaveFilterModal';
+import ProductAdvancedFilterModal from '../components/ProductAdvancedFilterModal';
 
+// ---------------------------------------------------------------------------
+// Form schemas
+// ---------------------------------------------------------------------------
 const createSchema = z.object({
   sku:        z.string().min(1, 'SKU is required'),
   name:       z.string().min(1, 'Name is required'),
@@ -35,17 +45,45 @@ const editSchema = z.object({
 type CreateForm = z.infer<typeof createSchema>;
 type EditForm   = z.infer<typeof editSchema>;
 
+// ---------------------------------------------------------------------------
+// Applied filter shape
+// ---------------------------------------------------------------------------
+type AppliedFilters = {
+  search?: string;
+  categoryIds?: string[];
+  vendorIds?: string[];
+};
+
+// ---------------------------------------------------------------------------
+// Main page
+// ---------------------------------------------------------------------------
 export default function ProductsPage() {
   const queryClient = useQueryClient();
-  const [createOpen, setCreateOpen] = useState(false);
-  const [editTarget, setEditTarget] = useState<Product | null>(null);
-  const [apiError, setApiError] = useState('');
 
-  const { data: products = [], isLoading, error } = useQuery({
-    queryKey: ['products'],
-    queryFn:  productsService.getAll,
-  });
+  // -- Pagination --
+  const [page, setPage]     = useState(0);
+  const [rowsPerPage]       = useState(20);
 
+  // -- Staging filter state (UI inputs, not yet applied) --
+  const [search, setSearch]         = useState('');
+  const [categoryId, setCategoryId] = useState('');
+  const [vendorId, setVendorId]     = useState('');
+
+  // -- Applied filters (used in query) --
+  const [appliedFilters, setAppliedFilters] = useState<AppliedFilters>({});
+
+  // -- Modal state --
+  const [createOpen, setCreateOpen]               = useState(false);
+  const [editTarget, setEditTarget]               = useState<Product | null>(null);
+  const [filterModalOpen, setFilterModalOpen]     = useState(false);
+  const [openSave, setOpenSave]                   = useState(false);
+  const [savedFilterAnchor, setSavedFilterAnchor] = useState('');
+  const [apiError, setApiError]                   = useState('');
+  const [snackMsg, setSnackMsg]                   = useState('');
+
+  // ---------------------------------------------------------------------------
+  // Reference data
+  // ---------------------------------------------------------------------------
   const { data: categories = [] } = useQuery({
     queryKey: ['categories'],
     queryFn:  categoriesService.getAll,
@@ -61,6 +99,140 @@ export default function ProductsPage() {
     queryFn:  uomsService.getAll,
   });
 
+  const { data: savedFilters = [] } = useQuery({
+    queryKey: ['saved-filters', 'PRODUCTS'],
+    queryFn:  () => savedFiltersService.getAll('PRODUCTS'),
+  });
+
+  // ---------------------------------------------------------------------------
+  // Products query (paginated + filtered)
+  // ---------------------------------------------------------------------------
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['products', page, rowsPerPage, appliedFilters],
+    queryFn: () => productsService.getAll({
+      page:        page + 1,
+      limit:       rowsPerPage,
+      search:      appliedFilters.search     || undefined,
+      categoryIds: appliedFilters.categoryIds,
+      vendorIds:   appliedFilters.vendorIds,
+    }),
+  });
+
+  const products = data?.data ?? [];
+  const total    = data?.meta?.total ?? 0;
+
+  // ---------------------------------------------------------------------------
+  // Lookup maps for chips
+  // ---------------------------------------------------------------------------
+  const categoriesMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    categories.forEach(c => { map[c.id] = c.name; });
+    return map;
+  }, [categories]);
+
+  const vendorsMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    vendors.forEach(v => { map[v.id] = v.name; });
+    return map;
+  }, [vendors]);
+
+  // ---------------------------------------------------------------------------
+  // Active filter count (for Advanced Filter button badge)
+  // ---------------------------------------------------------------------------
+  const activeCount =
+    (appliedFilters.search ? 1 : 0) +
+    (appliedFilters.categoryIds?.length ?? 0) +
+    (appliedFilters.vendorIds?.length ?? 0);
+
+  // ---------------------------------------------------------------------------
+  // Filter handlers
+  // ---------------------------------------------------------------------------
+  const handleApply = () => {
+    setAppliedFilters({
+      search:      search || undefined,
+      categoryIds: categoryId ? [categoryId] : undefined,
+      vendorIds:   vendorId   ? [vendorId]   : undefined,
+    });
+    setPage(0);
+  };
+
+  const handleClear = () => {
+    setSearch('');
+    setCategoryId('');
+    setVendorId('');
+    setAppliedFilters({});
+    setPage(0);
+    setSavedFilterAnchor('');
+  };
+
+  const handleRemoveSearch = () => {
+    setAppliedFilters(prev => ({ ...prev, search: undefined }));
+    setSearch('');
+    setPage(0);
+  };
+
+  const handleRemoveCategory = (id: string) => {
+    const remaining = (appliedFilters.categoryIds ?? []).filter(c => c !== id);
+    setAppliedFilters(prev => ({ ...prev, categoryIds: remaining.length ? remaining : undefined }));
+    if (categoryId === id) setCategoryId('');
+    setPage(0);
+  };
+
+  const handleRemoveVendor = (id: string) => {
+    const remaining = (appliedFilters.vendorIds ?? []).filter(v => v !== id);
+    setAppliedFilters(prev => ({ ...prev, vendorIds: remaining.length ? remaining : undefined }));
+    if (vendorId === id) setVendorId('');
+    setPage(0);
+  };
+
+  // ---------------------------------------------------------------------------
+  // Saved filters
+  // ---------------------------------------------------------------------------
+  const saveMutation = useMutation({
+    mutationFn: (name: string) =>
+      savedFiltersService.create({
+        name,
+        module: 'PRODUCTS',
+        filterJson: {
+          search:      appliedFilters.search,
+          categoryIds: appliedFilters.categoryIds,
+          vendorIds:   appliedFilters.vendorIds,
+        } as Record<string, unknown>,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['saved-filters', 'PRODUCTS'] });
+      setOpenSave(false);
+      setSnackMsg('Filter saved');
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => savedFiltersService.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['saved-filters', 'PRODUCTS'] });
+      setSnackMsg('Filter deleted');
+    },
+  });
+
+  function handleApplySavedFilter(id: string) {
+    const saved = savedFilters.find(f => f.id === id);
+    if (!saved) return;
+    const fj = saved.filterJson as AppliedFilters;
+    setAppliedFilters({
+      search:      fj.search      || undefined,
+      categoryIds: fj.categoryIds || undefined,
+      vendorIds:   fj.vendorIds   || undefined,
+    });
+    setSearch(fj.search ?? '');
+    setCategoryId(fj.categoryIds?.[0] ?? '');
+    setVendorId(fj.vendorIds?.[0]     ?? '');
+    setPage(0);
+    setSavedFilterAnchor('');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Create / Edit forms
+  // ---------------------------------------------------------------------------
   const createForm = useForm<CreateForm>({ resolver: zodResolver(createSchema) });
   const editForm   = useForm<EditForm>({ resolver: zodResolver(editSchema) });
 
@@ -78,8 +250,8 @@ export default function ProductsPage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: EditForm }) =>
-      productsService.update(id, data),
+    mutationFn: ({ id, data: formData }: { id: string; data: EditForm }) =>
+      productsService.update(id, formData),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
       setEditTarget(null);
@@ -102,72 +274,259 @@ export default function ProductsPage() {
     setApiError('');
   };
 
-  const onCreateSubmit = (data: CreateForm) => {
+  const onCreateSubmit = (formData: CreateForm) => {
     setApiError('');
-    createMutation.mutate(data);
+    createMutation.mutate(formData);
   };
 
-  const onEditSubmit = (data: EditForm) => {
+  const onEditSubmit = (formData: EditForm) => {
     if (!editTarget) return;
     setApiError('');
-    updateMutation.mutate({ id: editTarget.id, data });
+    updateMutation.mutate({ id: editTarget.id, data: formData });
   };
 
-  if (isLoading) return <CircularProgress />;
-  if (error) return <Alert severity="error">Failed to load products</Alert>;
-
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
   return (
     <Box>
+      {/* Header */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
         <Typography variant="h5">Products</Typography>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setCreateOpen(true); setApiError(''); }}>
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={() => { setCreateOpen(true); setApiError(''); }}
+        >
           Add Product
         </Button>
       </Box>
 
-      <TableContainer component={Paper}>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell>SKU</TableCell>
-              <TableCell>Name</TableCell>
-              <TableCell>Category</TableCell>
-              <TableCell>Vendor</TableCell>
-              <TableCell>UOM</TableCell>
-              <TableCell>Status</TableCell>
-              <TableCell align="right">Actions</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {products.map((item) => (
-              <TableRow key={item.id}>
-                <TableCell><strong>{item.sku}</strong></TableCell>
-                <TableCell>{item.name}</TableCell>
-                <TableCell>{item.category?.name}</TableCell>
-                <TableCell>{item.vendor?.name}</TableCell>
-                <TableCell>{item.uom?.code}</TableCell>
-                <TableCell>
-                  <Chip
-                    label={item.isActive ? 'Active' : 'Inactive'}
-                    color={item.isActive ? 'success' : 'default'}
-                    size="small"
-                  />
-                </TableCell>
-                <TableCell align="right">
-                  <Button size="small" startIcon={<EditIcon />} onClick={() => openEdit(item)}>
-                    Edit
-                  </Button>
-                </TableCell>
-              </TableRow>
+      {/* Filter Bar */}
+      <Paper sx={{ p: 2, mb: 2, display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+        <TextField
+          label="Search"
+          size="small"
+          placeholder="Name or SKU…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') handleApply(); }}
+          sx={{ minWidth: 200 }}
+        />
+
+        <FormControl sx={{ minWidth: 180 }} size="small">
+          <InputLabel>Category</InputLabel>
+          <Select
+            value={categoryId}
+            label="Category"
+            onChange={(e) => setCategoryId(e.target.value)}
+          >
+            <MenuItem value="">All</MenuItem>
+            {categories.map(c => (
+              <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
             ))}
-            {products.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={7} align="center">No products found</TableCell>
-              </TableRow>
+          </Select>
+        </FormControl>
+
+        <FormControl sx={{ minWidth: 180 }} size="small">
+          <InputLabel>Vendor</InputLabel>
+          <Select
+            value={vendorId}
+            label="Vendor"
+            onChange={(e) => setVendorId(e.target.value)}
+          >
+            <MenuItem value="">All</MenuItem>
+            {vendors.map(v => (
+              <MenuItem key={v.id} value={v.id}>{v.name}</MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+
+        <Button variant="outlined" onClick={handleApply}>
+          Apply
+        </Button>
+
+        <Button variant="text" onClick={handleClear}>
+          Clear
+        </Button>
+
+        <Button
+          variant="contained"
+          startIcon={<FilterListIcon />}
+          onClick={() => setFilterModalOpen(true)}
+        >
+          Advanced Filter{activeCount > 0 ? ` (${activeCount})` : ''}
+        </Button>
+
+        <Button
+          variant="outlined"
+          startIcon={<BookmarkBorderIcon />}
+          onClick={() => setOpenSave(true)}
+        >
+          Save Filter
+        </Button>
+
+        {/* Saved Filters Dropdown */}
+        <FormControl sx={{ minWidth: 180 }} size="small">
+          <InputLabel>Saved Filters</InputLabel>
+          <Select
+            value={savedFilterAnchor}
+            label="Saved Filters"
+            onChange={(e) => {
+              const val = e.target.value as string;
+              setSavedFilterAnchor(val);
+              if (val) handleApplySavedFilter(val);
+            }}
+            renderValue={(val) => {
+              const found = savedFilters.find(f => f.id === val);
+              return found ? found.name : 'Saved Filters';
+            }}
+          >
+            <MenuItem value="" disabled>Saved Filters</MenuItem>
+            {savedFilters.length === 0 && (
+              <MenuItem disabled value="">No saved filters</MenuItem>
             )}
-          </TableBody>
-        </Table>
-      </TableContainer>
+            {savedFilters.map(f => (
+              <MenuItem
+                key={f.id}
+                value={f.id}
+                sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}
+              >
+                <span style={{ flexGrow: 1 }}>{f.name}</span>
+                <IconButton
+                  size="small"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteMutation.mutate(f.id);
+                  }}
+                >
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      </Paper>
+
+      {/* Filter Chips */}
+      {activeCount > 0 && (
+        <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mb: 2, alignItems: 'center', gap: 1 }}>
+          {appliedFilters.search && (
+            <Chip
+              size="small"
+              label={`Search: ${appliedFilters.search}`}
+              onDelete={handleRemoveSearch}
+            />
+          )}
+          {(appliedFilters.categoryIds ?? []).map(id => (
+            <Chip
+              key={id}
+              size="small"
+              label={`Category: ${categoriesMap[id] ?? id}`}
+              onDelete={() => handleRemoveCategory(id)}
+            />
+          ))}
+          {(appliedFilters.vendorIds ?? []).map(id => (
+            <Chip
+              key={id}
+              size="small"
+              label={`Vendor: ${vendorsMap[id] ?? id}`}
+              onDelete={() => handleRemoveVendor(id)}
+            />
+          ))}
+          <Button size="small" onClick={handleClear}>
+            Clear All
+          </Button>
+        </Stack>
+      )}
+
+      {/* Table */}
+      {isLoading && <CircularProgress />}
+      {error     && <Alert severity="error">Failed to load products</Alert>}
+
+      {!isLoading && !error && (
+        <>
+          <TableContainer component={Paper}>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>SKU</TableCell>
+                  <TableCell>Name</TableCell>
+                  <TableCell>Category</TableCell>
+                  <TableCell>Vendor</TableCell>
+                  <TableCell>UOM</TableCell>
+                  <TableCell>Status</TableCell>
+                  <TableCell align="right">Actions</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {products.map((item) => (
+                  <TableRow key={item.id} hover>
+                    <TableCell><strong>{item.sku}</strong></TableCell>
+                    <TableCell>{item.name}</TableCell>
+                    <TableCell>{item.category?.name}</TableCell>
+                    <TableCell>{item.vendor?.name}</TableCell>
+                    <TableCell>{item.uom?.code}</TableCell>
+                    <TableCell>
+                      <Chip
+                        label={item.isActive ? 'Active' : 'Inactive'}
+                        color={item.isActive ? 'success' : 'default'}
+                        size="small"
+                      />
+                    </TableCell>
+                    <TableCell align="right">
+                      <Button size="small" startIcon={<EditIcon />} onClick={() => openEdit(item)}>
+                        Edit
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {products.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={7} align="center">No products found</TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+
+          <TablePagination
+            component="div"
+            count={total}
+            page={page}
+            rowsPerPage={rowsPerPage}
+            rowsPerPageOptions={[20]}
+            onPageChange={(_, p) => setPage(p)}
+          />
+        </>
+      )}
+
+      {/* Advanced Filter Modal */}
+      <ProductAdvancedFilterModal
+        open={filterModalOpen}
+        onClose={() => setFilterModalOpen(false)}
+        initialFilters={{
+          categoryIds: appliedFilters.categoryIds,
+          vendorIds:   appliedFilters.vendorIds,
+        }}
+        onApply={({ categoryIds, vendorIds }) => {
+          setAppliedFilters(prev => ({
+            ...prev,
+            categoryIds: categoryIds.length ? categoryIds : undefined,
+            vendorIds:   vendorIds.length   ? vendorIds   : undefined,
+          }));
+          setCategoryId(categoryIds[0] ?? '');
+          setVendorId(vendorIds[0]     ?? '');
+          setPage(0);
+        }}
+      />
+
+      {/* Save Filter Modal */}
+      <SaveFilterModal
+        open={openSave}
+        onClose={() => setOpenSave(false)}
+        onSave={(name) => saveMutation.mutate(name)}
+      />
 
       {/* Create Modal */}
       <Dialog open={createOpen} onClose={() => setCreateOpen(false)} maxWidth="sm" fullWidth>
@@ -231,7 +590,7 @@ export default function ProductsPage() {
           <DialogActions>
             <Button onClick={() => setCreateOpen(false)}>Cancel</Button>
             <Button type="submit" variant="contained" disabled={createMutation.isPending}>
-              {createMutation.isPending ? 'Saving...' : 'Save'}
+              {createMutation.isPending ? 'Saving…' : 'Save'}
             </Button>
           </DialogActions>
         </form>
@@ -302,11 +661,20 @@ export default function ProductsPage() {
           <DialogActions>
             <Button onClick={() => setEditTarget(null)}>Cancel</Button>
             <Button type="submit" variant="contained" disabled={updateMutation.isPending}>
-              {updateMutation.isPending ? 'Saving...' : 'Save'}
+              {updateMutation.isPending ? 'Saving…' : 'Save'}
             </Button>
           </DialogActions>
         </form>
       </Dialog>
+
+      {/* Snackbar */}
+      <Snackbar
+        open={!!snackMsg}
+        autoHideDuration={3000}
+        onClose={() => setSnackMsg('')}
+        message={snackMsg}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      />
     </Box>
   );
 }

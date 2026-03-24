@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import prisma from '../../../config/database';
 
 export type ProductWithRelations = {
@@ -21,16 +22,22 @@ const RELATIONS = {
 };
 
 export class ProductRepository {
-  async findAll(page = 1, limit = 20): Promise<{ data: ProductWithRelations[]; total: number }> {
+  async findAll(params: {
+    page?: number;
+    limit?: number;
+    where?: Prisma.ProductWhereInput;
+  } = {}): Promise<{ data: ProductWithRelations[]; total: number }> {
+    const { page = 1, limit = 20, where = {} } = params;
     const skip = (page - 1) * limit;
     const [data, total] = await Promise.all([
       prisma.product.findMany({
+        where,
         skip,
         take: limit,
         include: RELATIONS,
         orderBy: { sku: 'asc' },
       }) as Promise<ProductWithRelations[]>,
-      prisma.product.count(),
+      prisma.product.count({ where }),
     ]);
     return { data, total };
   }

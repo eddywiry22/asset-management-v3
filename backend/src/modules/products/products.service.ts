@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { productRepository, ProductWithRelations } from './repositories/product.repository';
 import { categoryRepository } from '../categories/repositories/category.repository';
 import { vendorRepository } from '../vendors/repositories/vendor.repository';
@@ -9,8 +10,31 @@ import prisma from '../../config/database';
 import logger from '../../utils/logger';
 
 export class ProductsService {
-  async findAll(page: number, limit: number): Promise<{ data: ProductWithRelations[]; total: number }> {
-    return productRepository.findAll(page, limit);
+  async findAll(params: {
+    page: number;
+    limit: number;
+    search?: string;
+    categoryIds?: string[];
+    vendorIds?: string[];
+  }): Promise<{ data: ProductWithRelations[]; total: number }> {
+    const { page, limit, search, categoryIds, vendorIds } = params;
+
+    const where: Prisma.ProductWhereInput = {
+      ...(search && {
+        OR: [
+          { name: { contains: search, mode: 'insensitive' } },
+          { sku:  { contains: search, mode: 'insensitive' } },
+        ],
+      }),
+      ...(categoryIds?.length && {
+        categoryId: { in: categoryIds },
+      }),
+      ...(vendorIds?.length && {
+        vendorId: { in: vendorIds },
+      }),
+    };
+
+    return productRepository.findAll({ page, limit, where });
   }
 
   async findById(id: string): Promise<ProductWithRelations> {

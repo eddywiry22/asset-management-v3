@@ -15,5 +15,20 @@ export const updateProductSchema = z.object({
   uomId:      z.string().uuid('UOM ID must be a valid UUID').optional(),
 });
 
+export const productQuerySchema = z.object({
+  page:  z.coerce.number().min(1).default(1),
+  limit: z.coerce.number().min(1).max(100).default(20),
+  search: z.string().optional(),
+  categoryIds: z.union([
+    z.string().uuid(),
+    z.array(z.string().uuid()),
+  ]).optional(),
+  vendorIds: z.union([
+    z.string().uuid(),
+    z.array(z.string().uuid()),
+  ]).optional(),
+});
+
 export type CreateProductDto = z.infer<typeof createProductSchema>;
 export type UpdateProductDto = z.infer<typeof updateProductSchema>;
+export type ProductQueryDto  = z.infer<typeof productQuerySchema>;
