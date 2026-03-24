@@ -2,21 +2,33 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Box, CircularProgress, Grid, Typography } from '@mui/material';
 import { useAuth } from '../../../context/AuthContext';
-import { getMyDashboard } from '../../../services/dashboard.service';
+import {
+  getMyDashboard,
+  getPreview,
+  type PreviewType,
+  type PreviewFilter,
+} from '../../../services/dashboard.service';
 import MetricCard from '../../../components/dashboard/MetricCard';
+import DashboardPreviewTable from '../../../components/dashboard/DashboardPreviewTable';
 
-type PreviewFilter =
-  | { type: 'adjustment'; filter: 'needsApproval' | 'readyToFinalize' | 'inProgress' }
-  | { type: 'movement'; filter: 'originApproval' | 'destinationApproval' | 'incoming' | 'readyToFinalize' }
-  | null;
+interface PreviewParams {
+  type: PreviewType;
+  filter: PreviewFilter;
+}
 
 export default function DashboardPage() {
   const { user } = useAuth();
-  const [_preview, setPreview] = useState<PreviewFilter>(null);
+  const [previewParams, setPreviewParams] = useState<PreviewParams | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['dashboard'],
     queryFn: getMyDashboard,
+  });
+
+  const { data: previewData = [], isLoading: previewLoading } = useQuery({
+    queryKey: ['dashboard-preview', previewParams],
+    queryFn: () => getPreview(previewParams!),
+    enabled: !!previewParams,
   });
 
   if (isLoading) {
@@ -56,7 +68,7 @@ export default function DashboardPage() {
             label="Needs Approval"
             value={data?.adjustments.needsApproval ?? 0}
             color="error"
-            onClick={() => setPreview({ type: 'adjustment', filter: 'needsApproval' })}
+            onClick={() => setPreviewParams({ type: 'ADJUSTMENT', filter: 'REQUIRING_ACTION' })}
           />
         </Grid>
 
@@ -65,7 +77,7 @@ export default function DashboardPage() {
             label="Ready to Finalize"
             value={data?.adjustments.readyToFinalize ?? 0}
             color="warning"
-            onClick={() => setPreview({ type: 'adjustment', filter: 'readyToFinalize' })}
+            onClick={() => setPreviewParams({ type: 'ADJUSTMENT', filter: 'READY_TO_FINALIZE' })}
           />
         </Grid>
 
@@ -74,7 +86,7 @@ export default function DashboardPage() {
             label="In Progress"
             value={data?.adjustments.inProgress ?? 0}
             color="info"
-            onClick={() => setPreview({ type: 'adjustment', filter: 'inProgress' })}
+            onClick={() => setPreviewParams({ type: 'ADJUSTMENT', filter: 'IN_PROGRESS' })}
           />
         </Grid>
       </Grid>
@@ -90,7 +102,7 @@ export default function DashboardPage() {
             label="Origin Approval"
             value={data?.movements.needsOriginApproval ?? 0}
             color="error"
-            onClick={() => setPreview({ type: 'movement', filter: 'originApproval' })}
+            onClick={() => setPreviewParams({ type: 'TRANSFER', filter: 'REQUIRING_ACTION' })}
           />
         </Grid>
 
@@ -99,7 +111,7 @@ export default function DashboardPage() {
             label="Destination Approval"
             value={data?.movements.needsDestinationApproval ?? 0}
             color="error"
-            onClick={() => setPreview({ type: 'movement', filter: 'destinationApproval' })}
+            onClick={() => setPreviewParams({ type: 'TRANSFER', filter: 'REQUIRING_ACTION' })}
           />
         </Grid>
 
@@ -108,7 +120,7 @@ export default function DashboardPage() {
             label="Incoming"
             value={data?.movements.incoming ?? 0}
             color="info"
-            onClick={() => setPreview({ type: 'movement', filter: 'incoming' })}
+            onClick={() => setPreviewParams({ type: 'TRANSFER', filter: 'ARRIVING' })}
           />
         </Grid>
 
@@ -117,10 +129,21 @@ export default function DashboardPage() {
             label="Ready to Finalize"
             value={data?.movements.readyToFinalize ?? 0}
             color="warning"
-            onClick={() => setPreview({ type: 'movement', filter: 'readyToFinalize' })}
+            onClick={() => setPreviewParams({ type: 'TRANSFER', filter: 'READY_TO_FINALIZE' })}
           />
         </Grid>
       </Grid>
+
+      {/* Preview table */}
+      {previewParams && (
+        <DashboardPreviewTable
+          type={previewParams.type}
+          filter={previewParams.filter}
+          data={previewData}
+          isLoading={previewLoading}
+          onClose={() => setPreviewParams(null)}
+        />
+      )}
     </Box>
   );
 }
