@@ -44,23 +44,38 @@ export interface ProductRegistrationListResponse {
 
 export const productRegistrationsService = {
   async getAll(params: {
-    page?:       number;
-    pageSize?:   number;
-    status?:     string;
-    productId?:  string;
-    locationId?: string;
+    page?:        number;
+    pageSize?:    number;
+    status?:      string;
+    productId?:   string;
+    locationId?:  string;
+    productIds?:  string[];
+    locationIds?: string[];
   } = {}): Promise<ProductRegistrationListResponse> {
-    const query: Record<string, string> = {};
-    if (params.page      != null) query.page      = String(params.page);
-    if (params.pageSize  != null) query.pageSize  = String(params.pageSize);
-    if (params.status)             query.status    = params.status;
-    if (params.productId)          query.productId  = params.productId;
-    if (params.locationId)         query.locationId = params.locationId;
+    const { page, pageSize, status, productId, locationId, productIds, locationIds } = params;
+    const query = new URLSearchParams();
+    if (page     != null) query.set('page',     String(page));
+    if (pageSize != null) query.set('pageSize', String(pageSize));
+    if (status)           query.set('status',   status);
 
-    const res = await apiClient.get<{ success: boolean; data: ProductRegistration[]; meta: { page: number; pageSize: number; total: number } }>(
-      '/admin/product-registrations',
-      { params: query },
-    );
+    // Arrays: use repeated params (productIds=a&productIds=b)
+    if (productIds && productIds.length > 0) {
+      productIds.forEach(id => query.append('productIds', id));
+    } else if (productId) {
+      query.set('productId', productId);
+    }
+
+    if (locationIds && locationIds.length > 0) {
+      locationIds.forEach(id => query.append('locationIds', id));
+    } else if (locationId) {
+      query.set('locationId', locationId);
+    }
+
+    const res = await apiClient.get<{
+      success: boolean;
+      data: ProductRegistration[];
+      meta: { page: number; pageSize: number; total: number };
+    }>(`/admin/product-registrations?${query.toString()}`);
     return { data: res.data.data, meta: res.data.meta };
   },
 
