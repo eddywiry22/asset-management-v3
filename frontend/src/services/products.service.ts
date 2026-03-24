@@ -7,7 +7,6 @@ export interface Product {
   categoryId: string;
   vendorId: string;
   uomId: string;
-  isActive: boolean;
   createdAt: string;
   updatedAt: string;
   category: { id: string; name: string };
@@ -21,7 +20,6 @@ export interface CreateProductInput {
   categoryId: string;
   vendorId: string;
   uomId: string;
-  isActive?: boolean;
 }
 
 export interface UpdateProductInput {
@@ -29,7 +27,6 @@ export interface UpdateProductInput {
   categoryId?: string;
   vendorId?: string;
   uomId?: string;
-  isActive?: boolean;
 }
 
 export interface ProductsQueryParams {
