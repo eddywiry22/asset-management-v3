@@ -55,6 +55,7 @@ export default function ProductRegistrationsPage() {
   // Advanced filters (productIds / locationIds via reusable hook)
   const {
     filters,
+    applyCategoryFilter,
     applyProductFilter,
     applyLocationFilter,
     applyAdvancedFilters,
@@ -63,7 +64,8 @@ export default function ProductRegistrationsPage() {
   } = useAdvancedFilters();
 
   // Simple filter staging state (dropdowns before Apply is clicked)
-  const [filterCategoryId, setFilterCategoryId] = useState('');
+  // filterCategoryId is derived from the hook so simple dropdown + advanced modal stay in sync
+  const filterCategoryId = filters.categoryIds?.[0] ?? '';
   const [filterProductId, setFilterProductId]   = useState('');
   const [filterLocationId, setFilterLocationId] = useState('');
 
@@ -117,22 +119,22 @@ export default function ProductRegistrationsPage() {
     return map;
   }, [locations]);
 
-  // Filter product list by selected category
+  // Filter product list by selected categories (supports multi-category from advanced filter)
   const filteredProducts = useMemo(() => {
-    if (!filterCategoryId) return products;
-    return products.filter(p => p.categoryId === filterCategoryId);
-  }, [products, filterCategoryId]);
+    if (!filters.categoryIds?.length) return products;
+    return products.filter(p => filters.categoryIds!.includes(p.categoryId));
+  }, [products, filters.categoryIds]);
 
   // Main table query — combines hook filters + status + category
   const { data, isLoading, error } = useQuery({
-    queryKey: ['product-registrations', page, rowsPerPage, filters, statusFilter, filterCategoryId],
+    queryKey: ['product-registrations', page, rowsPerPage, filters, statusFilter],
     queryFn:  () => productRegistrationsService.getAll({
       page:     page + 1,
       pageSize: rowsPerPage,
       status:   statusFilter,
       ...(filters.productIds?.length  && { productIds:  filters.productIds }),
       ...(filters.locationIds?.length && { locationIds: filters.locationIds }),
-      ...(filterCategoryId            && { categoryIds: [filterCategoryId] }),
+      ...(filters.categoryIds?.length && { categoryIds: filters.categoryIds }),
     }),
   });
 
@@ -203,6 +205,7 @@ export default function ProductRegistrationsPage() {
         name,
         module: 'PRODUCT_REGISTRATION',
         filterJson: {
+          categoryIds: filters.categoryIds,
           productIds:  filters.productIds,
           locationIds: filters.locationIds,
           status:      statusFilter,
@@ -250,8 +253,9 @@ export default function ProductRegistrationsPage() {
   };
 
   const handleCategoryChange = (value: string) => {
-    setFilterCategoryId(value);
-    setFilterProductId(''); // reset product when category changes
+    applyCategoryFilter(value ? [value] : undefined, products);
+    setFilterProductId('');
+    setPage(0);
   };
 
   // Apply simple dropdown filters
@@ -265,7 +269,6 @@ export default function ProductRegistrationsPage() {
   // Reset everything
   const handleClearAll = () => {
     clearFilters();
-    setFilterCategoryId('');
     setFilterProductId('');
     setFilterLocationId('');
     setStatusFilter('ALL');
@@ -286,11 +289,13 @@ export default function ProductRegistrationsPage() {
     const saved = savedFilters.find(f => f.id === filterId);
     if (!saved) return;
     const fj = saved.filterJson as {
+      categoryIds?: string[];
       productIds?: string[];
       locationIds?: string[];
       status?: 'ALL' | 'ACTIVE' | 'INACTIVE';
     };
     applyAdvancedFilters({
+      categoryIds: fj.categoryIds ?? [],
       productIds:  fj.productIds  ?? [],
       locationIds: fj.locationIds ?? [],
     });
@@ -338,10 +343,10 @@ export default function ProductRegistrationsPage() {
   };
 
   const hasFilters =
+    (filters.categoryIds?.length ?? 0) > 0 ||
     (filters.productIds?.length ?? 0) > 0 ||
     (filters.locationIds?.length ?? 0) > 0 ||
-    statusFilter !== 'ALL' ||
-    !!filterCategoryId;
+    statusFilter !== 'ALL';
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
@@ -492,14 +497,19 @@ export default function ProductRegistrationsPage() {
       {/* ── Filter Chips ───────────────────────────────────────────────────── */}
       {hasFilters && (
         <Stack direction="row" flexWrap="wrap" sx={{ mb: 2, gap: 1, alignItems: 'center' }}>
-          {/* Category chip */}
-          {filterCategoryId && (
+          {/* Category chips */}
+          {filters.categoryIds?.map(cid => (
             <Chip
+              key={cid}
               size="small"
-              label={`Category: ${categories.find(c => c.id === filterCategoryId)?.name ?? filterCategoryId}`}
-              onDelete={() => { setFilterCategoryId(''); setFilterProductId(''); setPage(0); }}
+              label={`Category: ${categories.find(c => c.id === cid)?.name ?? cid}`}
+              onDelete={() => {
+                const remaining = filters.categoryIds!.filter(x => x !== cid);
+                applyCategoryFilter(remaining.length > 0 ? remaining : undefined, products);
+                setPage(0);
+              }}
             />
-          )}
+          ))}
 
           {/* Product chips */}
           {(filters.productIds?.length ?? 0) > MAX_CHIPS ? (
@@ -654,6 +664,7 @@ export default function ProductRegistrationsPage() {
         open={filterModalOpen}
         onClose={() => setFilterModalOpen(false)}
         initialFilters={{
+          categoryIds: filters.categoryIds,
           productIds:  filters.productIds,
           locationIds: filters.locationIds,
         }}

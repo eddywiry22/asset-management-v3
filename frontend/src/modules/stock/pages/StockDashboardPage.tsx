@@ -135,6 +135,7 @@ export default function StockDashboardPage() {
   // Product/location filters via reusable hook
   const {
     filters,
+    applyCategoryFilter,
     applyProductFilter,
     applyLocationFilter,
     applyAdvancedFilters,
@@ -143,7 +144,8 @@ export default function StockDashboardPage() {
   } = useAdvancedFilters();
 
   // Simple filter local UI state
-  const [filterCategoryId, setFilterCategoryId] = useState('');
+  // filterCategoryId is derived from the hook so simple dropdown + advanced modal stay in sync
+  const filterCategoryId = filters.categoryIds?.[0] ?? '';
   const [filterProductId, setFilterProductId] = useState('');
   const [filterLocationId, setFilterLocationId] = useState('');
   const [filterModalOpen, setFilterModalOpen] = useState(false);
@@ -207,15 +209,26 @@ export default function StockDashboardPage() {
     return map;
   }, [visibleLocations]);
 
-  // Filter product list by selected category
+  const categoriesMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    categories.forEach(c => { map[c.id] = c.name; });
+    return map;
+  }, [categories]);
+
+  // Filter product list by selected categories (supports multi-category from advanced filter)
   const filteredProducts = useMemo(() => {
-    if (!filterCategoryId) return products;
-    return products.filter(p => p.categoryId === filterCategoryId);
-  }, [products, filterCategoryId]);
+    if (!filters.categoryIds?.length) return products;
+    return products.filter(p => filters.categoryIds!.includes(p.categoryId));
+  }, [products, filters.categoryIds]);
 
   // Normalized filter arrays
   const productIds  = filters.productIds  ?? [];
   const locationIds = filters.locationIds ?? [];
+
+  const handleRemoveCategory = (id: string) => {
+    const remaining = (filters.categoryIds ?? []).filter(c => c !== id);
+    applyCategoryFilter(remaining.length > 0 ? remaining : undefined, products);
+  };
 
   const handleRemoveProduct = (id: string) => {
     applyProductFilter(productIds.filter(p => p !== id));
@@ -226,8 +239,9 @@ export default function StockDashboardPage() {
   };
 
   const handleCategoryChange = (value: string) => {
-    setFilterCategoryId(value);
-    setFilterProductId(''); // reset product when category changes
+    applyCategoryFilter(value ? [value] : undefined, products);
+    setFilterProductId('');
+    setPage(0);
   };
 
   const queryParams = {
@@ -235,9 +249,9 @@ export default function StockDashboardPage() {
     limit,
     startDate: appliedStartDate,
     endDate:   appliedEndDate,
-    ...(filters.productIds  && { productIds:  filters.productIds }),
-    ...(filters.locationIds && { locationIds: filters.locationIds }),
-    ...(filterCategoryId    && { categoryIds: [filterCategoryId] }),
+    ...(filters.productIds?.length  && { productIds:  filters.productIds }),
+    ...(filters.locationIds?.length && { locationIds: filters.locationIds }),
+    ...(filters.categoryIds?.length && { categoryIds: filters.categoryIds }),
   };
 
   const { data, isLoading, error, refetch } = useQuery({
@@ -274,7 +288,6 @@ export default function StockDashboardPage() {
 
   function handleClearAll() {
     clearFilters();
-    setFilterCategoryId('');
     setFilterProductId('');
     setFilterLocationId('');
     handleClearDate();
@@ -287,6 +300,7 @@ export default function StockDashboardPage() {
         name,
         module: 'STOCK',
         filterJson: {
+          categoryIds: filters.categoryIds,
           productIds:  filters.productIds,
           locationIds: filters.locationIds,
         } as Record<string, unknown>,
@@ -310,8 +324,9 @@ export default function StockDashboardPage() {
   function handleApplySavedFilter(id: string) {
     const saved = savedFilters.find(f => f.id === id);
     if (!saved) return;
-    const fj = saved.filterJson as { productIds?: string[]; locationIds?: string[] };
+    const fj = saved.filterJson as { categoryIds?: string[]; productIds?: string[]; locationIds?: string[] };
     applyAdvancedFilters({
+      categoryIds: fj.categoryIds ?? [],
       productIds:  fj.productIds  ?? [],
       locationIds: fj.locationIds ?? [],
     });
@@ -484,6 +499,7 @@ export default function StockDashboardPage() {
         open={filterModalOpen}
         onClose={() => setFilterModalOpen(false)}
         initialFilters={{
+          categoryIds: filters.categoryIds,
           productIds:  filters.productIds,
           locationIds: filters.locationIds,
         }}
@@ -499,25 +515,17 @@ export default function StockDashboardPage() {
         onSave={(name) => saveMutation.mutate(name)}
       />
 
-      {/* Category chip */}
-      {filterCategoryId && (
-        <Box sx={{ mb: 1, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-          <Chip
-            size="small"
-            label={`Category: ${categories.find(c => c.id === filterCategoryId)?.name ?? filterCategoryId}`}
-            onDelete={() => { setFilterCategoryId(''); setFilterProductId(''); }}
-          />
-        </Box>
-      )}
-
       {/* Filter Summary Chips */}
       <FilterSummaryChips
+        categoryIds={filters.categoryIds ?? []}
         productIds={productIds}
         locationIds={locationIds}
         startDate={appliedStartDate}
         endDate={appliedEndDate}
+        categoriesMap={categoriesMap}
         productsMap={productsMap}
         locationsMap={locationsMap}
+        onRemoveCategory={handleRemoveCategory}
         onRemoveProduct={handleRemoveProduct}
         onRemoveLocation={handleRemoveLocation}
         onClearDates={handleClearDate}
