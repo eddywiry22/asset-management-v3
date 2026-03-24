@@ -14,6 +14,7 @@ import StockAdjustmentDetailPage from '../modules/adjustments/pages/StockAdjustm
 import StockTransfersPage from '../modules/transfers/pages/StockTransfersPage';
 import StockTransferDetailPage from '../modules/transfers/pages/StockTransferDetailPage';
 import AuditLogsPage from '../modules/audit/pages/AuditLogsPage';
+import DashboardPage from '../modules/dashboard/pages/DashboardPage';
 import AdminLocationsPage from '../modules/admin/pages/AdminLocationsPage';
 import AdminUsersPage from '../modules/admin/pages/AdminUsersPage';
 
@@ -35,12 +36,7 @@ const router = createBrowserRouter([
           },
           {
             path: 'dashboard',
-            element: (
-              <div>
-                <h2>Dashboard</h2>
-                <p>Welcome. Use the sidebar to manage master data.</p>
-              </div>
-            ),
+            element: <DashboardPage />,
           },
           {
             path: 'health',
