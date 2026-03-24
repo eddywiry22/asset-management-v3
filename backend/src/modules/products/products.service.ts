@@ -5,6 +5,8 @@ import { uomRepository } from '../uoms/repositories/uom.repository';
 import { auditService } from '../../services/audit.service';
 import { NotFoundError, ValidationError } from '../../utils/errors';
 import { CreateProductDto, UpdateProductDto } from './products.validator';
+import prisma from '../../config/database';
+import logger from '../../utils/logger';
 
 export class ProductsService {
   async findAll(page: number, limit: number): Promise<{ data: ProductWithRelations[]; total: number }> {
@@ -30,7 +32,47 @@ export class ProductsService {
     const uom = await uomRepository.findById(dto.uomId);
     if (!uom) throw new ValidationError(`UOM not found: ${dto.uomId}`);
 
-    const product = await productRepository.create(dto);
+    const product = await prisma.$transaction(async (tx) => {
+      // 1. Create product
+      const created = await tx.product.create({
+        data: {
+          sku:        dto.sku,
+          name:       dto.name,
+          categoryId: dto.categoryId,
+          vendorId:   dto.vendorId,
+          uomId:      dto.uomId,
+        },
+        include: {
+          category: { select: { id: true, name: true } },
+          vendor:   { select: { id: true, name: true } },
+          uom:      { select: { id: true, code: true, name: true } },
+        },
+      });
+
+      // 2. Fetch ALL locations
+      const locations = await tx.location.findMany({
+        select: { id: true },
+      });
+
+      // 3. Create product-location pairs (all inactive by default)
+      if (locations.length > 0) {
+        await tx.productLocation.createMany({
+          data: locations.map((loc) => ({
+            productId:  created.id,
+            locationId: loc.id,
+            isActive:   false,
+          })),
+          skipDuplicates: true,
+        });
+      }
+
+      logger.info(
+        { productId: created.id, locationCount: locations.length },
+        'Product created with product-location backfill',
+      );
+
+      return created;
+    });
 
     await auditService.log({
       entityType:  'PRODUCT',
@@ -40,7 +82,7 @@ export class ProductsService {
       performedBy,
     });
 
-    return product;
+    return product as ProductWithRelations;
   }
 
   async update(id: string, dto: UpdateProductDto, performedBy: string): Promise<ProductWithRelations> {

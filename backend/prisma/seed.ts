@@ -190,7 +190,7 @@ async function main() {
   }
 
   // ------------------------------------------------------------------
-  // Stage 3: Products
+  // Stage 3: Products — isActive removed; ProductLocation is the source of truth
   // ------------------------------------------------------------------
   for (const p of PRODUCTS) {
     const categoryId = categoryMap.get(p.categoryName)!;
@@ -199,31 +199,63 @@ async function main() {
 
     const record = await prisma.product.upsert({
       where:  { sku: p.sku },
-      update: { name: p.name, categoryId, vendorId, uomId, isActive: true },
-      create: { sku: p.sku, name: p.name, categoryId, vendorId, uomId, isActive: true },
+      update: { name: p.name, categoryId, vendorId, uomId },
+      create: { sku: p.sku, name: p.name, categoryId, vendorId, uomId },
     });
     console.log(`  Product: ${record.sku} — ${record.name}`);
   }
 
   // ------------------------------------------------------------------
+  // M2: ProductLocation matrix — backfill, then activate all for testing
+  // Must run BEFORE stock seeding so all pairs are active when stock is created.
+  // ------------------------------------------------------------------
+  console.log('');
+  console.log('Backfilling ProductLocation matrix...');
+
+  const allProducts  = await prisma.product.findMany({ select: { id: true, sku: true } });
+  const allLocations = await prisma.location.findMany({ select: { id: true, code: true } });
+
+  const before = await prisma.productLocation.count();
+  console.log(`  Before backfill: ${before} rows`);
+
+  await prisma.productLocation.createMany({
+    data: allProducts.flatMap((product) =>
+      allLocations.map((loc) => ({
+        productId:  product.id,
+        locationId: loc.id,
+        isActive:   false,
+      }))
+    ),
+    skipDuplicates: true,
+  });
+
+  const afterBackfill = await prisma.productLocation.count();
+  console.log(`  After backfill:  ${afterBackfill} rows (inserted ${afterBackfill - before})`);
+
+  // Activate ALL product-location pairs so seeded data is fully testable
+  await prisma.productLocation.updateMany({
+    data: { isActive: true },
+  });
+
+  const activeCount = await prisma.productLocation.count({ where: { isActive: true } });
+  console.log(`  Activated: ${activeCount} product-location pairs`);
+
+  // ------------------------------------------------------------------
   // Stage 4: Stock Balances — 10 units per product per location
+  // Runs after activation: all product-location pairs are active.
   // ------------------------------------------------------------------
   console.log('');
   console.log('Seeding stock balances...');
 
-  const allProducts = await prisma.product.findMany({ select: { id: true, sku: true } });
-  const allLocations = await prisma.location.findMany({ where: { isActive: true }, select: { id: true, code: true } });
   const INITIAL_QTY = 10;
 
   for (const product of allProducts) {
     for (const location of allLocations) {
-      // Check if balance already exists
       const existing = await prisma.stockBalance.findUnique({
         where: { productId_locationId: { productId: product.id, locationId: location.id } },
       });
 
       if (!existing) {
-        // Create balance and seed ledger entry in a transaction
         await prisma.$transaction(async (tx) => {
           await (tx as any).stockBalance.create({
             data: {
@@ -236,12 +268,12 @@ async function main() {
 
           await (tx as any).stockLedger.create({
             data: {
-              productId:   product.id,
-              locationId:  location.id,
-              changeQty:   INITIAL_QTY,
+              productId:    product.id,
+              locationId:   location.id,
+              changeQty:    INITIAL_QTY,
               balanceAfter: INITIAL_QTY,
-              sourceType:  LedgerSourceType.SEED,
-              sourceId:    'seed',
+              sourceType:   LedgerSourceType.SEED,
+              sourceId:     'seed',
             },
           });
         });
@@ -254,37 +286,33 @@ async function main() {
   }
 
   // ------------------------------------------------------------------
-  // M2: ProductLocation matrix backfill
-  // Ensure every product × location pair exists (isActive = false for new rows)
+  // Verification
   // ------------------------------------------------------------------
+  const productCount  = await prisma.product.count();
+  const locationCount = await prisma.location.count();
+  const matrixCount   = await prisma.productLocation.count();
+  const activePairs   = await prisma.productLocation.count({ where: { isActive: true } });
+
   console.log('');
-  console.log('Backfilling ProductLocation matrix...');
-
-  const allLocationsFull = await prisma.location.findMany({ select: { id: true } });
-
-  const before = await prisma.productLocation.count();
-  console.log(`  Before backfill: ${before} rows`);
-
-  const existing = await prisma.productLocation.findMany({
-    select: { productId: true, locationId: true },
+  console.log('Matrix verification:');
+  console.log({
+    productCount,
+    locationCount,
+    expectedMatrix: productCount * locationCount,
+    actualMatrix:   matrixCount,
+    activeCount:    activePairs,
   });
-  const existingSet = new Set(existing.map((e) => `${e.productId}-${e.locationId}`));
 
-  const toInsert: { productId: string; locationId: string; isActive: boolean }[] = [];
-  for (const product of allProducts) {
-    for (const location of allLocationsFull) {
-      if (!existingSet.has(`${product.id}-${location.id}`)) {
-        toInsert.push({ productId: product.id, locationId: location.id, isActive: false });
-      }
-    }
+  if (matrixCount !== productCount * locationCount) {
+    console.warn('  ⚠️  WARNING: actualMatrix !== expectedMatrix');
+  } else {
+    console.log('  ✓ Matrix complete');
   }
-
-  if (toInsert.length > 0) {
-    await prisma.productLocation.createMany({ data: toInsert, skipDuplicates: true });
+  if (activePairs === 0) {
+    console.warn('  ⚠️  WARNING: no active product-location pairs');
+  } else {
+    console.log(`  ✓ ${activePairs} active pairs`);
   }
-
-  const after = await prisma.productLocation.count();
-  console.log(`  After backfill:  ${after} rows (inserted ${toInsert.length})`);
 
   console.log('');
   console.log('=== Seed completed ===');

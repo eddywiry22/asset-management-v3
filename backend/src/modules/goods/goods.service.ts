@@ -5,6 +5,8 @@ import { uomRepository } from '../uoms/repositories/uom.repository';
 import { auditService } from '../../services/audit.service';
 import { NotFoundError, ValidationError } from '../../utils/errors';
 import { CreateGoodsDto, UpdateGoodsDto } from './goods.validator';
+import prisma from '../../config/database';
+import logger from '../../utils/logger';
 
 export class GoodsService {
   async findAll(): Promise<GoodsWithRelations[]> {
@@ -32,7 +34,47 @@ export class GoodsService {
     const uom = await uomRepository.findById(dto.uomId);
     if (!uom) throw new ValidationError(`UOM not found: ${dto.uomId}`);
 
-    const goods = await goodsRepository.create(dto);
+    const goods = await prisma.$transaction(async (tx) => {
+      // 1. Create product
+      const product = await tx.product.create({
+        data: {
+          sku:        dto.sku,
+          name:       dto.name,
+          categoryId: dto.categoryId,
+          vendorId:   dto.vendorId,
+          uomId:      dto.uomId,
+        },
+        include: {
+          category: { select: { id: true, name: true } },
+          vendor:   { select: { id: true, name: true } },
+          uom:      { select: { id: true, code: true, name: true } },
+        },
+      });
+
+      // 2. Fetch ALL locations
+      const locations = await tx.location.findMany({
+        select: { id: true },
+      });
+
+      // 3. Create product-location pairs (all inactive by default)
+      if (locations.length > 0) {
+        await tx.productLocation.createMany({
+          data: locations.map((loc) => ({
+            productId:  product.id,
+            locationId: loc.id,
+            isActive:   false,
+          })),
+          skipDuplicates: true,
+        });
+      }
+
+      logger.info(
+        { productId: product.id, locationCount: locations.length },
+        'Product created with product-location backfill',
+      );
+
+      return product;
+    });
 
     await auditService.log({
       entityType:  'GOODS',
@@ -42,7 +84,7 @@ export class GoodsService {
       performedBy,
     });
 
-    return goods;
+    return goods as GoodsWithRelations;
   }
 
   async update(id: string, dto: UpdateGoodsDto, performedBy: string): Promise<GoodsWithRelations> {
