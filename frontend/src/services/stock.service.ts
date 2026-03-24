@@ -44,6 +44,8 @@ export type PaginatedResponse<T> = {
 export type StockQueryParams = {
   locationId?: string;
   productId?: string;
+  productIds?: string[];
+  locationIds?: string[];
   page?: number;
   limit?: number;
   startDate?: string;
@@ -99,17 +101,24 @@ const stockService = {
   },
 
   async getStockOverview(params: StockQueryParams = {}): Promise<PaginatedResponse<StockOverviewItem>> {
-    const { locationId, productId, startDate, endDate, page, limit } = params;
-    const res = await apiClient.get<PaginatedResponse<StockOverviewItem>>('stock', {
-      params: {
-        page,
-        limit,
-        ...(locationId && { locationId }),
-        ...(productId  && { productId }),
-        ...(startDate  && { startDate }),
-        ...(endDate    && { endDate }),
-      },
-    });
+    const { locationId, productId, productIds, locationIds, startDate, endDate, page, limit } = params;
+    const query = new URLSearchParams();
+    if (page)       query.set('page',  String(page));
+    if (limit)      query.set('limit', String(limit));
+    if (startDate)  query.set('startDate', startDate);
+    if (endDate)    query.set('endDate',   endDate);
+    // Multi-select arrays (repeated params: productIds=a&productIds=b)
+    if (productIds && productIds.length > 0) {
+      productIds.forEach(id => query.append('productIds', id));
+    } else if (productId) {
+      query.set('productId', productId);
+    }
+    if (locationIds && locationIds.length > 0) {
+      locationIds.forEach(id => query.append('locationIds', id));
+    } else if (locationId) {
+      query.set('locationId', locationId);
+    }
+    const res = await apiClient.get<PaginatedResponse<StockOverviewItem>>(`stock?${query.toString()}`);
     return res.data;
   },
 
