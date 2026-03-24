@@ -61,10 +61,11 @@ export class StockController {
         throw new ValidationError(msgs.join(', '));
       }
 
-      const { locationId, productId, locationIds, productIds, page, limit, startDate, endDate } = parsed.data;
+      const { locationId, productId, locationIds, productIds, categoryIds, page, limit, startDate, endDate } = parsed.data;
 
       const normalizedProductIds  = toArray(productIds  ?? productId);
       const normalizedLocationIds = toArray(locationIds ?? locationId);
+      const normalizedCategoryIds = toArray(categoryIds);
 
       // Normalise: start → 00:00:00.000, end → 23:59:59.999 (inclusive end-of-day)
       const overviewDateFilter = buildDateRangeFilter(startDate, endDate);
@@ -73,6 +74,7 @@ export class StockController {
         {
           productIds:  normalizedProductIds,
           locationIds: normalizedLocationIds,
+          categoryIds: normalizedCategoryIds,
           page,
           limit,
           startDate: overviewDateFilter?.gte,

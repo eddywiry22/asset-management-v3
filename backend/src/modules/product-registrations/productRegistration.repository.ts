@@ -8,7 +8,7 @@ export type ProductLocationRow = {
   isActive:   boolean;
   createdAt:  Date;
   updatedAt:  Date;
-  product:    { id: string; sku: string; name: string };
+  product:    { id: string; sku: string; name: string; category?: { id: string; name: string } | null };
   location:   { id: string; code: string; name: string };
 };
 
@@ -17,32 +17,34 @@ export type ProductLocationRow = {
 const pl = () => (prisma as any).productLocation;
 
 const INCLUDE = {
-  product:  { select: { id: true, sku: true, name: true } },
+  product:  { select: { id: true, sku: true, name: true, category: { select: { id: true, name: true } } } },
   location: { select: { id: true, code: true, name: true } },
 };
 
 export class ProductLocationRepository {
   async findAll(params: {
-    status?:      'ALL' | 'ACTIVE' | 'INACTIVE';
-    page?:        number;
-    pageSize?:    number;
-    productIds?:  string[];
-    locationIds?: string[];
+    status?:       'ALL' | 'ACTIVE' | 'INACTIVE';
+    page?:         number;
+    pageSize?:     number;
+    productIds?:   string[];
+    locationIds?:  string[];
+    categoryIds?:  string[];
   }): Promise<{ data: ProductLocationRow[]; total: number }> {
-    const { status = 'ALL', page = 1, pageSize = 20, productIds, locationIds } = params;
+    const { status = 'ALL', page = 1, pageSize = 20, productIds, locationIds, categoryIds } = params;
 
     const where: any = {
       ...(status === 'ACTIVE'   && { isActive: true }),
       ...(status === 'INACTIVE' && { isActive: false }),
       ...(productIds?.length  && { productId:  { in: productIds } }),
       ...(locationIds?.length && { locationId: { in: locationIds } }),
+      ...(categoryIds?.length && { product: { categoryId: { in: categoryIds } } }),
     };
 
     const [data, total] = await Promise.all([
       prisma.productLocation.findMany({
         where,
         include: {
-          product:  { select: { id: true, name: true, sku: true } },
+          product:  { select: { id: true, name: true, sku: true, category: { select: { id: true, name: true } } } },
           location: { select: { id: true, code: true, name: true } },
         },
         orderBy: [

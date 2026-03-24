@@ -20,6 +20,7 @@ import SaveFilterModal from '../../../components/SaveFilterModal';
 import { useAdvancedFilters } from '../../../hooks/useAdvancedFilters';
 import { goodsService } from '../../../services/goods.service';
 import { savedFiltersService } from '../../../services/savedFilters.service';
+import { categoriesService } from '../../../services/categories.service';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -142,6 +143,7 @@ export default function StockDashboardPage() {
   } = useAdvancedFilters();
 
   // Simple filter local UI state
+  const [filterCategoryId, setFilterCategoryId] = useState('');
   const [filterProductId, setFilterProductId] = useState('');
   const [filterLocationId, setFilterLocationId] = useState('');
   const [filterModalOpen, setFilterModalOpen] = useState(false);
@@ -165,6 +167,12 @@ export default function StockDashboardPage() {
 
   // Snackbar
   const [snackMsg, setSnackMsg] = useState('');
+
+  // Fetch categories for filter dropdown
+  const { data: categories = [] } = useQuery({
+    queryKey: ['categories'],
+    queryFn:  categoriesService.getAll,
+  });
 
   // Fetch products for simple filter dropdown
   const { data: products = [] } = useQuery({
@@ -199,6 +207,12 @@ export default function StockDashboardPage() {
     return map;
   }, [visibleLocations]);
 
+  // Filter product list by selected category
+  const filteredProducts = useMemo(() => {
+    if (!filterCategoryId) return products;
+    return products.filter(p => p.categoryId === filterCategoryId);
+  }, [products, filterCategoryId]);
+
   // Normalized filter arrays
   const productIds  = filters.productIds  ?? [];
   const locationIds = filters.locationIds ?? [];
@@ -211,6 +225,11 @@ export default function StockDashboardPage() {
     applyLocationFilter(locationIds.filter(l => l !== id));
   };
 
+  const handleCategoryChange = (value: string) => {
+    setFilterCategoryId(value);
+    setFilterProductId(''); // reset product when category changes
+  };
+
   const queryParams = {
     page: page + 1,
     limit,
@@ -218,6 +237,7 @@ export default function StockDashboardPage() {
     endDate:   appliedEndDate,
     ...(filters.productIds  && { productIds:  filters.productIds }),
     ...(filters.locationIds && { locationIds: filters.locationIds }),
+    ...(filterCategoryId    && { categoryIds: [filterCategoryId] }),
   };
 
   const { data, isLoading, error, refetch } = useQuery({
@@ -254,6 +274,7 @@ export default function StockDashboardPage() {
 
   function handleClearAll() {
     clearFilters();
+    setFilterCategoryId('');
     setFilterProductId('');
     setFilterLocationId('');
     handleClearDate();
@@ -317,6 +338,20 @@ export default function StockDashboardPage() {
       {/* Simple Filters */}
       <Paper sx={{ p: 2, mb: 2, display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
         <FormControl sx={{ minWidth: 200 }} size="small">
+          <InputLabel>Category</InputLabel>
+          <Select
+            value={filterCategoryId}
+            label="Category"
+            onChange={(e) => handleCategoryChange(e.target.value)}
+          >
+            <MenuItem value="">All</MenuItem>
+            {categories.map(c => (
+              <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+
+        <FormControl sx={{ minWidth: 200 }} size="small">
           <InputLabel>Product</InputLabel>
           <Select
             value={filterProductId}
@@ -324,7 +359,7 @@ export default function StockDashboardPage() {
             onChange={(e) => setFilterProductId(e.target.value)}
           >
             <MenuItem value="">All</MenuItem>
-            {products.map(p => (
+            {filteredProducts.map(p => (
               <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>
             ))}
           </Select>
@@ -464,6 +499,17 @@ export default function StockDashboardPage() {
         onSave={(name) => saveMutation.mutate(name)}
       />
 
+      {/* Category chip */}
+      {filterCategoryId && (
+        <Box sx={{ mb: 1, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+          <Chip
+            size="small"
+            label={`Category: ${categories.find(c => c.id === filterCategoryId)?.name ?? filterCategoryId}`}
+            onDelete={() => { setFilterCategoryId(''); setFilterProductId(''); }}
+          />
+        </Box>
+      )}
+
       {/* Filter Summary Chips */}
       <FilterSummaryChips
         productIds={productIds}
@@ -489,6 +535,7 @@ export default function StockDashboardPage() {
               <TableHead>
                 <TableRow>
                   <TableCell>SKU</TableCell>
+                  <TableCell>Category</TableCell>
                   <TableCell>Product</TableCell>
                   <TableCell>UOM</TableCell>
                   <TableCell>Location</TableCell>
@@ -509,6 +556,7 @@ export default function StockDashboardPage() {
                 {rows.map((row) => (
                   <TableRow key={`${row.productId}-${row.locationId}`} hover>
                     <TableCell><strong>{row.productSku}</strong></TableCell>
+                    <TableCell>{row.productCategoryName}</TableCell>
                     <TableCell>{row.productName}</TableCell>
                     <TableCell>{row.uomCode}</TableCell>
                     <TableCell>
@@ -564,7 +612,7 @@ export default function StockDashboardPage() {
                 ))}
                 {rows.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={14} align="center">
+                    <TableCell colSpan={15} align="center">
                       No stock records found
                     </TableCell>
                   </TableRow>
