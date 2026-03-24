@@ -1,7 +1,7 @@
 import prisma from '../../../config/database';
-import { Goods } from '@prisma/client';
+import { Product } from '@prisma/client';
 
-export type GoodsWithRelations = Goods & {
+export type GoodsWithRelations = Product & {
   category: { id: string; name: string };
   vendor:   { id: string; name: string };
   uom:      { id: string; code: string; name: string };
@@ -9,7 +9,7 @@ export type GoodsWithRelations = Goods & {
 
 export class GoodsRepository {
   async findAll(): Promise<GoodsWithRelations[]> {
-    return prisma.goods.findMany({
+    return prisma.product.findMany({
       include: {
         category: { select: { id: true, name: true } },
         vendor:   { select: { id: true, name: true } },
@@ -20,7 +20,7 @@ export class GoodsRepository {
   }
 
   async findById(id: string): Promise<GoodsWithRelations | null> {
-    return prisma.goods.findUnique({
+    return prisma.product.findUnique({
       where: { id },
       include: {
         category: { select: { id: true, name: true } },
@@ -30,26 +30,8 @@ export class GoodsRepository {
     }) as Promise<GoodsWithRelations | null>;
   }
 
-  async findBySku(sku: string): Promise<Goods | null> {
-    return prisma.goods.findUnique({ where: { sku } });
-  }
-
-  async create(data: {
-    sku: string;
-    name: string;
-    categoryId: string;
-    vendorId: string;
-    uomId: string;
-    isActive?: boolean;
-  }): Promise<GoodsWithRelations> {
-    return prisma.goods.create({
-      data,
-      include: {
-        category: { select: { id: true, name: true } },
-        vendor:   { select: { id: true, name: true } },
-        uom:      { select: { id: true, code: true, name: true } },
-      },
-    }) as Promise<GoodsWithRelations>;
+  async findBySku(sku: string): Promise<Product | null> {
+    return prisma.product.findUnique({ where: { sku } });
   }
 
   async update(id: string, data: {
@@ -57,9 +39,8 @@ export class GoodsRepository {
     categoryId?: string;
     vendorId?: string;
     uomId?: string;
-    isActive?: boolean;
   }): Promise<GoodsWithRelations> {
-    return prisma.goods.update({
+    return prisma.product.update({
       where: { id },
       data,
       include: {

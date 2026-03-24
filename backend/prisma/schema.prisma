@@ -107,7 +107,6 @@ model Product {
   categoryId String
   vendorId   String
   uomId      String
-  isActive   Boolean  @default(true)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 

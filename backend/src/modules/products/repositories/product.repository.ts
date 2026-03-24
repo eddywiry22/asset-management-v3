@@ -7,7 +7,6 @@ export type ProductWithRelations = {
   categoryId: string;
   vendorId: string;
   uomId: string;
-  isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
   category: { id: string; name: string };
@@ -47,26 +46,11 @@ export class ProductRepository {
     return prisma.product.findUnique({ where: { sku }, select: { id: true } });
   }
 
-  async create(data: {
-    sku: string;
-    name: string;
-    categoryId: string;
-    vendorId: string;
-    uomId: string;
-    isActive?: boolean;
-  }): Promise<ProductWithRelations> {
-    return prisma.product.create({
-      data,
-      include: RELATIONS,
-    }) as Promise<ProductWithRelations>;
-  }
-
   async update(id: string, data: {
     name?: string;
     categoryId?: string;
     vendorId?: string;
     uomId?: string;
-    isActive?: boolean;
   }): Promise<ProductWithRelations> {
     return prisma.product.update({
       where: { id },
