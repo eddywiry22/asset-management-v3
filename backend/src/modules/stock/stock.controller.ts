@@ -9,6 +9,11 @@ import { evaluateLocationReadiness } from '../locations/locationReadiness.servic
 import prisma from '../../config/database';
 import { buildDateRangeFilter } from '../../utils/dateFilter';
 
+function toArray(value?: string | string[]): string[] | undefined {
+  if (!value) return undefined;
+  return Array.isArray(value) ? value : [value];
+}
+
 export class StockController {
   async getVisibleLocations(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
@@ -58,8 +63,8 @@ export class StockController {
 
       const { locationId, productId, locationIds, productIds, page, limit, startDate, endDate } = parsed.data;
 
-      const normalizedProductIds  = productIds  ?? (productId  ? [productId]  : undefined);
-      const normalizedLocationIds = locationIds ?? (locationId ? [locationId] : undefined);
+      const normalizedProductIds  = toArray(productIds  ?? productId);
+      const normalizedLocationIds = toArray(locationIds ?? locationId);
 
       // Normalise: start → 00:00:00.000, end → 23:59:59.999 (inclusive end-of-day)
       const overviewDateFilter = buildDateRangeFilter(startDate, endDate);
@@ -123,8 +128,8 @@ export class StockController {
 
       const { productId, locationId, productIds, locationIds, startDate, endDate, page, limit } = parsed.data;
 
-      const normalizedProductIds  = productIds  ?? (productId  ? [productId]  : undefined);
-      const normalizedLocationIds = locationIds ?? (locationId ? [locationId] : undefined);
+      const normalizedProductIds  = toArray(productIds  ?? productId);
+      const normalizedLocationIds = toArray(locationIds ?? locationId);
 
       // Normalise: start → 00:00:00.000, end → 23:59:59.999 (inclusive end-of-day)
       const ledgerDateFilter = buildDateRangeFilter(startDate, endDate);
