@@ -4,18 +4,22 @@ import {
   FormControl, InputLabel, MenuItem, Select,
   Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, TextField, Typography, Paper, Snackbar,
-  TablePagination, Tooltip,
+  TablePagination, Tooltip, IconButton,
 } from '@mui/material';
 import HistoryIcon from '@mui/icons-material/History';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import { useQuery } from '@tanstack/react-query';
+import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
+import DeleteIcon from '@mui/icons-material/Delete';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import stockService, { StockOverviewItem, StockLedgerEntry } from '../../../services/stock.service';
 import { useAuth } from '../../../context/AuthContext';
 import AdvancedFilterModal from '../../../components/AdvancedFilterModal';
 import FilterSummaryChips from '../../../components/FilterSummaryChips';
+import SaveFilterModal from '../../../components/SaveFilterModal';
 import { useAdvancedFilters } from '../../../hooks/useAdvancedFilters';
 import { goodsService } from '../../../services/goods.service';
+import { savedFiltersService } from '../../../services/savedFilters.service';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -125,6 +129,7 @@ function LedgerModal({ open, onClose, productId, locationId, productSku, locatio
 // ---------------------------------------------------------------------------
 export default function StockDashboardPage() {
   const { isAdmin } = useAuth();
+  const queryClient = useQueryClient();
 
   // Product/location filters via reusable hook
   const {
@@ -154,6 +159,10 @@ export default function StockDashboardPage() {
   // Ledger modal state
   const [ledgerTarget, setLedgerTarget] = useState<StockOverviewItem | null>(null);
 
+  // Saved filters state
+  const [openSave, setOpenSave]               = useState(false);
+  const [savedFilterAnchor, setSavedFilterAnchor] = useState('');
+
   // Snackbar
   const [snackMsg, setSnackMsg] = useState('');
 
@@ -167,6 +176,12 @@ export default function StockDashboardPage() {
   const { data: visibleLocations = [], isSuccess: locationsLoaded } = useQuery({
     queryKey: ['stock-visible-locations'],
     queryFn:  stockService.getVisibleLocations,
+  });
+
+  // Fetch saved filters for STOCK module
+  const { data: savedFilters = [] } = useQuery({
+    queryKey: ['saved-filters', 'STOCK'],
+    queryFn:  () => savedFiltersService.getAll('STOCK'),
   });
 
   const hasNoLocation = !isAdmin && locationsLoaded && visibleLocations.length === 0;
@@ -244,6 +259,45 @@ export default function StockDashboardPage() {
     handleClearDate();
   }
 
+  // Save current filters
+  const saveMutation = useMutation({
+    mutationFn: (name: string) =>
+      savedFiltersService.create({
+        name,
+        module: 'STOCK',
+        filterJson: {
+          productIds:  filters.productIds,
+          locationIds: filters.locationIds,
+        } as Record<string, unknown>,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['saved-filters', 'STOCK'] });
+      setOpenSave(false);
+      setSnackMsg('Filter saved');
+    },
+  });
+
+  // Delete a saved filter
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => savedFiltersService.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['saved-filters', 'STOCK'] });
+      setSnackMsg('Filter deleted');
+    },
+  });
+
+  function handleApplySavedFilter(id: string) {
+    const saved = savedFilters.find(f => f.id === id);
+    if (!saved) return;
+    const fj = saved.filterJson as { productIds?: string[]; locationIds?: string[] };
+    applyAdvancedFilters({
+      productIds:  fj.productIds  ?? [],
+      locationIds: fj.locationIds ?? [],
+    });
+    setPage(0);
+    setSavedFilterAnchor('');
+  }
+
   return (
     <Box>
       {hasNoLocation && (
@@ -305,6 +359,51 @@ export default function StockDashboardPage() {
         >
           Advanced Filter{activeCount > 0 ? ` (${activeCount})` : ''}
         </Button>
+
+        <Button
+          variant="outlined"
+          startIcon={<BookmarkBorderIcon />}
+          onClick={() => setOpenSave(true)}
+        >
+          Save Filter
+        </Button>
+
+        {/* Saved Filters Dropdown */}
+        <FormControl sx={{ minWidth: 180 }} size="small">
+          <InputLabel>Saved Filters</InputLabel>
+          <Select
+            value={savedFilterAnchor}
+            label="Saved Filters"
+            onChange={(e) => {
+              const val = e.target.value as string;
+              setSavedFilterAnchor(val);
+              if (val) handleApplySavedFilter(val);
+            }}
+            renderValue={(val) => {
+              const found = savedFilters.find(f => f.id === val);
+              return found ? found.name : 'Saved Filters';
+            }}
+          >
+            <MenuItem value="" disabled>Saved Filters</MenuItem>
+            {savedFilters.length === 0 && (
+              <MenuItem disabled value="">No saved filters</MenuItem>
+            )}
+            {savedFilters.map(f => (
+              <MenuItem key={f.id} value={f.id} sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
+                <span style={{ flexGrow: 1 }}>{f.name}</span>
+                <IconButton
+                  size="small"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteMutation.mutate(f.id);
+                  }}
+                >
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
       </Paper>
 
       {/* Date Range Filters */}
@@ -357,6 +456,12 @@ export default function StockDashboardPage() {
           applyAdvancedFilters(data);
           setPage(0);
         }}
+      />
+
+      <SaveFilterModal
+        open={openSave}
+        onClose={() => setOpenSave(false)}
+        onSave={(name) => saveMutation.mutate(name)}
       />
 
       {/* Filter Summary Chips */}

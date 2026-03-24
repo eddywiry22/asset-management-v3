@@ -16,6 +16,7 @@ import adminUsersRoutes from './modules/admin-users/admin-users.routes';
 import stockRoutes from './modules/stock/stock.routes';
 import stockAdjustmentRoutes from './modules/stock-adjustments/stockAdjustment.routes';
 import stockTransferRoutes from './modules/stock-transfers/transfer.routes';
+import savedFiltersRoutes from './modules/saved-filters/savedFilters.routes';
 import { productsController } from './modules/products/products.controller';
 import { AuthenticatedRequest } from './types/request.types';
 
@@ -65,6 +66,9 @@ v1Router.use('/stock-adjustments', authMiddleware, stockAdjustmentRoutes);
 
 // /v1/stock-transfers — requires auth, accessible by all roles
 v1Router.use('/stock-transfers', authMiddleware, stockTransferRoutes);
+
+// /v1/saved-filters — requires auth, accessible by all roles
+v1Router.use('/saved-filters', authMiddleware, savedFiltersRoutes);
 
 app.use('/v1', v1Router);
 
