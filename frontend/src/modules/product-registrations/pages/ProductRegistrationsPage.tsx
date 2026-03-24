@@ -385,12 +385,17 @@ export default function ProductRegistrationsPage() {
             </Select>
           </FormControl>
 
-          <Button variant="outlined" startIcon={<FilterListIcon />} onClick={handleApplySimple}>
-            Apply
-          </Button>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button variant="contained" onClick={handleApplySimple}>
+              Apply
+            </Button>
+            <Button variant="text" onClick={handleClearAll}>
+              Clear
+            </Button>
+          </Box>
 
           <Button
-            variant="contained"
+            variant="outlined"
             startIcon={<FilterListIcon />}
             onClick={() => setFilterModalOpen(true)}
           >
@@ -446,10 +451,6 @@ export default function ProductRegistrationsPage() {
               ))}
             </Select>
           </FormControl>
-
-          <Button variant="text" onClick={handleClearAll}>
-            Clear All
-          </Button>
         </Box>
       </Paper>
 
@@ -501,7 +502,7 @@ export default function ProductRegistrationsPage() {
             />
           )}
 
-          <Button size="small" onClick={handleClearAll}>Clear All</Button>
+          <Button size="small" onClick={handleClearAll}>Clear</Button>
         </Stack>
       )}
 
