@@ -58,20 +58,20 @@ export class StockService {
   ): Promise<{ data: StockOverviewItem[]; total: number }> {
     const { locationIds, productIds, page, limit, startDate, endDate } = params;
 
-    logger.info('Stock query filters', { productIds, locationIds });
+    logger.info({ productIds, locationIds }, 'Stock filter params');
 
-    // Determine visible locations
+    // Determine visible locations (enforces per-user access control)
     const visibleLocationIds = await this.getVisibleLocationIds(userId, isAdmin, locationIds);
 
     if (visibleLocationIds.length === 0) {
       return { data: [], total: 0 };
     }
 
-    // Fetch balances for visible locations
+    // Fetch balances — both dimensions are independent AND conditions
     const skip = (page - 1) * limit;
     const whereClause: Record<string, unknown> = {
-      locationId: { in: visibleLocationIds },
-      ...(productIds?.length && { productId: { in: productIds } }),
+      ...(productIds?.length       && { productId:  { in: productIds } }),
+      ...(visibleLocationIds.length && { locationId: { in: visibleLocationIds } }),
     };
 
     const [balances, total] = await Promise.all([
@@ -197,7 +197,7 @@ export class StockService {
   ): Promise<{ data: StockLedgerRow[]; total: number }> {
     const { productIds, locationIds, startDate, endDate, page, limit } = params;
 
-    logger.info('Stock ledger query filters', { productIds, locationIds });
+    logger.info({ productIds, locationIds }, 'Stock filter params');
 
     // Determine visible locations — if specific locationIds were requested,
     // validate access to each; otherwise use all visible locations.
