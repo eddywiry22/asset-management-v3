@@ -91,10 +91,11 @@ export default function ProductRegistrationsPage() {
     queryFn:  categoriesService.getAll,
   });
 
-  const { data: products = [] } = useQuery({
+  const { data: productsResponse } = useQuery({
     queryKey: ['products'],
     queryFn:  productsService.getAll,
   });
+  const products = productsResponse?.data ?? [];
 
   const { data: locations = [] } = useQuery({
     queryKey: ['all-locations'],

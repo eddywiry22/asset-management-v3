@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { productRepository, ProductWithRelations } from './repositories/product.repository';
 import { categoryRepository } from '../categories/repositories/category.repository';
 import { vendorRepository } from '../vendors/repositories/vendor.repository';
@@ -9,8 +10,36 @@ import prisma from '../../config/database';
 import logger from '../../utils/logger';
 
 export class ProductsService {
-  async findAll(page: number, limit: number): Promise<{ data: ProductWithRelations[]; total: number }> {
-    return productRepository.findAll(page, limit);
+  async findAll(params: {
+    page: number;
+    limit: number;
+    search?: string;
+    categoryIds?: string[];
+    vendorIds?: string[];
+  }): Promise<{ data: ProductWithRelations[]; total: number }> {
+    const { page, limit, search, categoryIds, vendorIds } = params;
+    const trimmedSearch = search?.trim();
+
+    logger.info({ search, trimmedSearch }, 'Product search input');
+
+    const where: Prisma.ProductWhereInput = {
+      ...(trimmedSearch && {
+        OR: [
+          { name: { contains: trimmedSearch } },
+          { sku:  { contains: trimmedSearch } },
+        ],
+      }),
+      ...(categoryIds?.length && {
+        categoryId: { in: categoryIds },
+      }),
+      ...(vendorIds?.length && {
+        vendorId: { in: vendorIds },
+      }),
+    };
+
+    logger.info({ where }, 'Product query where clause');
+
+    return productRepository.findAll({ page, limit, where });
   }
 
   async findById(id: string): Promise<ProductWithRelations> {
