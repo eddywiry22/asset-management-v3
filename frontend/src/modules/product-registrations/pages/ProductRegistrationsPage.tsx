@@ -1,14 +1,16 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
-  FormControl, FormControlLabel, InputLabel, Select, SelectChangeEvent,
-  Switch, Table, TableBody, TableCell, TableContainer,
-  TableHead, TablePagination, TableRow, TextField, Typography, Paper, CircularProgress,
-  Alert, MenuItem, Tooltip, Snackbar, Toolbar,
+  FormControl, FormControlLabel, IconButton, InputLabel, MenuItem, Select, SelectChangeEvent,
+  Stack, Switch, Table, TableBody, TableCell, TableContainer,
+  TableHead, TablePagination, TableRow, Typography, Paper, CircularProgress,
+  Alert, Tooltip, Snackbar, Toolbar,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import FilterListIcon from '@mui/icons-material/FilterList';
+import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
+import DeleteIcon from '@mui/icons-material/Delete';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -19,6 +21,10 @@ import {
 } from '../../../services/productRegistrations.service';
 import { productsService } from '../../../services/products.service';
 import stockService from '../../../services/stock.service';
+import AdvancedFilterModal from '../../../components/AdvancedFilterModal';
+import SaveFilterModal from '../../../components/SaveFilterModal';
+import { useAdvancedFilters } from '../../../hooks/useAdvancedFilters';
+import { savedFiltersService } from '../../../services/savedFilters.service';
 
 const createSchema = z.object({
   productId:  z.string().min(1, 'Product is required'),
@@ -33,36 +39,48 @@ const editSchema = z.object({
 type CreateForm = z.infer<typeof createSchema>;
 type EditForm   = z.infer<typeof editSchema>;
 
+const MAX_CHIPS = 5;
+
 export default function ProductRegistrationsPage() {
   const queryClient = useQueryClient();
-  const [createOpen, setCreateOpen]       = useState(false);
-  const [editTarget, setEditTarget]       = useState<ProductRegistration | null>(null);
-  const [apiError, setApiError]           = useState('');
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<ProductRegistration | null>(null);
+  const [apiError, setApiError]     = useState('');
 
-  // Pagination state (MUI TablePagination uses 0-based page)
+  // Pagination (MUI TablePagination uses 0-based page)
   const [page, setPage]               = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(20);
 
-  // Staging filters
-  const [productId,  setProductId]  = useState('');
-  const [locationId, setLocationId] = useState('');
-  const [status,     setStatus]     = useState('ALL');
+  // Advanced filters (productIds / locationIds via reusable hook)
+  const {
+    filters,
+    applyProductFilter,
+    applyLocationFilter,
+    applyAdvancedFilters,
+    clearFilters,
+    activeCount,
+  } = useAdvancedFilters();
 
-  // Applied filters — committed on Apply, drives the query key
-  const [appliedFilters, setAppliedFilters] = useState({
-    productId:  '',
-    locationId: '',
-    status:     'ALL',
-  });
+  // Simple filter staging state (dropdowns before Apply is clicked)
+  const [filterProductId, setFilterProductId]   = useState('');
+  const [filterLocationId, setFilterLocationId] = useState('');
 
-  // Bulk selection state
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  // Status filter — applied immediately on change
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
 
-  // Bulk action confirmation dialog
-  const [bulkConfirm, setBulkConfirm] = useState<{ isActive: boolean } | null>(null);
+  // Modal visibility
+  const [filterModalOpen, setFilterModalOpen] = useState(false);
+  const [openSave, setOpenSave]               = useState(false);
+  const [savedFilterAnchor, setSavedFilterAnchor] = useState('');
 
-  // Toast/snackbar
+  // Bulk selection
+  const [selectedIds, setSelectedIds]   = useState<string[]>([]);
+  const [bulkConfirm, setBulkConfirm]   = useState<{ isActive: boolean } | null>(null);
+
+  // Toast
   const [snack, setSnack] = useState<{ msg: string; severity: 'success' | 'warning' | 'error' } | null>(null);
+
+  // ── Data fetches ────────────────────────────────────────────────────────────
 
   const { data: products = [] } = useQuery({
     queryKey: ['products'],
@@ -74,25 +92,48 @@ export default function ProductRegistrationsPage() {
     queryFn:  stockService.getAllLocations,
   });
 
+  const { data: savedFilters = [] } = useQuery({
+    queryKey: ['saved-filters', 'PRODUCT_REGISTRATION'],
+    queryFn:  () => savedFiltersService.getAll('PRODUCT_REGISTRATION'),
+  });
+
+  // Lookup maps for filter chips
+  const productsMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    products.forEach(p => { map[p.id] = `${p.sku} — ${p.name}`; });
+    return map;
+  }, [products]);
+
+  const locationsMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    locations.forEach(l => { map[l.id] = `${l.code} — ${l.name}`; });
+    return map;
+  }, [locations]);
+
+  // Main table query — combines hook filters + status
   const { data, isLoading, error } = useQuery({
-    queryKey: ['product-registrations', page, rowsPerPage, appliedFilters],
+    queryKey: ['product-registrations', page, rowsPerPage, filters, statusFilter],
     queryFn:  () => productRegistrationsService.getAll({
-      page:       page + 1,
-      pageSize:   rowsPerPage,
-      status:     appliedFilters.status,
-      ...(appliedFilters.productId  ? { productId:  appliedFilters.productId  } : {}),
-      ...(appliedFilters.locationId ? { locationId: appliedFilters.locationId } : {}),
+      page:     page + 1,
+      pageSize: rowsPerPage,
+      status:   statusFilter,
+      ...(filters.productIds?.length  && { productIds:  filters.productIds }),
+      ...(filters.locationIds?.length && { locationIds: filters.locationIds }),
     }),
   });
 
   const registrations = data?.data  ?? [];
   const total         = data?.meta?.total ?? 0;
 
+  // ── Forms ───────────────────────────────────────────────────────────────────
+
   const createForm = useForm<CreateForm>({
     resolver:      zodResolver(createSchema),
     defaultValues: { isActive: true },
   });
   const editForm = useForm<EditForm>({ resolver: zodResolver(editSchema) });
+
+  // ── Mutations ───────────────────────────────────────────────────────────────
 
   const createMutation = useMutation({
     mutationFn: productRegistrationsService.create,
@@ -142,12 +183,40 @@ export default function ProductRegistrationsPage() {
     },
   });
 
+  const saveMutation = useMutation({
+    mutationFn: (name: string) =>
+      savedFiltersService.create({
+        name,
+        module: 'PRODUCT_REGISTRATION',
+        filterJson: {
+          productIds:  filters.productIds,
+          locationIds: filters.locationIds,
+          status:      statusFilter,
+        } as Record<string, unknown>,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['saved-filters', 'PRODUCT_REGISTRATION'] });
+      setOpenSave(false);
+      setSnack({ msg: 'Filter saved', severity: 'success' });
+    },
+  });
+
+  const deleteSavedMutation = useMutation({
+    mutationFn: (id: string) => savedFiltersService.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['saved-filters', 'PRODUCT_REGISTRATION'] });
+      setSnack({ msg: 'Filter deleted', severity: 'success' });
+    },
+  });
+
   // Pre-check pending requests when the edit dialog opens for an active registration
   const { data: deactivationCheck } = useQuery({
     queryKey: ['check-deactivate', editTarget?.id],
     queryFn:  () => productRegistrationsService.checkDeactivation(editTarget!.id),
     enabled:  !!editTarget && editTarget.isActive,
   });
+
+  // ── Handlers ─────────────────────────────────────────────────────────────────
 
   const openEdit = (item: ProductRegistration) => {
     setEditTarget(item);
@@ -166,17 +235,48 @@ export default function ProductRegistrationsPage() {
     updateMutation.mutate({ id: editTarget.id, data });
   };
 
-  const handleApply = () => {
+  // Apply simple dropdown filters
+  const handleApplySimple = () => {
+    applyProductFilter(filterProductId   ? [filterProductId]   : undefined);
+    applyLocationFilter(filterLocationId ? [filterLocationId] : undefined);
     setPage(0);
     setSelectedIds([]);
-    setAppliedFilters({ productId, locationId, status });
   };
 
-  const handleClear = () => {
-    setProductId(''); setLocationId(''); setStatus('ALL');
+  // Reset everything
+  const handleClearAll = () => {
+    clearFilters();
+    setFilterProductId('');
+    setFilterLocationId('');
+    setStatusFilter('ALL');
     setPage(0);
     setSelectedIds([]);
-    setAppliedFilters({ productId: '', locationId: '', status: 'ALL' });
+    setSavedFilterAnchor('');
+  };
+
+  const handleRemoveProduct = (id: string) => {
+    applyProductFilter(filters.productIds?.filter(p => p !== id));
+  };
+
+  const handleRemoveLocation = (id: string) => {
+    applyLocationFilter(filters.locationIds?.filter(l => l !== id));
+  };
+
+  const handleApplySavedFilter = (filterId: string) => {
+    const saved = savedFilters.find(f => f.id === filterId);
+    if (!saved) return;
+    const fj = saved.filterJson as {
+      productIds?: string[];
+      locationIds?: string[];
+      status?: 'ALL' | 'ACTIVE' | 'INACTIVE';
+    };
+    applyAdvancedFilters({
+      productIds:  fj.productIds  ?? [],
+      locationIds: fj.locationIds ?? [],
+    });
+    setStatusFilter(fj.status ?? 'ALL');
+    setPage(0);
+    setSavedFilterAnchor('');
   };
 
   const handlePageChange = (_e: unknown, p: number) => {
@@ -190,7 +290,7 @@ export default function ProductRegistrationsPage() {
     setSelectedIds([]);
   };
 
-  // Selection helpers
+  // Bulk selection helpers
   const allPageSelected =
     registrations.length > 0 && registrations.every((r) => selectedIds.includes(r.id));
   const somePageSelected =
@@ -210,14 +310,19 @@ export default function ProductRegistrationsPage() {
     );
   };
 
-  const handleBulkAction = (isActive: boolean) => {
-    setBulkConfirm({ isActive });
-  };
+  const handleBulkAction = (isActive: boolean) => setBulkConfirm({ isActive });
 
   const onBulkConfirm = () => {
     if (!bulkConfirm) return;
     bulkToggleMutation.mutate({ ids: selectedIds, isActive: bulkConfirm.isActive });
   };
+
+  const hasFilters =
+    (filters.productIds?.length ?? 0) > 0 ||
+    (filters.locationIds?.length ?? 0) > 0 ||
+    statusFilter !== 'ALL';
+
+  // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
     <Box>
@@ -232,15 +337,15 @@ export default function ProductRegistrationsPage() {
         </Button>
       </Box>
 
-      {/* Filter Bar */}
+      {/* ── Filter Bar ─────────────────────────────────────────────────────── */}
       <Paper sx={{ p: 2, mb: 2 }}>
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
           <FormControl size="small" sx={{ minWidth: 200 }}>
             <InputLabel>Product</InputLabel>
             <Select
               label="Product"
-              value={productId}
-              onChange={(e: SelectChangeEvent) => setProductId(e.target.value)}
+              value={filterProductId}
+              onChange={(e: SelectChangeEvent) => setFilterProductId(e.target.value)}
             >
               <MenuItem value="">All Products</MenuItem>
               {products.map((p) => (
@@ -253,8 +358,8 @@ export default function ProductRegistrationsPage() {
             <InputLabel>Location</InputLabel>
             <Select
               label="Location"
-              value={locationId}
-              onChange={(e: SelectChangeEvent) => setLocationId(e.target.value)}
+              value={filterLocationId}
+              onChange={(e: SelectChangeEvent) => setFilterLocationId(e.target.value)}
             >
               <MenuItem value="">All Locations</MenuItem>
               {locations.map((l) => (
@@ -267,8 +372,12 @@ export default function ProductRegistrationsPage() {
             <InputLabel>Status</InputLabel>
             <Select
               label="Status"
-              value={status}
-              onChange={(e: SelectChangeEvent) => setStatus(e.target.value)}
+              value={statusFilter}
+              onChange={(e: SelectChangeEvent) => {
+                setStatusFilter(e.target.value as 'ALL' | 'ACTIVE' | 'INACTIVE');
+                setPage(0);
+                setSelectedIds([]);
+              }}
             >
               <MenuItem value="ALL">All</MenuItem>
               <MenuItem value="ACTIVE">Active</MenuItem>
@@ -276,16 +385,127 @@ export default function ProductRegistrationsPage() {
             </Select>
           </FormControl>
 
-          <Button variant="outlined" startIcon={<FilterListIcon />} onClick={handleApply}>
+          <Button variant="outlined" startIcon={<FilterListIcon />} onClick={handleApplySimple}>
             Apply
           </Button>
-          <Button variant="text" onClick={handleClear}>
-            Clear
+
+          <Button
+            variant="contained"
+            startIcon={<FilterListIcon />}
+            onClick={() => setFilterModalOpen(true)}
+          >
+            Advanced Filter{activeCount > 0 ? ` (${activeCount})` : ''}
+          </Button>
+
+          <Button
+            variant="outlined"
+            startIcon={<BookmarkBorderIcon />}
+            disabled={!hasFilters}
+            onClick={() => setOpenSave(true)}
+          >
+            Save Filter
+          </Button>
+
+          {/* Saved Filters Dropdown */}
+          <FormControl sx={{ minWidth: 180 }} size="small">
+            <InputLabel>Saved Filters</InputLabel>
+            <Select
+              value={savedFilterAnchor}
+              label="Saved Filters"
+              onChange={(e) => {
+                const val = e.target.value as string;
+                setSavedFilterAnchor(val);
+                if (val) handleApplySavedFilter(val);
+              }}
+              renderValue={(val) => {
+                const found = savedFilters.find(f => f.id === val);
+                return found ? found.name : 'Saved Filters';
+              }}
+            >
+              <MenuItem value="" disabled>Saved Filters</MenuItem>
+              {savedFilters.length === 0 && (
+                <MenuItem disabled value="__empty__">No saved filters</MenuItem>
+              )}
+              {savedFilters.map(f => (
+                <MenuItem
+                  key={f.id}
+                  value={f.id}
+                  sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}
+                >
+                  <span style={{ flexGrow: 1 }}>{f.name}</span>
+                  <IconButton
+                    size="small"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteSavedMutation.mutate(f.id);
+                    }}
+                  >
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <Button variant="text" onClick={handleClearAll}>
+            Clear All
           </Button>
         </Box>
       </Paper>
 
-      {/* Bulk Action Toolbar — visible only when rows are selected */}
+      {/* ── Filter Chips ───────────────────────────────────────────────────── */}
+      {hasFilters && (
+        <Stack direction="row" flexWrap="wrap" sx={{ mb: 2, gap: 1, alignItems: 'center' }}>
+          {/* Product chips */}
+          {(filters.productIds?.length ?? 0) > MAX_CHIPS ? (
+            <Chip
+              size="small"
+              label={`Products: ${filters.productIds!.length} selected`}
+              onDelete={() => applyProductFilter(undefined)}
+            />
+          ) : (
+            filters.productIds?.map(id => (
+              <Chip
+                key={id}
+                size="small"
+                label={`Product: ${productsMap[id] ?? id}`}
+                onDelete={() => handleRemoveProduct(id)}
+              />
+            ))
+          )}
+
+          {/* Location chips */}
+          {(filters.locationIds?.length ?? 0) > MAX_CHIPS ? (
+            <Chip
+              size="small"
+              label={`Locations: ${filters.locationIds!.length} selected`}
+              onDelete={() => applyLocationFilter(undefined)}
+            />
+          ) : (
+            filters.locationIds?.map(id => (
+              <Chip
+                key={id}
+                size="small"
+                label={`Location: ${locationsMap[id] ?? id}`}
+                onDelete={() => handleRemoveLocation(id)}
+              />
+            ))
+          )}
+
+          {/* Status chip */}
+          {statusFilter !== 'ALL' && (
+            <Chip
+              size="small"
+              label={`Status: ${statusFilter}`}
+              onDelete={() => { setStatusFilter('ALL'); setPage(0); }}
+            />
+          )}
+
+          <Button size="small" onClick={handleClearAll}>Clear All</Button>
+        </Stack>
+      )}
+
+      {/* ── Bulk Action Toolbar ────────────────────────────────────────────── */}
       {selectedIds.length > 0 && (
         <Paper sx={{ mb: 2 }}>
           <Toolbar sx={{ gap: 2 }}>
@@ -312,7 +532,7 @@ export default function ProductRegistrationsPage() {
         </Paper>
       )}
 
-      {/* Table */}
+      {/* ── Table ─────────────────────────────────────────────────────────── */}
       {isLoading && <CircularProgress />}
       {error     && <Alert severity="error">Failed to load product registrations</Alert>}
       {!isLoading && !error && (
@@ -338,11 +558,7 @@ export default function ProductRegistrationsPage() {
               </TableHead>
               <TableBody>
                 {registrations.map((item) => (
-                  <TableRow
-                    key={item.id}
-                    selected={selectedIds.includes(item.id)}
-                    hover
-                  >
+                  <TableRow key={item.id} selected={selectedIds.includes(item.id)} hover>
                     <TableCell padding="checkbox">
                       <Checkbox
                         checked={selectedIds.includes(item.id)}
@@ -360,11 +576,7 @@ export default function ProductRegistrationsPage() {
                       />
                     </TableCell>
                     <TableCell align="right">
-                      <Button
-                        size="small"
-                        startIcon={<EditIcon />}
-                        onClick={() => openEdit(item)}
-                      >
+                      <Button size="small" startIcon={<EditIcon />} onClick={() => openEdit(item)}>
                         Edit
                       </Button>
                     </TableCell>
@@ -390,7 +602,28 @@ export default function ProductRegistrationsPage() {
         </Paper>
       )}
 
-      {/* Create Modal */}
+      {/* ── Advanced Filter Modal ──────────────────────────────────────────── */}
+      <AdvancedFilterModal
+        open={filterModalOpen}
+        onClose={() => setFilterModalOpen(false)}
+        initialFilters={{
+          productIds:  filters.productIds,
+          locationIds: filters.locationIds,
+        }}
+        onApply={(data) => {
+          applyAdvancedFilters(data);
+          setPage(0);
+        }}
+      />
+
+      {/* ── Save Filter Modal ──────────────────────────────────────────────── */}
+      <SaveFilterModal
+        open={openSave}
+        onClose={() => setOpenSave(false)}
+        onSave={(name) => saveMutation.mutate(name)}
+      />
+
+      {/* ── Create Modal ───────────────────────────────────────────────────── */}
       <Dialog open={createOpen} onClose={() => setCreateOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Register Product at Location</DialogTitle>
         <form onSubmit={createForm.handleSubmit(onCreateSubmit)}>
@@ -455,7 +688,7 @@ export default function ProductRegistrationsPage() {
         </form>
       </Dialog>
 
-      {/* Edit Modal */}
+      {/* ── Edit Modal ─────────────────────────────────────────────────────── */}
       <Dialog open={!!editTarget} onClose={() => setEditTarget(null)} maxWidth="sm" fullWidth>
         <DialogTitle>Edit Registration</DialogTitle>
         <form onSubmit={editForm.handleSubmit(onEditSubmit)}>
@@ -472,9 +705,9 @@ export default function ProductRegistrationsPage() {
               name="isActive"
               control={editForm.control}
               render={({ field }) => {
-                const hasPending = deactivationCheck && !deactivationCheck.canDeactivate;
+                const hasPending    = deactivationCheck && !deactivationCheck.canDeactivate;
                 const switchDisabled = !!hasPending && field.value === true;
-                const tooltipTitle = hasPending
+                const tooltipTitle  = hasPending
                   ? `Cannot deactivate: ${deactivationCheck.pendingCount} pending request(s) exist ` +
                     `(${deactivationCheck.adjustments} adjustment(s), ${deactivationCheck.transfers} transfer(s)). Resolve them first.`
                   : '';
@@ -505,7 +738,7 @@ export default function ProductRegistrationsPage() {
         </form>
       </Dialog>
 
-      {/* Bulk Toggle Confirmation Dialog */}
+      {/* ── Bulk Toggle Confirmation ───────────────────────────────────────── */}
       <Dialog open={!!bulkConfirm} onClose={() => setBulkConfirm(null)} maxWidth="xs" fullWidth>
         <DialogTitle>Confirm Bulk Action</DialogTitle>
         <DialogContent>
@@ -529,7 +762,7 @@ export default function ProductRegistrationsPage() {
         </DialogActions>
       </Dialog>
 
-      {/* Toast */}
+      {/* ── Toast ─────────────────────────────────────────────────────────── */}
       <Snackbar
         open={!!snack}
         autoHideDuration={4000}

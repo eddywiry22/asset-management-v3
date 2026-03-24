@@ -1,10 +1,16 @@
 import { z } from 'zod';
 
+const coerceToArray = (schema: z.ZodString) =>
+  z.preprocess(
+    (val) => (typeof val === 'string' ? [val] : val),
+    z.array(schema).optional(),
+  );
+
 export const listProductRegistrationSchema = z.object({
   productId:   z.string().uuid().optional(),
   locationId:  z.string().uuid().optional(),
-  productIds:  z.array(z.string().uuid()).optional(),
-  locationIds: z.array(z.string().uuid()).optional(),
+  productIds:  coerceToArray(z.string().uuid()),
+  locationIds: coerceToArray(z.string().uuid()),
   status:      z.enum(['ALL', 'ACTIVE', 'INACTIVE']).optional().default('ALL'),
   page:        z.coerce.number().int().positive().default(1),
   pageSize:    z.coerce.number().int().positive().max(100).default(20),
