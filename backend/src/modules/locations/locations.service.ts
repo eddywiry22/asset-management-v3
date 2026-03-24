@@ -1,4 +1,5 @@
 import { Location } from '@prisma/client';
+import prisma from '../../config/database';
 import { locationRepository, LocationRow } from './repositories/location.repository';
 import { NotFoundError, ValidationError } from '../../utils/errors';
 import { auditService } from '../../services/audit.service';
@@ -33,10 +34,55 @@ export class LocationsService {
       throw new ValidationError(`Location code "${dto.code}" already exists`);
     }
 
-    const location = await locationRepository.create({
-      code:    dto.code,
-      name:    dto.name,
-      address: dto.address,
+    const location = await prisma.$transaction(async (tx) => {
+      // 1. Create location
+      const location = await tx.location.create({
+        data: {
+          code:     dto.code,
+          name:     dto.name,
+          address:  dto.address,
+          isActive: true,
+        },
+      });
+
+      // 2. Fetch all products
+      const products = await tx.product.findMany({
+        select: { id: true },
+      });
+
+      // 3. Prepare ProductLocation rows
+      const productLocations = products.map((p) => ({
+        productId:  p.id,
+        locationId: location.id,
+        isActive:   false,
+        createdAt:  new Date(),
+        updatedAt:  new Date(),
+      }));
+
+      // 4. Bulk insert
+      if (productLocations.length > 0) {
+        await tx.productLocation.createMany({
+          data: productLocations,
+          skipDuplicates: true,
+        });
+      }
+
+      // 5. Safety check
+      const count = await tx.productLocation.count({
+        where: { locationId: location.id },
+      });
+
+      logger.info(
+        {
+          locationId:    location.id,
+          createdBy:     performedBy,
+          totalProducts: products.length,
+          count,
+        },
+        'Location created with product-location backfill',
+      );
+
+      return location;
     });
 
     logger.info('[Location] Created', { id: location.id, code: location.code });
