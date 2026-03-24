@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, Dialog, DialogContent, DialogTitle,
   FormControl, InputLabel, MenuItem, Select,
@@ -13,6 +13,7 @@ import { useQuery } from '@tanstack/react-query';
 import stockService, { StockOverviewItem, StockLedgerEntry } from '../../../services/stock.service';
 import { useAuth } from '../../../context/AuthContext';
 import AdvancedFilterModal from '../../../components/AdvancedFilterModal';
+import FilterSummaryChips from '../../../components/FilterSummaryChips';
 import { useAdvancedFilters } from '../../../hooks/useAdvancedFilters';
 import { goodsService } from '../../../services/goods.service';
 
@@ -169,6 +170,31 @@ export default function StockDashboardPage() {
   });
 
   const hasNoLocation = !isAdmin && locationsLoaded && visibleLocations.length === 0;
+
+  // Lookup maps for FilterSummaryChips
+  const productsMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    products.forEach(p => { map[p.id] = p.name; });
+    return map;
+  }, [products]);
+
+  const locationsMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    visibleLocations.forEach(l => { map[l.id] = l.name; });
+    return map;
+  }, [visibleLocations]);
+
+  // Normalized filter arrays
+  const productIds  = filters.productIds  ?? [];
+  const locationIds = filters.locationIds ?? [];
+
+  const handleRemoveProduct = (id: string) => {
+    applyProductFilter(productIds.filter(p => p !== id));
+  };
+
+  const handleRemoveLocation = (id: string) => {
+    applyLocationFilter(locationIds.filter(l => l !== id));
+  };
 
   const queryParams = {
     page: page + 1,
@@ -331,6 +357,20 @@ export default function StockDashboardPage() {
           applyAdvancedFilters(data);
           setPage(0);
         }}
+      />
+
+      {/* Filter Summary Chips */}
+      <FilterSummaryChips
+        productIds={productIds}
+        locationIds={locationIds}
+        startDate={appliedStartDate}
+        endDate={appliedEndDate}
+        productsMap={productsMap}
+        locationsMap={locationsMap}
+        onRemoveProduct={handleRemoveProduct}
+        onRemoveLocation={handleRemoveLocation}
+        onClearDates={handleClearDate}
+        onClearAll={handleClearAll}
       />
 
       {/* Table */}
