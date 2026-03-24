@@ -1,20 +1,13 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import {
-  Box,
-  Button,
-  Card,
-  CardContent,
-  CircularProgress,
-  Grid,
-  Typography,
-} from '@mui/material';
+import { Box, CircularProgress, Grid, Typography } from '@mui/material';
 import { useAuth } from '../../../context/AuthContext';
 import { getMyDashboard } from '../../../services/dashboard.service';
+import MetricCard from '../../../components/dashboard/MetricCard';
 
 type PreviewFilter =
   | { type: 'adjustment'; filter: 'needsApproval' | 'readyToFinalize' | 'inProgress' }
-  | { type: 'movement'; filter: 'needsOriginApproval' | 'needsDestinationApproval' | 'incoming' | 'readyToFinalize' }
+  | { type: 'movement'; filter: 'originApproval' | 'destinationApproval' | 'incoming' | 'readyToFinalize' }
   | null;
 
 export default function DashboardPage() {
@@ -37,124 +30,95 @@ export default function DashboardPage() {
   const displayName = user?.email ?? user?.phone ?? 'there';
 
   return (
-    <Box p={3}>
+    <Box p={2}>
       {/* Header */}
       <Box mb={3}>
         <Typography variant="h5" fontWeight={600}>
           Welcome back, {displayName} 👋
         </Typography>
+        <Typography variant="h6" color="error" fontWeight={600} mt={0.5}>
+          {data?.summary.pendingActions ?? 0} actions require your attention
+        </Typography>
         <Typography variant="body2" color="text.secondary" mt={0.5}>
-          You have{' '}
-          <strong>{data?.summary.pendingActions ?? 0}</strong> pending action
-          {(data?.summary.pendingActions ?? 0) !== 1 ? 's' : ''} &nbsp;·&nbsp;{' '}
-          <strong>{data?.summary.incomingTransfers ?? 0}</strong> incoming transfer
+          {data?.summary.incomingTransfers ?? 0} incoming transfer
           {(data?.summary.incomingTransfers ?? 0) !== 1 ? 's' : ''}
         </Typography>
       </Box>
 
-      {/* Action Cards */}
-      <Grid container spacing={2}>
-        {/* Adjustments Card */}
-        <Grid item xs={12} md={6}>
-          <Card variant="outlined">
-            <CardContent>
-              <Typography variant="h6" fontWeight={600} mb={2}>
-                Adjustments
-              </Typography>
+      {/* Adjustments */}
+      <Typography variant="h6" mb={1}>
+        Adjustments
+      </Typography>
 
-              <Box display="flex" flexDirection="column" gap={1}>
-                <Button
-                  variant="text"
-                  sx={{ justifyContent: 'flex-start', textAlign: 'left' }}
-                  onClick={() => setPreview({ type: 'adjustment', filter: 'needsApproval' })}
-                >
-                  Needs Approval:{' '}
-                  <Box component="span" fontWeight={700} ml={0.5}>
-                    {data?.adjustments.needsApproval ?? 0}
-                  </Box>
-                </Button>
-
-                <Button
-                  variant="text"
-                  sx={{ justifyContent: 'flex-start', textAlign: 'left' }}
-                  onClick={() => setPreview({ type: 'adjustment', filter: 'readyToFinalize' })}
-                >
-                  Ready to Finalize:{' '}
-                  <Box component="span" fontWeight={700} ml={0.5}>
-                    {data?.adjustments.readyToFinalize ?? 0}
-                  </Box>
-                </Button>
-
-                <Button
-                  variant="text"
-                  sx={{ justifyContent: 'flex-start', textAlign: 'left' }}
-                  onClick={() => setPreview({ type: 'adjustment', filter: 'inProgress' })}
-                >
-                  In Progress:{' '}
-                  <Box component="span" fontWeight={700} ml={0.5}>
-                    {data?.adjustments.inProgress ?? 0}
-                  </Box>
-                </Button>
-              </Box>
-            </CardContent>
-          </Card>
+      <Grid container spacing={2} mb={3}>
+        <Grid item xs={12} sm={4}>
+          <MetricCard
+            label="Needs Approval"
+            value={data?.adjustments.needsApproval ?? 0}
+            color="error"
+            onClick={() => setPreview({ type: 'adjustment', filter: 'needsApproval' })}
+          />
         </Grid>
 
-        {/* Transfers Card */}
-        <Grid item xs={12} md={6}>
-          <Card variant="outlined">
-            <CardContent>
-              <Typography variant="h6" fontWeight={600} mb={2}>
-                Transfers
-              </Typography>
+        <Grid item xs={12} sm={4}>
+          <MetricCard
+            label="Ready to Finalize"
+            value={data?.adjustments.readyToFinalize ?? 0}
+            color="warning"
+            onClick={() => setPreview({ type: 'adjustment', filter: 'readyToFinalize' })}
+          />
+        </Grid>
 
-              <Box display="flex" flexDirection="column" gap={1}>
-                <Button
-                  variant="text"
-                  sx={{ justifyContent: 'flex-start', textAlign: 'left' }}
-                  onClick={() => setPreview({ type: 'movement', filter: 'needsOriginApproval' })}
-                >
-                  Origin Approval:{' '}
-                  <Box component="span" fontWeight={700} ml={0.5}>
-                    {data?.movements.needsOriginApproval ?? 0}
-                  </Box>
-                </Button>
+        <Grid item xs={12} sm={4}>
+          <MetricCard
+            label="In Progress"
+            value={data?.adjustments.inProgress ?? 0}
+            color="info"
+            onClick={() => setPreview({ type: 'adjustment', filter: 'inProgress' })}
+          />
+        </Grid>
+      </Grid>
 
-                <Button
-                  variant="text"
-                  sx={{ justifyContent: 'flex-start', textAlign: 'left' }}
-                  onClick={() => setPreview({ type: 'movement', filter: 'needsDestinationApproval' })}
-                >
-                  Destination Approval:{' '}
-                  <Box component="span" fontWeight={700} ml={0.5}>
-                    {data?.movements.needsDestinationApproval ?? 0}
-                  </Box>
-                </Button>
+      {/* Transfers */}
+      <Typography variant="h6" mb={1}>
+        Transfers
+      </Typography>
 
-                <Button
-                  variant="text"
-                  sx={{ justifyContent: 'flex-start', textAlign: 'left' }}
-                  onClick={() => setPreview({ type: 'movement', filter: 'incoming' })}
-                >
-                  Incoming:{' '}
-                  <Box component="span" fontWeight={700} ml={0.5}>
-                    {data?.movements.incoming ?? 0}
-                  </Box>
-                </Button>
+      <Grid container spacing={2}>
+        <Grid item xs={12} sm={3}>
+          <MetricCard
+            label="Origin Approval"
+            value={data?.movements.needsOriginApproval ?? 0}
+            color="error"
+            onClick={() => setPreview({ type: 'movement', filter: 'originApproval' })}
+          />
+        </Grid>
 
-                <Button
-                  variant="text"
-                  sx={{ justifyContent: 'flex-start', textAlign: 'left' }}
-                  onClick={() => setPreview({ type: 'movement', filter: 'readyToFinalize' })}
-                >
-                  Ready to Finalize:{' '}
-                  <Box component="span" fontWeight={700} ml={0.5}>
-                    {data?.movements.readyToFinalize ?? 0}
-                  </Box>
-                </Button>
-              </Box>
-            </CardContent>
-          </Card>
+        <Grid item xs={12} sm={3}>
+          <MetricCard
+            label="Destination Approval"
+            value={data?.movements.needsDestinationApproval ?? 0}
+            color="error"
+            onClick={() => setPreview({ type: 'movement', filter: 'destinationApproval' })}
+          />
+        </Grid>
+
+        <Grid item xs={12} sm={3}>
+          <MetricCard
+            label="Incoming"
+            value={data?.movements.incoming ?? 0}
+            color="info"
+            onClick={() => setPreview({ type: 'movement', filter: 'incoming' })}
+          />
+        </Grid>
+
+        <Grid item xs={12} sm={3}>
+          <MetricCard
+            label="Ready to Finalize"
+            value={data?.movements.readyToFinalize ?? 0}
+            color="warning"
+            onClick={() => setPreview({ type: 'movement', filter: 'readyToFinalize' })}
+          />
         </Grid>
       </Grid>
     </Box>
