@@ -1,6 +1,14 @@
 import { PrismaClient, Role, LedgerSourceType } from '@prisma/client';
 import bcrypt from 'bcrypt';
 
+const now = new Date();
+
+function daysAgo(n: number): Date {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d;
+}
+
 const prisma = new PrismaClient();
 
 // ---------------------------------------------------------------------------
@@ -286,6 +294,195 @@ async function main() {
   }
 
   // ------------------------------------------------------------------
+  // Dashboard test data: adjustment & transfer requests
+  // ------------------------------------------------------------------
+  console.log('');
+  console.log('Seeding dashboard test data...');
+
+  const laptopId    = allProducts.find((p) => p.sku === 'ELEC-001')!.id;
+  const operator1Id = userMap.get('operator1@example.com')!;
+  const manager1Id  = userMap.get('manager1@example.com')!;
+  const operator2Id = userMap.get('operator2@example.com')!;
+  const wh1Id = locationMap.get('WH-001')!;
+  const wh2Id = locationMap.get('WH-002')!;
+
+  // ADJ-001 — SUBMITTED (needs manager approval at WH-001)
+  if (!(await prisma.stockAdjustmentRequest.findUnique({ where: { requestNumber: 'ADJ-001' } }))) {
+    await prisma.stockAdjustmentRequest.create({
+      data: {
+        requestNumber: 'ADJ-001',
+        createdById:   operator1Id,
+        status:        'SUBMITTED',
+        createdAt:     daysAgo(1),
+        items: {
+          create: [{ productId: laptopId, locationId: wh1Id, qtyChange: 2 }],
+        },
+      },
+    });
+    console.log('  ADJ-001: SUBMITTED (awaiting manager approval)');
+  } else {
+    console.log('  ADJ-001: exists, skipped');
+  }
+
+  // ADJ-002 — APPROVED (ready for operator to finalize at WH-001)
+  if (!(await prisma.stockAdjustmentRequest.findUnique({ where: { requestNumber: 'ADJ-002' } }))) {
+    await prisma.stockAdjustmentRequest.create({
+      data: {
+        requestNumber: 'ADJ-002',
+        createdById:   operator1Id,
+        status:        'APPROVED',
+        createdAt:     daysAgo(2),
+        approvedById:  manager1Id,
+        approvedAt:    daysAgo(0),
+        items: {
+          create: [{ productId: laptopId, locationId: wh1Id, qtyChange: 2 }],
+        },
+      },
+    });
+    console.log('  ADJ-002: APPROVED (ready to finalize)');
+  } else {
+    console.log('  ADJ-002: exists, skipped');
+  }
+
+  // TRF-001 — SUBMITTED (needs origin manager approval, WH-001 → WH-002)
+  if (!(await prisma.stockTransferRequest.findUnique({ where: { requestNumber: 'TRF-001' } }))) {
+    await prisma.stockTransferRequest.create({
+      data: {
+        requestNumber:        'TRF-001',
+        createdById:          operator1Id,
+        status:               'SUBMITTED',
+        sourceLocationId:     wh1Id,
+        destinationLocationId: wh2Id,
+        createdAt:            daysAgo(3),
+        items: {
+          create: [{ productId: laptopId, qty: 2 }],
+        },
+      },
+    });
+    console.log('  TRF-001: SUBMITTED (awaiting origin approval)');
+  } else {
+    console.log('  TRF-001: exists, skipped');
+  }
+
+  // TRF-002 — ORIGIN_MANAGER_APPROVED (needs destination operator approval at WH-002)
+  if (!(await prisma.stockTransferRequest.findUnique({ where: { requestNumber: 'TRF-002' } }))) {
+    await prisma.stockTransferRequest.create({
+      data: {
+        requestNumber:        'TRF-002',
+        createdById:          operator1Id,
+        status:               'ORIGIN_MANAGER_APPROVED',
+        sourceLocationId:     wh1Id,
+        destinationLocationId: wh2Id,
+        createdAt:            daysAgo(2),
+        originApprovedById:   manager1Id,
+        originApprovedAt:     daysAgo(2),
+        items: {
+          create: [{ productId: laptopId, qty: 2 }],
+        },
+      },
+    });
+    console.log('  TRF-002: ORIGIN_MANAGER_APPROVED (awaiting destination approval)');
+  } else {
+    console.log('  TRF-002: exists, skipped');
+  }
+
+  // TRF-003 — READY_TO_FINALIZE (both sides approved, WH-001 → WH-002)
+  if (!(await prisma.stockTransferRequest.findUnique({ where: { requestNumber: 'TRF-003' } }))) {
+    await prisma.stockTransferRequest.create({
+      data: {
+        requestNumber:           'TRF-003',
+        createdById:             operator1Id,
+        status:                  'READY_TO_FINALIZE',
+        sourceLocationId:        wh1Id,
+        destinationLocationId:   wh2Id,
+        createdAt:               daysAgo(1),
+        originApprovedById:      manager1Id,
+        originApprovedAt:        daysAgo(1),
+        destinationApprovedById: operator2Id,
+        destinationApprovedAt:   daysAgo(0),
+        items: {
+          create: [{ productId: laptopId, qty: 2 }],
+        },
+      },
+    });
+    console.log('  TRF-003: READY_TO_FINALIZE');
+  } else {
+    console.log('  TRF-003: exists, skipped');
+  }
+
+  // TRF-004 — FINALIZED (stock & ledger updated, WH-001 → WH-002)
+  if (!(await prisma.stockTransferRequest.findUnique({ where: { requestNumber: 'TRF-004' } }))) {
+    await prisma.$transaction(async (tx) => {
+      const trf = await tx.stockTransferRequest.create({
+        data: {
+          requestNumber:           'TRF-004',
+          createdById:             operator1Id,
+          status:                  'FINALIZED',
+          sourceLocationId:        wh1Id,
+          destinationLocationId:   wh2Id,
+          createdAt:               daysAgo(0),
+          originApprovedById:      manager1Id,
+          originApprovedAt:        daysAgo(0),
+          destinationApprovedById: operator2Id,
+          destinationApprovedAt:   daysAgo(0),
+          finalizedAt:             now,
+          items: {
+            create: [{ productId: laptopId, qty: 2 }],
+          },
+        },
+      });
+
+      await tx.stockBalance.updateMany({
+        where: { productId: laptopId, locationId: wh1Id },
+        data:  { onHandQty: { decrement: 2 } },
+      });
+
+      await tx.stockBalance.updateMany({
+        where: { productId: laptopId, locationId: wh2Id },
+        data:  { onHandQty: { increment: 2 } },
+      });
+
+      const balWh1 = await tx.stockBalance.findUnique({
+        where: { productId_locationId: { productId: laptopId, locationId: wh1Id } },
+      });
+      const balWh2 = await tx.stockBalance.findUnique({
+        where: { productId_locationId: { productId: laptopId, locationId: wh2Id } },
+      });
+
+      await tx.stockLedger.create({
+        data: {
+          productId:    laptopId,
+          locationId:   wh1Id,
+          changeQty:    -2,
+          balanceAfter: balWh1!.onHandQty,
+          sourceType:   LedgerSourceType.MOVEMENT_OUT,
+          sourceId:     trf.id,
+        },
+      });
+
+      await tx.stockLedger.create({
+        data: {
+          productId:    laptopId,
+          locationId:   wh2Id,
+          changeQty:    2,
+          balanceAfter: balWh2!.onHandQty,
+          sourceType:   LedgerSourceType.MOVEMENT_IN,
+          sourceId:     trf.id,
+        },
+      });
+    });
+    console.log('  TRF-004: FINALIZED (stock updated, ledger written)');
+  } else {
+    console.log('  TRF-004: exists, skipped');
+  }
+
+  console.log('');
+  console.log('Seeded dashboard test data:');
+  console.log('- 2 adjustments (ADJ-001: SUBMITTED, ADJ-002: APPROVED)');
+  console.log('- 4 transfers  (TRF-001: SUBMITTED, TRF-002: ORIGIN_MANAGER_APPROVED,');
+  console.log('                TRF-003: READY_TO_FINALIZE, TRF-004: FINALIZED)');
+
+  // ------------------------------------------------------------------
   // Verification
   // ------------------------------------------------------------------
   const productCount  = await prisma.product.count();
@@ -338,6 +535,11 @@ async function main() {
   console.log('    UOMs: PCS, BOX, KG, L');
   console.log('    Products: 9 items (Laptop, Keyboard, Mouse, Printer Paper, Stapler,');
   console.log('              Whiteboard Marker, Office Chair, Desk, Filing Cabinet)');
+  console.log('');
+  console.log('  Dashboard test data (login as each user to verify):');
+  console.log('    manager1  → Adjustments needsApproval:1  |  Transfers needsOriginApproval:1');
+  console.log('    operator1 → Adjustments readyToFinalize:1');
+  console.log('    operator2 → Transfers needsDestApproval:1  readyToFinalize:1  incoming:2');
 }
 
 main()
