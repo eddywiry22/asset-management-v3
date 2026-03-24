@@ -1,6 +1,5 @@
-import { PrismaClient, SavedFilter } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import { SavedFilter } from '@prisma/client';
+import prisma from '../../../config/database';
 
 export class SavedFiltersRepository {
   async findAllByUser(userId: string, module: string): Promise<SavedFilter[]> {
@@ -16,7 +15,12 @@ export class SavedFiltersRepository {
     filterJson: Record<string, unknown>;
     createdBy: string;
   }): Promise<SavedFilter> {
-    return prisma.savedFilter.create({ data });
+    try {
+      return await prisma.savedFilter.create({ data });
+    } catch (error) {
+      console.error('Prisma error creating saved filter:', error);
+      throw new Error('Failed to create saved filter');
+    }
   }
 
   async findByIdAndUser(id: string, userId: string): Promise<SavedFilter | null> {

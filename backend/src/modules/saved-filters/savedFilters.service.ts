@@ -9,11 +9,17 @@ export class SavedFiltersService {
   }
 
   async create(dto: CreateSavedFilterDto, userId: string): Promise<SavedFilter> {
+    const resolvedUserId = userId;
+    if (!resolvedUserId) {
+      throw new Error('User ID not found in request context');
+    }
+    const filterJson = dto.filterJson ?? {};
+    console.log('Creating saved filter:', { name: dto.name, module: dto.module, filterJson, userId: resolvedUserId });
     return savedFiltersRepository.create({
       name:       dto.name,
       module:     dto.module,
-      filterJson: dto.filterJson,
-      createdBy:  userId,
+      filterJson,
+      createdBy:  resolvedUserId,
     });
   }
 

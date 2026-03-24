@@ -19,9 +19,13 @@ export class SavedFiltersController {
 
   async create(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-      const data = await savedFiltersService.create(req.body, req.user.id);
+      console.log('Saved filter request body:', req.body);
+      console.log('Authenticated user:', req.user);
+      const userId = req.user?.id || (req.user as unknown as Record<string, string>)?.userId || (req.user as unknown as Record<string, string>)?.sub;
+      const data = await savedFiltersService.create(req.body, userId);
       res.status(201).json({ success: true, data });
     } catch (err) {
+      console.error('Saved filter error:', err);
       next(err);
     }
   }
