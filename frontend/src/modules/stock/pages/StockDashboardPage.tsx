@@ -204,8 +204,8 @@ export default function StockDashboardPage() {
   }
 
   function handleClearDate() {
-    setStartDate(null);
-    setEndDate(null);
+    setStartDate(today);
+    setEndDate(today);
     setAppliedStartDate(undefined);
     setAppliedEndDate(undefined);
     setPage(0);
@@ -306,9 +306,17 @@ export default function StockDashboardPage() {
           <Button variant="outlined" onClick={applyDateFilters} disabled={isDateRangeInvalid}>
             Apply Dates
           </Button>
-          <Button variant="text" onClick={handleClearDate}>
-            Clear Dates
-          </Button>
+          <Tooltip title="Reset to today's date">
+            <span>
+              <Button
+                variant="text"
+                onClick={handleClearDate}
+                disabled={startDate === today && endDate === today}
+              >
+                Reset Dates
+              </Button>
+            </span>
+          </Tooltip>
         </Box>
       </Paper>
 
