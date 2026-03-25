@@ -1,235 +1,192 @@
 # Asset Management System
 
-An internal inventory management system for tracking products, stock levels, adjustments, and movements across multiple warehouse locations.
+An internal inventory management system for tracking products, stock levels, and movements across multiple warehouse locations.
+
+---
+
+## Key Features
+
+- **Multi-location inventory** — stock is tracked independently per location
+- **Product-location activation** — products must be registered at a location before stock operations can reference them there
+- **Immutable stock ledger** — every stock change is recorded as a permanent ledger entry; balances are never edited directly
+- **Adjustment workflows** — stock corrections go through a multi-step approval lifecycle (Draft → Pending → Approved → Finalized)
+- **Transfer workflows** — inter-location transfers with hard reservations to prevent over-commitment
+- **Advanced filtering + saved presets** — combinable multi-value filters with per-user saved presets across modules
+- **Dashboard with My Actions** — personal action queue surfacing items awaiting your attention
+
+---
+
+## Core Concepts
+
+| Concept | Description |
+|---|---|
+| **Product Registration** | A product must be explicitly activated at a location before it can hold stock there |
+| **Stock Balance** | The current on-hand quantity per product per location, derived from the ledger |
+| **Ledger** | Immutable log of every stock movement — never updated or deleted |
+| **Adjustment** | A request to correct stock (add or remove quantity), requiring approval before it affects balances |
+| **Transfer** | A movement of stock between locations; outbound quantity is reserved on origin-manager approval |
+| **Reserved Quantity** | Quantity set aside for an approved transfer; reduces available stock without yet removing it |
+
+> For deeper explanations see [`docs/system-overview.md`](docs/system-overview.md) and the module docs in [`docs/modules/`](docs/modules/).
+
+---
 
 ## Tech Stack
 
-| Layer    | Technology                                     |
-|----------|------------------------------------------------|
-| Backend  | Node.js, Express.js, TypeScript, Prisma ORM    |
-| Frontend | React, TypeScript, Vite, Material UI           |
-| Database | MySQL 8.0                                      |
-| Runtime  | Docker, Docker Compose                         |
-
----
-
-## Getting Started
-
-### Prerequisites
-
-- [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/) installed.
-
-### 1. Start all services
-
-```bash
-docker compose up --build
-```
-
-This starts:
-- **MySQL** on port `3306`
-- **Backend** on port `3000`
-- **Frontend** on port `5173`
-
-Migration runs automatically on backend startup. To seed demo data:
-
-```bash
-docker compose exec backend npm run prisma:seed
-```
-
----
-
-## Health Check
-
-Verify the backend is running:
-
-```bash
-curl http://localhost:3000/health
-```
-
-Expected response:
-
-```json
-{ "status": "OK", "timestamp": "..." }
-```
-
-Frontend is accessible at: [http://localhost:5173](http://localhost:5173)
-
----
-
-## Test Credentials
-
-All accounts use password: **`password123`**
-
-### Admin
-
-| Email | Password | Notes |
-|---|---|---|
-| `admin@example.com` | `password123` | Global admin (no location role) |
-
-### Managers
-
-| Email | Password | Location |
-|---|---|---|
-| `manager1@example.com` | `password123` | MANAGER at WH-001 |
-| `manager2@example.com` | `password123` | MANAGER at WH-002 |
-| `manager3@example.com` | `password123` | MANAGER at WH-003 |
-
-### Operators
-
-| Email | Password | Location |
-|---|---|---|
-| `operator1@example.com` | `password123` | OPERATOR at WH-001 |
-| `operator2@example.com` | `password123` | OPERATOR at WH-002 |
-| `operator3@example.com` | `password123` | OPERATOR at WH-003 |
-
-### Demo Locations
-
-| Code | Name |
+| Layer | Technology |
 |---|---|
-| WH-001 | Main Warehouse (Jakarta) |
-| WH-002 | Secondary Warehouse (Surabaya) |
-| WH-003 | Northern Warehouse (Medan) |
-
----
-
-## NPM Scripts
-
-### Backend (`/backend`)
-
-| Script             | Description                          |
-|--------------------|--------------------------------------|
-| `npm run dev`      | Start development server (ts-node-dev) |
-| `npm run build`    | Compile TypeScript to `/dist`        |
-| `npm start`        | Run compiled server                  |
-| `npm run prisma:migrate` | Run Prisma migrations          |
-| `npm run prisma:generate` | Regenerate Prisma client      |
-| `npm run prisma:seed` | Execute seed script               |
-| `npm test`         | Run Jest tests                       |
-
-### Frontend (`/frontend`)
-
-| Script          | Description                       |
-|-----------------|-----------------------------------|
-| `npm run dev`   | Start Vite dev server             |
-| `npm run build` | Build for production              |
-| `npm run preview` | Preview production build        |
+| Backend | Node.js, Express, TypeScript, Prisma ORM |
+| Frontend | React, TypeScript, Vite, Material UI |
+| Database | MySQL 8.0 |
+| Runtime | Docker, Docker Compose |
 
 ---
 
 ## Project Structure
 
 ```
-/asset-management-v3
+asset-management-v3/
 ├── backend/
 │   ├── prisma/
-│   │   ├── schema.prisma       # Prisma schema (source of truth)
-│   │   ├── seed.ts             # Seed script (idempotent)
-│   │   └── migrations/         # Applied migrations
-│   ├── src/
-│   │   ├── app.ts              # Express app setup
-│   │   ├── server.ts           # Server entry point
-│   │   ├── config/             # env, database config
-│   │   ├── middlewares/        # auth, error, request-logger middleware
-│   │   ├── modules/            # Feature modules (auth, users, locations, ...)
-│   │   │   ├── auth/           # controller, service, routes, validator
-│   │   │   ├── users/          # service, repository
-│   │   │   └── locations/      # service, repository
-│   │   ├── types/              # Shared TypeScript types
-│   │   └── utils/              # logger, errors, validation helpers
-│   ├── tests/                  # Jest tests
-│   ├── Dockerfile
-│   └── package.json
+│   │   ├── schema.prisma        # Source of truth for the data model
+│   │   ├── seed.ts              # Idempotent seed script
+│   │   └── migrations/
+│   └── src/
+│       ├── app.ts               # Express app + route registration
+│       ├── modules/             # Feature modules (auth, products, stock, …)
+│       │   └── <module>/        # controller, service, repository, routes, validator
+│       ├── middlewares/         # auth, error handler, request logger
+│       └── utils/               # errors, validation, date helpers
 ├── frontend/
-│   ├── src/
-│   │   ├── main.tsx            # React entry point
-│   │   ├── App.tsx             # Root app with providers
-│   │   ├── api/client.ts       # Axios API client (auto-logout on 401)
-│   │   ├── context/            # AuthContext
-│   │   ├── routes/router.tsx   # React Router config with ProtectedRoute
-│   │   ├── theme/theme.ts      # MUI theme
-│   │   ├── components/layout/  # AppLayout, Sidebar, Topbar, ProtectedRoute
-│   │   ├── modules/auth/       # LoginPage
-│   │   └── services/           # auth.service.ts
-│   ├── Dockerfile
-│   └── package.json
-├── doc/                        # Project documentation
-├── docker-compose.yml
-└── README.md
+│   └── src/
+│       ├── modules/             # Page-level feature modules
+│       ├── components/          # Shared UI components (FilterModal, Chips, …)
+│       ├── hooks/               # Reusable hooks (useAdvancedFilters, …)
+│       └── services/            # API client wrappers
+├── docs/                        # Project documentation (see below)
+└── docker-compose.yml
 ```
 
 ---
 
-## Running Migrations and Seed (Local Development)
+## Setup
+
+### Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/)
+
+### Start all services
 
 ```bash
-cd backend
-
-# Apply migrations (after schema.prisma changes)
-npx prisma migrate dev --name <description>
-
-# Or in Docker:
-docker compose exec backend npx prisma migrate dev --name <description>
-
-# Regenerate Prisma client
-npx prisma generate
-
-# Run seed (idempotent — safe to run multiple times)
-npm run prisma:seed
-
-# Reset database (drops + re-applies migrations + seeds)
-npx prisma migrate reset
+docker compose up --build
 ```
+
+This starts MySQL on `3306`, the backend on `3000`, and the frontend on `5173`. Database migrations run automatically on backend startup.
+
+### Seed demo data
+
+```bash
+docker compose exec backend npm run prisma:seed
+```
+
+The seed is idempotent — safe to run multiple times.
+
+### Verify
+
+```bash
+curl http://localhost:3000/health
+# → { "status": "OK", "timestamp": "..." }
+```
+
+Frontend: [http://localhost:5173](http://localhost:5173)
+
+---
+
+## Running in Development
+
+All services run with live reload via Docker volumes. No local Node.js installation is required.
+
+To run a service outside Docker:
+
+```bash
+# Backend
+cd backend
+npm install
+npm run dev        # ts-node-dev, restarts on file changes
+
+# Frontend
+cd frontend
+npm install
+npm run dev        # Vite HMR
+```
+
+### Useful backend scripts
+
+| Script | Description |
+|---|---|
+| `npm run dev` | Start dev server with live reload |
+| `npm run build` | Compile TypeScript |
+| `npm test` | Run Jest tests |
+| `npm run prisma:migrate` | Apply pending migrations |
+| `npm run prisma:seed` | Seed the database |
+
+---
+
+## Test Credentials
+
+All demo accounts use the password **`password123`**.
+
+| Role | Email | Location |
+|---|---|---|
+| Admin | `admin@example.com` | All locations |
+| Manager | `manager1@example.com` | WH-001 — Main Warehouse (Jakarta) |
+| Manager | `manager2@example.com` | WH-002 — Secondary Warehouse (Surabaya) |
+| Manager | `manager3@example.com` | WH-003 — Northern Warehouse (Medan) |
+| Operator | `operator1@example.com` | WH-001 |
+| Operator | `operator2@example.com` | WH-002 |
+| Operator | `operator3@example.com` | WH-003 |
 
 ---
 
 ## Environment Variables
 
-| Variable                | Description                        | Default (Docker)                                  |
-|-------------------------|------------------------------------|---------------------------------------------------|
-| `DATABASE_URL`          | MySQL connection string            | `mysql://asset_user:asset_password@mysql:3306/asset_db` |
-| `JWT_SECRET`            | JWT access token signing secret    | `dev_secret_change_in_production`                 |
-| `JWT_REFRESH_SECRET`    | JWT refresh token signing secret   | `dev_refresh_secret_change_in_production`         |
-| `JWT_EXPIRES_IN`        | Access token TTL                   | `15m`                                             |
-| `JWT_REFRESH_EXPIRES_IN`| Refresh token TTL                  | `7d`                                              |
-| `PORT`                  | Backend server port                | `3000`                                            |
-| `NODE_ENV`              | Environment mode                   | `development`                                     |
+Defaults are set in `docker-compose.yml` and are suitable for local development.
+
+| Variable | Description | Default |
+|---|---|---|
+| `DATABASE_URL` | MySQL connection string | `mysql://asset_user:asset_password@mysql:3306/asset_db` |
+| `JWT_SECRET` | Access token signing secret | `dev_secret_change_in_production` |
+| `JWT_REFRESH_SECRET` | Refresh token signing secret | `dev_refresh_secret_change_in_production` |
+| `JWT_EXPIRES_IN` | Access token TTL | `15m` |
+| `JWT_REFRESH_EXPIRES_IN` | Refresh token TTL | `7d` |
+| `PORT` | Backend port | `3000` |
+| `NODE_ENV` | Environment mode | `development` |
+
+> Change `JWT_SECRET` and `JWT_REFRESH_SECRET` before deploying to any shared environment.
 
 ---
 
-## Stock Reservation Rules
+## Documentation
 
-| Module / Action | Reservation Type | When Reservation is Created | Reservation Behavior | Stock Enforcement |
-|---|---|---|---|---|
-| **Transfer Request (Outbound)** | Hard reservation | On **Origin Manager Approval** | Reserved quantity is deducted from available stock and displayed in stock dashboard; prevents other transfers from over-committing | Approval **blocked** if requested qty exceeds available stock; cannot finalize without active reservation |
-| **Transfer Request (Inbound)** | Consumed | On **Finalization** | Reserved qty is removed and added to destination stock | Stock increases at destination, reservations cleared |
-| **Transfer Reject / Cancel** | Release reservation | On **Reject** (from ORIGIN_MANAGER_APPROVED) or **Cancel** (from ORIGIN_MANAGER_APPROVED / READY_TO_FINALIZE) | Reserved qty is released and available stock updated | Stock remains unchanged; prevents stale reservations |
-| **Adjustment Request (Outbound)** | None | Approval proceeds without creating reservation | Stock is checked at **approval** and again at **finalization** to ensure sufficient quantity | Approval **blocked** if available stock is insufficient; finalization will also fail if stock changed since approval |
-| **Adjustment Request (Inbound / Positive Qty)** | None | Never | No reservation created | Stock is updated on finalization |
-| **Adjustment Reject / Cancel** | N/A | N/A | N/A | Stock remains unchanged |
-| **Stock Dashboard** | N/A | N/A | Displays `reservedQty` only for active transfer reservations | Outbound adjustment reservations not shown; available = onHand − reservedQty |
-
----
-
-
-
-- **Stock integrity is the highest priority.** Stock may only change during FINALIZATION of requests.
-- All stock operations must run inside database transactions.
-- Ledger entries are immutable — never updated or deleted.
-- Dependency flow: Controller → Service → Repository → Database (no skipping layers).
-- See `/doc/ai_system_architecture.md` for full architectural guardrails.
-
----
-
-## Development Phases
-
-| Phase | Scope |
+| Document | Description |
 |---|---|
-| 1 | Database schema + Prisma models |
-| **2 (current)** | **Authentication, Users, Locations, Roles** |
-| 3 | Master data (Goods, Vendors, Categories, UOM) |
-| 4 | Stock balances + Ledger + Dashboard |
-| 5 | Stock Adjustment module |
-| 6 | Stock Movement module + Reservations |
-| 7 | Audit log + Admin panels |
+| [`docs/system-overview.md`](docs/system-overview.md) | High-level architecture and system design |
+| [`docs/api/overview.md`](docs/api/overview.md) | API structure, auth, response format, filtering patterns |
+| [`docs/ux/filters-and-presets.md`](docs/ux/filters-and-presets.md) | Filter system design — frontend and backend |
+| [`docs/modules/stock.md`](docs/modules/stock.md) | Stock balance and ledger module |
+| [`docs/modules/adjustments.md`](docs/modules/adjustments.md) | Stock adjustment workflow |
+| [`docs/modules/movements.md`](docs/modules/movements.md) | Stock movement and transfer workflow |
+| [`docs/modules/product.md`](docs/modules/product.md) | Product master data |
+| [`docs/modules/product-registration.md`](docs/modules/product-registration.md) | Product-location activation |
+| [`docs/modules/dashboard.md`](docs/modules/dashboard.md) | Dashboard and My Actions |
+| [`docs/architecture/backend.md`](docs/architecture/backend.md) | Backend architecture and conventions |
+| [`docs/architecture/database.md`](docs/architecture/database.md) | Database schema and migration rules |
 
-> Always follow the migration rules in `/doc/database_migration_rules.md` before modifying the database schema.
+---
+
+## Philosophy
+
+- **Stock integrity is the highest priority.** Balances only change during finalization of approved requests — never as a side effect of any other operation.
+- **The ledger is the source of truth.** Entries are immutable; balances are always derivable from it.
+- **Workflows enforce correctness.** Adjustments and transfers cannot skip approval steps, regardless of who initiates them.
+- **Layered architecture.** Every request flows Controller → Service → Repository → Database. No layer is skipped.
