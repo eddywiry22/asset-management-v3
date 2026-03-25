@@ -168,19 +168,52 @@ Defaults are set in `docker-compose.yml` and are suitable for local development.
 
 ## Documentation
 
+### System
+
 | Document | Description |
 |---|---|
 | [`docs/system-overview.md`](docs/system-overview.md) | High-level architecture and system design |
 | [`docs/api/overview.md`](docs/api/overview.md) | API structure, auth, response format, filtering patterns |
 | [`docs/ux/filters-and-presets.md`](docs/ux/filters-and-presets.md) | Filter system design — frontend and backend |
+
+### Modules
+
+| Document | Description |
+|---|---|
 | [`docs/modules/stock.md`](docs/modules/stock.md) | Stock balance and ledger module |
 | [`docs/modules/adjustments.md`](docs/modules/adjustments.md) | Stock adjustment workflow |
 | [`docs/modules/movements.md`](docs/modules/movements.md) | Stock movement and transfer workflow |
 | [`docs/modules/product.md`](docs/modules/product.md) | Product master data |
 | [`docs/modules/product-registration.md`](docs/modules/product-registration.md) | Product-location activation |
 | [`docs/modules/dashboard.md`](docs/modules/dashboard.md) | Dashboard and My Actions |
+
+### Architecture
+
+| Document | Description |
+|---|---|
 | [`docs/architecture/backend.md`](docs/architecture/backend.md) | Backend architecture and conventions |
 | [`docs/architecture/database.md`](docs/architecture/database.md) | Database schema and migration rules |
+
+### Engineering
+
+| Document | Description |
+|---|---|
+| [`docs/engineering/stock-consistency.md`](docs/engineering/stock-consistency.md) | Integrity rules governing stock state — required reading before modifying stock-adjacent code |
+| [`docs/engineering/request-lifecycle.md`](docs/engineering/request-lifecycle.md) | Internal lifecycle of adjustment and transfer requests, including the critical finalization-only invariant |
+| [`docs/engineering/permission-matrix.md`](docs/engineering/permission-matrix.md) | Complete authorization model — every role, location scope, and permitted action |
+
+### Diagrams
+
+| Document | Description |
+|---|---|
+| [`docs/diagrams/adjustment-sequence.md`](docs/diagrams/adjustment-sequence.md) | Step-by-step sequence of a stock adjustment from creation through finalization |
+| [`docs/diagrams/movement-sequence.md`](docs/diagrams/movement-sequence.md) | Step-by-step sequence of a stock transfer, including reservation timing and actor responsibilities |
+
+### Testing
+
+| Document | Description |
+|---|---|
+| [`docs/testing/strategy.md`](docs/testing/strategy.md) | Testing strategy covering stock correctness, workflow scenarios, permission boundaries, seed data, and regression areas |
 
 ---
 
