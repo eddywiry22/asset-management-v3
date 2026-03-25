@@ -1,0 +1,256 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(uuid())
+  email         String?  @unique
+  phone         String?  @unique
+  passwordHash  String
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  locationRoles UserLocationRole[]
+  adjustments   Adjustment[]       @relation("AdjustmentCreator")
+  movements     Movement[]         @relation("MovementCreator")
+  auditLogs     AuditLog[]         @relation("AuditPerformer")
+}
+
+model Location {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  name      String
+  address   String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userRoles      UserLocationRole[]
+  stockBalances  StockBalance[]
+  stockLedgers   StockLedger[]
+  adjustments    Adjustment[]
+  originMoves    Movement[] @relation("OriginLocation")
+  destMoves      Movement[] @relation("DestinationLocation")
+}
+
+model UserLocationRole {
+  id         String   @id @default(uuid())
+  userId     String
+  locationId String
+  role       Role
+
+  user     User     @relation(fields: [userId], references: [id])
+  location Location @relation(fields: [locationId], references: [id])
+
+  @@unique([userId, locationId])
+}
+
+model Category {
+  id        String   @id @default(uuid())
+  name      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  goods Goods[]
+}
+
+model Vendor {
+  id          String   @id @default(uuid())
+  name        String
+  contactInfo String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  goods Goods[]
+}
+
+model Uom {
+  id    String @id @default(uuid())
+  code  String @unique
+  name  String
+
+  goods Goods[]
+}
+
+model Goods {
+  id         String   @id @default(uuid())
+  sku        String   @unique
+  name       String
+  categoryId String
+  vendorId   String
+  uomId      String
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  category Category @relation(fields: [categoryId], references: [id])
+  vendor   Vendor   @relation(fields: [vendorId], references: [id])
+  uom      Uom      @relation(fields: [uomId], references: [id])
+
+  stockBalances  StockBalance[]
+  stockLedgers   StockLedger[]
+  adjustmentItems AdjustmentItem[]
+  movementItems   MovementItem[]
+}
+
+model StockBalance {
+  id          String   @id @default(uuid())
+  productId   String
+  locationId  String
+  onHandQty   Decimal  @default(0)
+  reservedQty Decimal  @default(0)
+  updatedAt   DateTime @updatedAt
+
+  product  Goods    @relation(fields: [productId], references: [id])
+  location Location @relation(fields: [locationId], references: [id])
+
+  @@unique([productId, locationId])
+}
+
+model StockLedger {
+  id           String   @id @default(uuid())
+  productId    String
+  locationId   String
+  changeQty    Decimal
+  balanceAfter Decimal
+  sourceType   LedgerSourceType
+  sourceId     String
+  createdAt    DateTime @default(now())
+
+  product  Goods    @relation(fields: [productId], references: [id])
+  location Location @relation(fields: [locationId], references: [id])
+
+  @@index([productId, locationId, createdAt])
+}
+
+model Adjustment {
+  id           String   @id @default(uuid())
+  requestNumber String  @unique
+  locationId   String
+  createdById  String
+  status       AdjustmentStatus
+  createdAt    DateTime @default(now())
+
+  approvedById  String?
+  approvedAt    DateTime?
+
+  finalizedById String?
+  finalizedAt   DateTime?
+
+  cancelledById String?
+  cancelReason  String?
+
+  location  Location @relation(fields: [locationId], references: [id])
+  createdBy User     @relation("AdjustmentCreator", fields: [createdById], references: [id])
+
+  items AdjustmentItem[]
+}
+
+model AdjustmentItem {
+  id           String  @id @default(uuid())
+  adjustmentId String
+  productId    String
+  qtyChange    Decimal
+
+  adjustment Adjustment @relation(fields: [adjustmentId], references: [id])
+  product    Goods      @relation(fields: [productId], references: [id])
+
+  @@unique([adjustmentId, productId])
+}
+
+model Movement {
+  id                    String   @id @default(uuid())
+  requestNumber         String   @unique
+  originLocationId      String
+  destinationLocationId String
+  createdById           String
+  status                MovementStatus
+  createdAt             DateTime @default(now())
+
+  originManagerApprovedById       String?
+  destinationOperatorApprovedById String?
+
+  finalizedById String?
+
+  cancelReason String?
+
+  originLocation      Location @relation("OriginLocation", fields: [originLocationId], references: [id])
+  destinationLocation Location @relation("DestinationLocation", fields: [destinationLocationId], references: [id])
+  createdBy           User     @relation("MovementCreator", fields: [createdById], references: [id])
+
+  items MovementItem[]
+}
+
+model MovementItem {
+  id         String  @id @default(uuid())
+  movementId String
+  productId  String
+  qty        Decimal
+
+  movement Movement @relation(fields: [movementId], references: [id])
+  product  Goods    @relation(fields: [productId], references: [id])
+
+  @@unique([movementId, productId])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  entityType  String
+  entityId    String
+  action      AuditAction
+  beforeValue Json?
+  afterValue  Json?
+  performedById String
+  timestamp   DateTime @default(now())
+
+  performer User @relation("AuditPerformer", fields: [performedById], references: [id])
+
+  @@index([entityType, entityId])
+}
+
+enum Role {
+  OPERATOR
+  MANAGER
+}
+
+enum AdjustmentStatus {
+  DRAFT
+  SUBMITTED
+  MANAGER_APPROVED
+  READY_TO_FINALIZE
+  FINALIZED
+  CANCELLED
+}
+
+enum MovementStatus {
+  DRAFT
+  SUBMITTED
+  ORIGIN_MANAGER_APPROVED
+  DESTINATION_OPERATOR_APPROVED
+  READY_TO_FINALIZE
+  FINALIZED
+  CANCELLED
+}
+
+enum LedgerSourceType {
+  ADJUSTMENT
+  MOVEMENT_IN
+  MOVEMENT_OUT
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  STATUS_CHANGE
+  LOGIN
+  LOGOUT
+}
