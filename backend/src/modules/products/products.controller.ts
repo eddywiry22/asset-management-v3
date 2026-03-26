@@ -3,6 +3,7 @@ import ExcelJS from 'exceljs';
 import { productsService } from './products.service';
 import { productQuerySchema } from './products.validator';
 import { AuthenticatedRequest } from '../../types/request.types';
+import { ValidationError } from '../../utils/errors';
 
 function toArray(value?: string | string[]): string[] | undefined {
   if (!value) return undefined;
@@ -44,6 +45,22 @@ export class ProductsController {
     try {
       const data = await productsService.update(req.params.id, req.body, req.user.id);
       res.status(200).json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async uploadBulkProducts(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.file) {
+        throw new ValidationError('No file uploaded');
+      }
+      const ext = req.file.originalname.split('.').pop()?.toLowerCase();
+      if (ext !== 'xlsx') {
+        throw new ValidationError('File must be an .xlsx file');
+      }
+      const rows = await productsService.parseBulkUpload(req.file.buffer);
+      res.status(200).json({ success: true, data: { rows } });
     } catch (err) {
       next(err);
     }
