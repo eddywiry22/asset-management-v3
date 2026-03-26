@@ -59,4 +59,18 @@ export const productsService = {
     const res = await apiClient.put<{ success: boolean; data: Product }>(`/admin/products/${id}`, input);
     return res.data.data;
   },
+
+  async downloadBulkTemplate(): Promise<void> {
+    const res = await apiClient.get('/admin/products/bulk-template', {
+      responseType: 'blob',
+    });
+    const url = window.URL.createObjectURL(new Blob([res.data]));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'bulk-product-template.xlsx';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  },
 };

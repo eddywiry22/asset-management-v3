@@ -4,13 +4,14 @@ import {
   FormControl, IconButton, InputLabel, MenuItem, Paper,
   Select, Snackbar, Stack, Table, TableBody, TableCell,
   TableContainer, TableHead, TablePagination, TableRow, TextField,
-  Typography, CircularProgress, Alert,
+  Typography, CircularProgress, Alert, Tooltip,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
 import DeleteIcon from '@mui/icons-material/Delete';
+import DownloadIcon from '@mui/icons-material/Download';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -79,6 +80,7 @@ export default function ProductsPage() {
   const [savedFilterAnchor, setSavedFilterAnchor] = useState('');
   const [apiError, setApiError]                   = useState('');
   const [snackMsg, setSnackMsg]                   = useState('');
+  const [templateLoading, setTemplateLoading]     = useState(false);
 
   // ---------------------------------------------------------------------------
   // Reference data
@@ -284,6 +286,21 @@ export default function ProductsPage() {
   };
 
   // ---------------------------------------------------------------------------
+  // Bulk template download
+  // ---------------------------------------------------------------------------
+  const handleDownloadTemplate = async () => {
+    setTemplateLoading(true);
+    try {
+      await productsService.downloadBulkTemplate();
+    } catch (err) {
+      console.error(err);
+      setSnackMsg('Failed to download template');
+    } finally {
+      setTemplateLoading(false);
+    }
+  };
+
+  // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
   return (
@@ -291,13 +308,27 @@ export default function ProductsPage() {
       {/* Header */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
         <Typography variant="h5">Products</Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => { setCreateOpen(true); setApiError(''); }}
-        >
-          Add Product
-        </Button>
+        <Stack direction="row" spacing={1}>
+          <Tooltip title="Download Excel template for bulk product upload">
+            <span>
+              <Button
+                variant="outlined"
+                startIcon={templateLoading ? <CircularProgress size={16} /> : <DownloadIcon />}
+                onClick={handleDownloadTemplate}
+                disabled={templateLoading}
+              >
+                {templateLoading ? 'Downloading…' : 'Download Template'}
+              </Button>
+            </span>
+          </Tooltip>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => { setCreateOpen(true); setApiError(''); }}
+          >
+            Add Product
+          </Button>
+        </Stack>
       </Box>
 
       {/* Filter Bar */}
