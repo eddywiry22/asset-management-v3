@@ -60,7 +60,8 @@ export class ProductsController {
         throw new ValidationError('File must be an .xlsx file');
       }
       const rows = await productsService.parseBulkUpload(req.file.buffer);
-      res.status(200).json({ success: true, data: { rows } });
+      const result = await productsService.validateBulkRows(rows);
+      res.status(200).json({ success: true, data: result });
     } catch (err) {
       next(err);
     }
