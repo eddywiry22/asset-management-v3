@@ -1,15 +1,9 @@
-import prisma from "../../config/database";
-import { LedgerSourceType } from "@prisma/client";
-import {
-  stockBalanceRepository,
-  StockBalanceRow,
-} from "./repositories/stockBalance.repository";
-import {
-  stockLedgerRepository,
-  StockLedgerRow,
-} from "./repositories/stockLedger.repository";
-import { ValidationError, ForbiddenError } from "../../utils/errors";
-import logger from "../../utils/logger";
+import prisma from '../../config/database';
+import { LedgerSourceType, Prisma } from '@prisma/client';
+import { stockBalanceRepository, StockBalanceRow } from './repositories/stockBalance.repository';
+import { stockLedgerRepository, StockLedgerRow } from './repositories/stockLedger.repository';
+import { ValidationError, ForbiddenError } from '../../utils/errors';
+import logger from '../../utils/logger';
 
 export type StockOverviewItem = {
   productId: string;
@@ -51,6 +45,13 @@ export type LedgerQueryParams = {
   endDate?: Date;
   page: number;
   limit: number;
+};
+
+export type ProductFilterOption = {
+  id: string;
+  sku: string;
+  name: string;
+  categoryId: string;
 };
 
 export class StockService {
@@ -636,6 +637,54 @@ export class StockService {
         qty,
       );
     });
+  }
+
+  /**
+   * Get products for filter dropdowns using master Product data.
+   * - Does NOT depend on StockBalance or StockLedger
+   * - categoryIds filter is applied when provided (empty array = no filter)
+   * - locationIds filter via ProductLocation.isActive is applied only when explicitly provided
+   */
+  async getFilterProducts(params: {
+    categoryIds?: string[];
+    locationIds?: string[];
+  }): Promise<ProductFilterOption[]> {
+    const normalizedCategoryIds = params.categoryIds?.length ? params.categoryIds : undefined;
+    const normalizedLocationIds = params.locationIds?.length ? params.locationIds : undefined;
+
+    const where: Prisma.ProductWhereInput = {
+      ...(normalizedCategoryIds ? { categoryId: { in: normalizedCategoryIds } } : {}),
+      ...(normalizedLocationIds ? {
+        productLocations: {
+          some: {
+            locationId: { in: normalizedLocationIds },
+            isActive:   true,
+          },
+        },
+      } : {}),
+    };
+
+    logger.info('Product filter query', {
+      filters:          params,
+      normalizedFilters: { categoryIds: normalizedCategoryIds, locationIds: normalizedLocationIds },
+    });
+
+    const products = await prisma.product.findMany({
+      where,
+      select:  { id: true, sku: true, name: true, categoryId: true },
+      orderBy: { name: 'asc' },
+    });
+
+    if (products.length === 0) {
+      logger.warn('Product filter dropdown returned 0 results — verify filters applied', {
+        filters:          params,
+        normalizedFilters: { categoryIds: normalizedCategoryIds, locationIds: normalizedLocationIds },
+      });
+    } else {
+      logger.info(`Product filter dropdown returned ${products.length} results`);
+    }
+
+    return products;
   }
 
   // ---------------------------------------------------------------------------

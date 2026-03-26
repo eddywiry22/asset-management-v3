@@ -18,7 +18,6 @@ import AdvancedFilterModal from '../../../components/AdvancedFilterModal';
 import FilterSummaryChips from '../../../components/FilterSummaryChips';
 import SaveFilterModal from '../../../components/SaveFilterModal';
 import { useAdvancedFilters } from '../../../hooks/useAdvancedFilters';
-import { goodsService } from '../../../services/goods.service';
 import { savedFiltersService } from '../../../services/savedFilters.service';
 import { categoriesService } from '../../../services/categories.service';
 
@@ -176,10 +175,10 @@ export default function StockDashboardPage() {
     queryFn:  categoriesService.getAll,
   });
 
-  // Fetch products for simple filter dropdown
+  // Fetch products for simple filter dropdown (master data, no stock dependency)
   const { data: products = [] } = useQuery({
-    queryKey: ['goods'],
-    queryFn: goodsService.getAll,
+    queryKey: ['stock-filter-products'],
+    queryFn:  () => stockService.getFilterProducts(),
   });
 
   // Fetch locations visible to this user

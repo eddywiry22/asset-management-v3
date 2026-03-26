@@ -4,7 +4,6 @@ import {
   FormControlLabel, List, ListItem, ListItemButton, Tab, Tabs, TextField, Typography,
 } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
-import { goodsService } from '../services/goods.service';
 import stockService from '../services/stock.service';
 import { categoriesService } from '../services/categories.service';
 
@@ -53,8 +52,8 @@ export default function AdvancedFilterModal({
   });
 
   const { data: products = [] } = useQuery({
-    queryKey: ['goods'],
-    queryFn:  goodsService.getAll,
+    queryKey: ['stock-filter-products'],
+    queryFn:  () => stockService.getFilterProducts(),
   });
 
   const { data: locations = [] } = useQuery({
