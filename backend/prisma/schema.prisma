@@ -1,5 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {
@@ -21,18 +22,18 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  locationRoles         UserLocationRole[]
-  auditLogs             AuditLog[]
-  adjustmentsCreated    StockAdjustmentRequest[] @relation("AdjustmentCreatedBy")
-  adjustmentsApproved   StockAdjustmentRequest[] @relation("AdjustmentApprovedBy")
-  adjustmentsFinalized  StockAdjustmentRequest[] @relation("AdjustmentFinalizedBy")
-  adjustmentsCancelled  StockAdjustmentRequest[] @relation("AdjustmentCancelledBy")
-  adjustmentsRejected   StockAdjustmentRequest[] @relation("AdjustmentRejectedBy")
-  transfersCreated              StockTransferRequest[] @relation("TransferCreatedBy")
-  transfersOriginApproved       StockTransferRequest[] @relation("TransferOriginApprovedBy")
-  transfersDestinationApproved  StockTransferRequest[] @relation("TransferDestinationApprovedBy")
-  transfersCancelled            StockTransferRequest[] @relation("TransferCancelledBy")
-  transfersRejected             StockTransferRequest[] @relation("TransferRejectedBy")
+  locationRoles                UserLocationRole[]
+  auditLogs                    AuditLog[]
+  adjustmentsCreated           StockAdjustmentRequest[] @relation("AdjustmentCreatedBy")
+  adjustmentsApproved          StockAdjustmentRequest[] @relation("AdjustmentApprovedBy")
+  adjustmentsFinalized         StockAdjustmentRequest[] @relation("AdjustmentFinalizedBy")
+  adjustmentsCancelled         StockAdjustmentRequest[] @relation("AdjustmentCancelledBy")
+  adjustmentsRejected          StockAdjustmentRequest[] @relation("AdjustmentRejectedBy")
+  transfersCreated             StockTransferRequest[]   @relation("TransferCreatedBy")
+  transfersOriginApproved      StockTransferRequest[]   @relation("TransferOriginApprovedBy")
+  transfersDestinationApproved StockTransferRequest[]   @relation("TransferDestinationApprovedBy")
+  transfersCancelled           StockTransferRequest[]   @relation("TransferCancelledBy")
+  transfersRejected            StockTransferRequest[]   @relation("TransferRejectedBy")
 }
 
 model Location {
@@ -110,13 +111,13 @@ model Product {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  category      Category       @relation(fields: [categoryId], references: [id])
-  vendor        Vendor         @relation(fields: [vendorId], references: [id])
-  uom           Uom            @relation(fields: [uomId], references: [id])
-  stockBalances    StockBalance[]
-  stockLedgers     StockLedger[]
-  adjustmentItems  StockAdjustmentItem[]
-  transferItems    StockTransferItem[]
+  category          Category              @relation(fields: [categoryId], references: [id])
+  vendor            Vendor                @relation(fields: [vendorId], references: [id])
+  uom               Uom                   @relation(fields: [uomId], references: [id])
+  stockBalances     StockBalance[]
+  stockLedgers      StockLedger[]
+  adjustmentItems   StockAdjustmentItem[]
+  transferItems     StockTransferItem[]
   stockReservations StockReservation[]
   productLocations  ProductLocation[]
 }
@@ -232,10 +233,10 @@ enum AdjustmentRequestStatus {
 }
 
 model StockAdjustmentRequest {
-  id            String                   @id @default(uuid())
-  requestNumber String                   @unique
-  status        AdjustmentRequestStatus  @default(DRAFT)
-  notes              String?  @db.Text
+  id                 String                  @id @default(uuid())
+  requestNumber      String                  @unique
+  status             AdjustmentRequestStatus @default(DRAFT)
+  notes              String?                 @db.Text
   createdById        String
   approvedById       String?
   finalizedById      String?
@@ -245,16 +246,16 @@ model StockAdjustmentRequest {
   finalizedAt        DateTime?
   cancelledAt        DateTime?
   rejectedAt         DateTime?
-  rejectionReason    String?  @db.Text
-  cancellationReason String?  @db.Text
-  createdAt          DateTime                 @default(now())
-  updatedAt          DateTime                 @updatedAt
+  rejectionReason    String?                 @db.Text
+  cancellationReason String?                 @db.Text
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
 
-  createdBy   User                   @relation("AdjustmentCreatedBy",   fields: [createdById],   references: [id])
-  approvedBy  User?                  @relation("AdjustmentApprovedBy",  fields: [approvedById],  references: [id])
-  finalizedBy User?                  @relation("AdjustmentFinalizedBy", fields: [finalizedById], references: [id])
-  cancelledBy User?                  @relation("AdjustmentCancelledBy", fields: [cancelledById], references: [id])
-  rejectedBy  User?                  @relation("AdjustmentRejectedBy",  fields: [rejectedById],  references: [id])
+  createdBy   User                  @relation("AdjustmentCreatedBy", fields: [createdById], references: [id])
+  approvedBy  User?                 @relation("AdjustmentApprovedBy", fields: [approvedById], references: [id])
+  finalizedBy User?                 @relation("AdjustmentFinalizedBy", fields: [finalizedById], references: [id])
+  cancelledBy User?                 @relation("AdjustmentCancelledBy", fields: [cancelledById], references: [id])
+  rejectedBy  User?                 @relation("AdjustmentRejectedBy", fields: [rejectedById], references: [id])
   items       StockAdjustmentItem[]
 
   @@index([status])
@@ -335,13 +336,13 @@ model StockTransferRequest {
   createdAt               DateTime              @default(now())
   updatedAt               DateTime              @updatedAt
 
-  createdBy             User                @relation("TransferCreatedBy",             fields: [createdById],             references: [id])
-  originApprovedBy      User?               @relation("TransferOriginApprovedBy",      fields: [originApprovedById],      references: [id])
+  createdBy             User                @relation("TransferCreatedBy", fields: [createdById], references: [id])
+  originApprovedBy      User?               @relation("TransferOriginApprovedBy", fields: [originApprovedById], references: [id])
   destinationApprovedBy User?               @relation("TransferDestinationApprovedBy", fields: [destinationApprovedById], references: [id])
-  cancelledBy           User?               @relation("TransferCancelledBy",           fields: [cancelledById],           references: [id])
-  rejectedBy            User?               @relation("TransferRejectedBy",            fields: [rejectedById],            references: [id])
-  sourceLocation        Location            @relation("TransferSourceLocation",        fields: [sourceLocationId],        references: [id])
-  destinationLocation   Location            @relation("TransferDestinationLocation",   fields: [destinationLocationId],   references: [id])
+  cancelledBy           User?               @relation("TransferCancelledBy", fields: [cancelledById], references: [id])
+  rejectedBy            User?               @relation("TransferRejectedBy", fields: [rejectedById], references: [id])
+  sourceLocation        Location            @relation("TransferSourceLocation", fields: [sourceLocationId], references: [id])
+  destinationLocation   Location            @relation("TransferDestinationLocation", fields: [destinationLocationId], references: [id])
   items                 StockTransferItem[]
 
   @@index([status])

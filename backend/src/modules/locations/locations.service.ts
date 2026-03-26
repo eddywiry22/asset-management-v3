@@ -1,11 +1,17 @@
-import { Location } from '@prisma/client';
-import prisma from '../../config/database';
-import { locationRepository, LocationRow } from './repositories/location.repository';
-import { NotFoundError, ValidationError } from '../../utils/errors';
-import { auditService } from '../../services/audit.service';
-import { CreateLocationDto, UpdateLocationDto } from './location.validator';
-import { evaluateLocationReadiness, LocationReadiness } from './locationReadiness.service';
-import logger from '../../utils/logger';
+import { Location } from "@prisma/client";
+import prisma from "../../config/database";
+import {
+  locationRepository,
+  LocationRow,
+} from "./repositories/location.repository";
+import { NotFoundError, ValidationError } from "../../utils/errors";
+import { auditService } from "../../services/audit.service";
+import { CreateLocationDto, UpdateLocationDto } from "./location.validator";
+import {
+  evaluateLocationReadiness,
+  LocationReadiness,
+} from "./locationReadiness.service";
+import logger from "../../utils/logger";
 
 export class LocationsService {
   async findById(id: string): Promise<Location> {
@@ -24,11 +30,16 @@ export class LocationsService {
 
   async adminFindAll(status?: string): Promise<LocationRow[]> {
     const normalized =
-      status === 'ACTIVE' || status === 'INACTIVE' ? status : 'ALL';
-    return locationRepository.adminFindAll(normalized as 'ACTIVE' | 'INACTIVE' | 'ALL');
+      status === "ACTIVE" || status === "INACTIVE" ? status : "ALL";
+    return locationRepository.adminFindAll(
+      normalized as "ACTIVE" | "INACTIVE" | "ALL",
+    );
   }
 
-  async adminCreate(dto: CreateLocationDto, performedBy: string): Promise<Location> {
+  async adminCreate(
+    dto: CreateLocationDto,
+    performedBy: string,
+  ): Promise<Location> {
     const existing = await locationRepository.findByCode(dto.code);
     if (existing) {
       throw new ValidationError(`Location code "${dto.code}" already exists`);
@@ -38,9 +49,9 @@ export class LocationsService {
       // 1. Create location
       const location = await tx.location.create({
         data: {
-          code:     dto.code,
-          name:     dto.name,
-          address:  dto.address,
+          code: dto.code,
+          name: dto.name,
+          address: dto.address,
           isActive: true,
         },
       });
@@ -52,11 +63,11 @@ export class LocationsService {
 
       // 3. Prepare ProductLocation rows
       const productLocations = products.map((p) => ({
-        productId:  p.id,
+        productId: p.id,
         locationId: location.id,
-        isActive:   false,
-        createdAt:  new Date(),
-        updatedAt:  new Date(),
+        isActive: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       }));
 
       // 4. Bulk insert
@@ -72,25 +83,22 @@ export class LocationsService {
         where: { locationId: location.id },
       });
 
-      logger.info(
-        {
-          locationId:    location.id,
-          createdBy:     performedBy,
-          totalProducts: products.length,
-          count,
-        },
-        'Location created with product-location backfill',
-      );
+      logger.info("Location created with product-location backfill", {
+        locationId: location.id,
+        createdBy: performedBy,
+        totalProducts: products.length,
+        count,
+      });
 
       return location;
     });
 
-    logger.info('[Location] Created', { id: location.id, code: location.code });
+    logger.info("[Location] Created", { id: location.id, code: location.code });
 
     void auditService.log({
-      entityType:    'LOCATION',
-      entityId:      location.id,
-      action:        'CREATE',
+      entityType: "LOCATION",
+      entityId: location.id,
+      action: "CREATE",
       afterSnapshot: location,
       performedBy,
     });
@@ -98,37 +106,48 @@ export class LocationsService {
     return location;
   }
 
-  async adminUpdate(id: string, dto: UpdateLocationDto, performedBy: string): Promise<Location> {
+  async adminUpdate(
+    id: string,
+    dto: UpdateLocationDto,
+    performedBy: string,
+  ): Promise<Location> {
     const before = await this.findById(id);
 
     const updated = await locationRepository.update(id, {
-      name:    dto.name,
+      name: dto.name,
       address: dto.address,
     });
 
-    logger.info('[Location] Updated', { id });
+    logger.info("[Location] Updated", { id });
 
     void auditService.log({
-      entityType:     'LOCATION',
-      entityId:       id,
-      action:         'UPDATE',
+      entityType: "LOCATION",
+      entityId: id,
+      action: "UPDATE",
       beforeSnapshot: { name: before.name, address: before.address },
-      afterSnapshot:  { name: updated.name, address: updated.address },
+      afterSnapshot: { name: updated.name, address: updated.address },
       performedBy,
     });
 
     return updated;
   }
 
-  async adminToggleActive(id: string, performedBy: string): Promise<Location & { blockingRequestCount: number }> {
+  async adminToggleActive(
+    id: string,
+    performedBy: string,
+  ): Promise<LocationRow> {
     const location = await this.findById(id);
     const newActive = !location.isActive;
 
     // Block deactivation if pending requests exist
     if (!newActive) {
-      const blockingRequestCount = await locationRepository.countPendingRequests(id);
+      const blockingRequestCount =
+        await locationRepository.countPendingRequests(id);
       if (blockingRequestCount > 0) {
-        logger.warn('[Location] Deactivation blocked — pending requests', { id, blockingRequestCount });
+        logger.warn("[Location] Deactivation blocked — pending requests", {
+          id,
+          blockingRequestCount,
+        });
         throw new ValidationError(
           `Cannot deactivate this location while there are pending requests. Resolve them first.`,
           blockingRequestCount,
@@ -138,18 +157,22 @@ export class LocationsService {
 
     const updated = await locationRepository.toggleActive(id, newActive);
 
-    logger.info('[Location] Toggled active', { id, isActive: newActive });
+    logger.info("[Location] Toggled active", { id, isActive: newActive });
 
     void auditService.log({
-      entityType:     'LOCATION',
-      entityId:       id,
-      action:         'UPDATE',
+      entityType: "LOCATION",
+      entityId: id,
+      action: "UPDATE",
       beforeSnapshot: { isActive: location.isActive },
-      afterSnapshot:  { isActive: newActive },
+      afterSnapshot: { isActive: newActive },
       performedBy,
     });
 
-    return { ...updated, blockingRequestCount: 0, operationalStatus: 'NONE' as const };
+    return {
+      ...updated,
+      blockingRequestCount: 0,
+      operationalStatus: "NONE" as const,
+    } as LocationRow;
   }
 
   async getReadiness(id: string): Promise<LocationReadiness> {
