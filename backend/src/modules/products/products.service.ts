@@ -1,13 +1,16 @@
-import { Prisma } from '@prisma/client';
-import { productRepository, ProductWithRelations } from './repositories/product.repository';
-import { categoryRepository } from '../categories/repositories/category.repository';
-import { vendorRepository } from '../vendors/repositories/vendor.repository';
-import { uomRepository } from '../uoms/repositories/uom.repository';
-import { auditService } from '../../services/audit.service';
-import { NotFoundError, ValidationError } from '../../utils/errors';
-import { CreateProductDto, UpdateProductDto } from './products.validator';
-import prisma from '../../config/database';
-import logger from '../../utils/logger';
+import { Prisma } from "@prisma/client";
+import {
+  productRepository,
+  ProductWithRelations,
+} from "./repositories/product.repository";
+import { categoryRepository } from "../categories/repositories/category.repository";
+import { vendorRepository } from "../vendors/repositories/vendor.repository";
+import { uomRepository } from "../uoms/repositories/uom.repository";
+import { auditService } from "../../services/audit.service";
+import { NotFoundError, ValidationError } from "../../utils/errors";
+import { CreateProductDto, UpdateProductDto } from "./products.validator";
+import prisma from "../../config/database";
+import logger from "../../utils/logger";
 
 export class ProductsService {
   async findAll(params: {
@@ -20,13 +23,13 @@ export class ProductsService {
     const { page, limit, search, categoryIds, vendorIds } = params;
     const trimmedSearch = search?.trim();
 
-    logger.info({ search, trimmedSearch }, 'Product search input');
+    logger.info("Product search input", { search, trimmedSearch });
 
     const where: Prisma.ProductWhereInput = {
       ...(trimmedSearch && {
         OR: [
           { name: { contains: trimmedSearch } },
-          { sku:  { contains: trimmedSearch } },
+          { sku: { contains: trimmedSearch } },
         ],
       }),
       ...(categoryIds?.length && {
@@ -37,7 +40,7 @@ export class ProductsService {
       }),
     };
 
-    logger.info({ where }, 'Product query where clause');
+    logger.info("Product query where clause", { where });
 
     return productRepository.findAll({ page, limit, where });
   }
@@ -48,12 +51,17 @@ export class ProductsService {
     return product;
   }
 
-  async create(dto: CreateProductDto, performedBy: string): Promise<ProductWithRelations> {
+  async create(
+    dto: CreateProductDto,
+    performedBy: string,
+  ): Promise<ProductWithRelations> {
     const existingSku = await productRepository.findBySku(dto.sku);
-    if (existingSku) throw new ValidationError(`SKU already exists: ${dto.sku}`);
+    if (existingSku)
+      throw new ValidationError(`SKU already exists: ${dto.sku}`);
 
     const category = await categoryRepository.findById(dto.categoryId);
-    if (!category) throw new ValidationError(`Category not found: ${dto.categoryId}`);
+    if (!category)
+      throw new ValidationError(`Category not found: ${dto.categoryId}`);
 
     const vendor = await vendorRepository.findById(dto.vendorId);
     if (!vendor) throw new ValidationError(`Vendor not found: ${dto.vendorId}`);
@@ -65,16 +73,16 @@ export class ProductsService {
       // 1. Create product
       const created = await tx.product.create({
         data: {
-          sku:        dto.sku,
-          name:       dto.name,
+          sku: dto.sku,
+          name: dto.name,
           categoryId: dto.categoryId,
-          vendorId:   dto.vendorId,
-          uomId:      dto.uomId,
+          vendorId: dto.vendorId,
+          uomId: dto.uomId,
         },
         include: {
           category: { select: { id: true, name: true } },
-          vendor:   { select: { id: true, name: true } },
-          uom:      { select: { id: true, code: true, name: true } },
+          vendor: { select: { id: true, name: true } },
+          uom: { select: { id: true, code: true, name: true } },
         },
       });
 
@@ -87,44 +95,50 @@ export class ProductsService {
       if (locations.length > 0) {
         await tx.productLocation.createMany({
           data: locations.map((loc) => ({
-            productId:  created.id,
+            productId: created.id,
             locationId: loc.id,
-            isActive:   false,
+            isActive: false,
           })),
           skipDuplicates: true,
         });
       }
 
-      logger.info(
-        { productId: created.id, locationCount: locations.length },
-        'Product created with product-location backfill',
-      );
+      logger.info("Product created with product-location backfill", {
+        productId: created.id,
+        locationCount: locations.length,
+      });
 
       return created;
     });
 
     await auditService.log({
-      entityType:  'PRODUCT',
-      entityId:    product.id,
-      action:      'CREATE',
-      afterValue:  product,
+      entityType: "PRODUCT",
+      entityId: product.id,
+      action: "CREATE",
+      afterValue: product,
       performedBy,
     });
 
     return product as ProductWithRelations;
   }
 
-  async update(id: string, dto: UpdateProductDto, performedBy: string): Promise<ProductWithRelations> {
+  async update(
+    id: string,
+    dto: UpdateProductDto,
+    performedBy: string,
+  ): Promise<ProductWithRelations> {
     const before = await this.findById(id);
 
     if (dto.categoryId) {
       const category = await categoryRepository.findById(dto.categoryId);
-      if (!category) throw new ValidationError(`Category not found: ${dto.categoryId}`);
+      if (!category)
+        throw new ValidationError(`Category not found: ${dto.categoryId}`);
     }
 
     if (dto.vendorId) {
       const vendor = await vendorRepository.findById(dto.vendorId);
-      if (!vendor) throw new ValidationError(`Vendor not found: ${dto.vendorId}`);
+      if (!vendor)
+        throw new ValidationError(`Vendor not found: ${dto.vendorId}`);
     }
 
     if (dto.uomId) {
@@ -135,11 +149,11 @@ export class ProductsService {
     const updated = await productRepository.update(id, dto);
 
     await auditService.log({
-      entityType:  'PRODUCT',
-      entityId:    id,
-      action:      'UPDATE',
+      entityType: "PRODUCT",
+      entityId: id,
+      action: "UPDATE",
       beforeValue: before,
-      afterValue:  updated,
+      afterValue: updated,
       performedBy,
     });
 

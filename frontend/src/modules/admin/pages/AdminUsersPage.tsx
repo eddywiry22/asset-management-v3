@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState } from "react";
 import {
   Alert,
   Box,
@@ -27,54 +27,56 @@ import {
   TextField,
   Tooltip,
   Typography,
-} from '@mui/material';
-import AddIcon from '@mui/icons-material/Add';
-import EditIcon from '@mui/icons-material/Edit';
-import FilterListIcon from '@mui/icons-material/FilterList';
-import LockResetIcon from '@mui/icons-material/LockReset';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useForm, Controller } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
+} from "@mui/material";
+import AddIcon from "@mui/icons-material/Add";
+import EditIcon from "@mui/icons-material/Edit";
+import FilterListIcon from "@mui/icons-material/FilterList";
+import LockResetIcon from "@mui/icons-material/LockReset";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useForm, Controller } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import {
   adminUsersService,
   AdminUser,
   StatusFilter,
   UserRole,
-} from '../../../services/adminUsers.service';
-import { adminLocationsService } from '../../../services/adminLocations.service';
+} from "../../../services/adminUsers.service";
+import { adminLocationsService } from "../../../services/adminLocations.service";
 
 // ── Schemas ──────────────────────────────────────────────────────────────────
 
-const roleValues = ['OPERATOR', 'MANAGER'] as const;
+const roleValues = ["OPERATOR", "MANAGER"] as const;
 
 const createSchema = z.object({
-  username: z.string().min(1, 'Username is required').max(50),
-  email: z.string().email('Invalid email').optional().or(z.literal('')),
-  phone: z.string().max(30).optional().or(z.literal('')),
-  password: z.string().min(6, 'Password must be at least 6 characters'),
-  role: z.enum(roleValues, { error: 'Role is required' }),
-  locationIds: z.array(z.string()).default([]),
+  username: z.string().min(1, "Username is required").max(50),
+  email: z.string().email("Invalid email").optional().or(z.literal("")),
+  phone: z.string().max(30).optional().or(z.literal("")),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+  role: z.enum(roleValues, { error: "Role is required" }),
+  locationIds: z.array(z.string()),
 });
 
 const editSchema = z.object({
-  username: z.string().min(1, 'Username is required').max(50).optional(),
-  email: z.string().email('Invalid email').optional().or(z.literal('')),
-  phone: z.string().max(30).optional().or(z.literal('')),
+  username: z.string().min(1, "Username is required").max(50).optional(),
+  email: z.string().email("Invalid email").optional().or(z.literal("")),
+  phone: z.string().max(30).optional().or(z.literal("")),
   role: z.enum(roleValues).optional(),
   locationIds: z.array(z.string()).optional(),
 });
 
-const resetPasswordSchema = z.object({
-  newPassword:     z.string().min(6, 'Password must be at least 6 characters'),
-  confirmPassword: z.string().min(1, 'Please confirm the password'),
-}).refine((d) => d.newPassword === d.confirmPassword, {
-  message: 'Passwords do not match',
-  path: ['confirmPassword'],
-});
+const resetPasswordSchema = z
+  .object({
+    newPassword: z.string().min(6, "Password must be at least 6 characters"),
+    confirmPassword: z.string().min(1, "Please confirm the password"),
+  })
+  .refine((d) => d.newPassword === d.confirmPassword, {
+    message: "Passwords do not match",
+    path: ["confirmPassword"],
+  });
 
-type CreateForm        = z.infer<typeof createSchema>;
-type EditForm          = z.infer<typeof editSchema>;
+type CreateForm = z.infer<typeof createSchema>;
+type EditForm = z.infer<typeof editSchema>;
 type ResetPasswordForm = z.infer<typeof resetPasswordSchema>;
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -83,16 +85,17 @@ export default function AdminUsersPage() {
   const queryClient = useQueryClient();
 
   // Filter state
-  const [filterStatus, setFilterStatus] = useState<StatusFilter>('ALL');
-  const [filterRole, setFilterRole]     = useState<UserRole | ''>('');
-  const [appliedStatus, setAppliedStatus] = useState<StatusFilter>('ALL');
-  const [appliedRole, setAppliedRole]     = useState<UserRole | ''>('');
+  const [filterStatus, setFilterStatus] = useState<StatusFilter>("ALL");
+  const [filterRole, setFilterRole] = useState<UserRole | "">("");
+  const [appliedStatus, setAppliedStatus] = useState<StatusFilter>("ALL");
+  const [appliedRole, setAppliedRole] = useState<UserRole | "">("");
 
   // Dialog state
-  const [createOpen, setCreateOpen]             = useState(false);
-  const [editTarget, setEditTarget]             = useState<AdminUser | null>(null);
-  const [toggleTarget, setToggleTarget]         = useState<AdminUser | null>(null);
-  const [resetPasswordTarget, setResetPasswordTarget] = useState<AdminUser | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<AdminUser | null>(null);
+  const [toggleTarget, setToggleTarget] = useState<AdminUser | null>(null);
+  const [resetPasswordTarget, setResetPasswordTarget] =
+    useState<AdminUser | null>(null);
 
   // Blocking deactivation detail — shape matches the new helper-based backend response
   const [blockingCounts, setBlockingCounts] = useState<{
@@ -101,18 +104,23 @@ export default function AdminUsersPage() {
     status?: string;
   } | null>(null);
 
-  const [apiError, setApiError] = useState('');
+  const [apiError, setApiError] = useState("");
 
   // ── Data fetching ──────────────────────────────────────────────────────────
 
-  const { data: users = [], isLoading, error } = useQuery({
-    queryKey: ['admin-users', appliedStatus, appliedRole],
-    queryFn:  () => adminUsersService.getAll(appliedStatus, appliedRole || undefined),
+  const {
+    data: users = [],
+    isLoading,
+    error,
+  } = useQuery({
+    queryKey: ["admin-users", appliedStatus, appliedRole],
+    queryFn: () =>
+      adminUsersService.getAll(appliedStatus, appliedRole || undefined),
   });
 
   const { data: locations = [] } = useQuery({
-    queryKey: ['admin-locations', 'ACTIVE'],
-    queryFn:  () => adminLocationsService.getAll('ACTIVE'),
+    queryKey: ["admin-locations", "ACTIVE"],
+    queryFn: () => adminLocationsService.getAll("ACTIVE"),
   });
 
   // ── Forms ──────────────────────────────────────────────────────────────────
@@ -145,13 +153,15 @@ export default function AdminUsersPage() {
         locationIds: data.locationIds,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-users'] });
+      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
       setCreateOpen(false);
       createForm.reset();
-      setApiError('');
+      setApiError("");
     },
     onError: (err: any) => {
-      setApiError(err?.response?.data?.error?.message ?? 'Failed to create user');
+      setApiError(
+        err?.response?.data?.error?.message ?? "Failed to create user",
+      );
     },
   });
 
@@ -165,29 +175,31 @@ export default function AdminUsersPage() {
         locationIds: data.locationIds,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-users'] });
+      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
       setEditTarget(null);
-      setApiError('');
+      setApiError("");
     },
     onError: (err: any) => {
-      setApiError(err?.response?.data?.error?.message ?? 'Failed to update user');
+      setApiError(
+        err?.response?.data?.error?.message ?? "Failed to update user",
+      );
     },
   });
 
   const toggleMutation = useMutation({
     mutationFn: (id: string) => adminUsersService.toggleActive(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-users'] });
+      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
       setToggleTarget(null);
       setBlockingCounts(null);
-      setApiError('');
+      setApiError("");
     },
     onError: (err: any) => {
       const errorData = err?.response?.data?.error;
       if (errorData?.blocking) {
         setBlockingCounts(errorData.blocking);
       } else {
-        setApiError(errorData?.message ?? 'Failed to toggle user status');
+        setApiError(errorData?.message ?? "Failed to toggle user status");
       }
     },
   });
@@ -198,10 +210,12 @@ export default function AdminUsersPage() {
     onSuccess: () => {
       setResetPasswordTarget(null);
       resetPasswordForm.reset();
-      setApiError('');
+      setApiError("");
     },
     onError: (err: any) => {
-      setApiError(err?.response?.data?.error?.message ?? 'Failed to reset password');
+      setApiError(
+        err?.response?.data?.error?.message ?? "Failed to reset password",
+      );
     },
   });
 
@@ -211,47 +225,50 @@ export default function AdminUsersPage() {
     setEditTarget(user);
     const primaryRole = user.assignedLocations[0]?.role as UserRole | undefined;
     editForm.reset({
-      username:    user.username,
-      email:       user.email ?? '',
-      phone:       user.phone ?? '',
-      role:        primaryRole,
+      username: user.username,
+      email: user.email ?? "",
+      phone: user.phone ?? "",
+      role: primaryRole,
       locationIds: user.assignedLocations.map((l) => l.locationId),
     });
-    setApiError('');
+    setApiError("");
   };
 
   const openToggle = (user: AdminUser) => {
     setToggleTarget(user);
     setBlockingCounts(null);
-    setApiError('');
+    setApiError("");
   };
 
   const openResetPassword = (user: AdminUser) => {
     setResetPasswordTarget(user);
     resetPasswordForm.reset();
-    setApiError('');
+    setApiError("");
   };
 
   const onResetPasswordSubmit = (data: ResetPasswordForm) => {
     if (!resetPasswordTarget) return;
-    setApiError('');
-    resetPasswordMutation.mutate({ id: resetPasswordTarget.id, newPassword: data.newPassword });
+    setApiError("");
+    resetPasswordMutation.mutate({
+      id: resetPasswordTarget.id,
+      newPassword: data.newPassword,
+    });
   };
 
   const onCreateSubmit = (data: CreateForm) => {
-    setApiError('');
+    setApiError("");
     createMutation.mutate(data);
   };
 
   const onEditSubmit = (data: EditForm) => {
     if (!editTarget) return;
-    setApiError('');
+    setApiError("");
     updateMutation.mutate({ id: editTarget.id, data });
   };
 
   const onToggleConfirm = () => {
     if (!toggleTarget) return;
-    setApiError('');
+    setApiError("");
     toggleMutation.mutate(toggleTarget.id);
   };
 
@@ -260,26 +277,37 @@ export default function AdminUsersPage() {
     setAppliedRole(filterRole);
   };
   const clearFilter = () => {
-    setFilterStatus('ALL');
-    setFilterRole('');
-    setAppliedStatus('ALL');
-    setAppliedRole('');
+    setFilterStatus("ALL");
+    setFilterRole("");
+    setAppliedStatus("ALL");
+    setAppliedRole("");
   };
 
   // ── Render ────────────────────────────────────────────────────────────────
 
   if (isLoading) return <CircularProgress />;
-  if (error)     return <Alert severity="error">Failed to load users</Alert>;
+  if (error) return <Alert severity="error">Failed to load users</Alert>;
 
   return (
     <Box>
       {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+      <Box
+        sx={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          mb: 2,
+        }}
+      >
         <Typography variant="h5">Users</Typography>
         <Button
           variant="contained"
           startIcon={<AddIcon />}
-          onClick={() => { setCreateOpen(true); setApiError(''); createForm.reset(); }}
+          onClick={() => {
+            setCreateOpen(true);
+            setApiError("");
+            createForm.reset();
+          }}
         >
           Add User
         </Button>
@@ -309,7 +337,7 @@ export default function AdminUsersPage() {
               fullWidth
               label="Role"
               value={filterRole}
-              onChange={(e) => setFilterRole(e.target.value as UserRole | '')}
+              onChange={(e) => setFilterRole(e.target.value as UserRole | "")}
             >
               <MenuItem value="">All Roles</MenuItem>
               <MenuItem value="OPERATOR">Operator</MenuItem>
@@ -317,7 +345,11 @@ export default function AdminUsersPage() {
             </TextField>
           </Grid>
           <Grid item xs={12} md="auto">
-            <Button variant="outlined" startIcon={<FilterListIcon />} onClick={applyFilter}>
+            <Button
+              variant="outlined"
+              startIcon={<FilterListIcon />}
+              onClick={applyFilter}
+            >
               Apply
             </Button>
           </Grid>
@@ -348,37 +380,43 @@ export default function AdminUsersPage() {
               const primaryRole = user.assignedLocations[0]?.role;
               return (
                 <TableRow key={user.id}>
-                  <TableCell><strong>{user.username}</strong></TableCell>
-                  <TableCell>{user.email ?? '—'}</TableCell>
-                  <TableCell>{user.phone ?? '—'}</TableCell>
+                  <TableCell>
+                    <strong>{user.username}</strong>
+                  </TableCell>
+                  <TableCell>{user.email ?? "—"}</TableCell>
+                  <TableCell>{user.phone ?? "—"}</TableCell>
                   <TableCell>
                     {primaryRole ? (
                       <Chip
                         label={primaryRole}
-                        color={primaryRole === 'MANAGER' ? 'primary' : 'default'}
+                        color={
+                          primaryRole === "MANAGER" ? "primary" : "default"
+                        }
                         size="small"
                       />
-                    ) : '—'}
+                    ) : (
+                      "—"
+                    )}
                   </TableCell>
                   <TableCell>
-                    <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                    <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
                       {user.assignedLocations.length === 0
-                        ? '—'
+                        ? "—"
                         : user.assignedLocations.map((loc) => (
                             <Chip
                               key={loc.locationId}
                               label={loc.locationCode}
                               size="small"
                               variant="outlined"
-                              color={loc.isActive ? 'default' : 'warning'}
+                              color={loc.isActive ? "default" : "warning"}
                             />
                           ))}
                     </Box>
                   </TableCell>
                   <TableCell>
                     <Chip
-                      label={user.isActive ? 'Active' : 'Inactive'}
-                      color={user.isActive ? 'success' : 'default'}
+                      label={user.isActive ? "Active" : "Inactive"}
+                      color={user.isActive ? "success" : "default"}
                       size="small"
                     />
                   </TableCell>
@@ -399,7 +437,10 @@ export default function AdminUsersPage() {
                     >
                       Reset Password
                     </Button>
-                    <Tooltip title={user.isActive ? 'Deactivate' : 'Activate'} arrow>
+                    <Tooltip
+                      title={user.isActive ? "Deactivate" : "Activate"}
+                      arrow
+                    >
                       <span>
                         <Switch
                           size="small"
@@ -414,7 +455,9 @@ export default function AdminUsersPage() {
             })}
             {users.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} align="center">No users found</TableCell>
+                <TableCell colSpan={7} align="center">
+                  No users found
+                </TableCell>
               </TableRow>
             )}
           </TableBody>
@@ -422,11 +465,20 @@ export default function AdminUsersPage() {
       </TableContainer>
 
       {/* ── Create Dialog ── */}
-      <Dialog open={createOpen} onClose={() => setCreateOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
         <DialogTitle>Add User</DialogTitle>
         <form onSubmit={createForm.handleSubmit(onCreateSubmit)}>
           <DialogContent>
-            {apiError && <Alert severity="error" sx={{ mb: 2 }}>{apiError}</Alert>}
+            {apiError && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                {apiError}
+              </Alert>
+            )}
 
             <Controller
               name="username"
@@ -490,7 +542,11 @@ export default function AdminUsersPage() {
               name="role"
               control={createForm.control}
               render={({ field, fieldState }) => (
-                <FormControl fullWidth margin="normal" error={!!fieldState.error}>
+                <FormControl
+                  fullWidth
+                  margin="normal"
+                  error={!!fieldState.error}
+                >
                   <InputLabel>Role</InputLabel>
                   <Select {...field} label="Role">
                     <MenuItem value="OPERATOR">Operator</MenuItem>
@@ -507,7 +563,11 @@ export default function AdminUsersPage() {
               name="locationIds"
               control={createForm.control}
               render={({ field, fieldState }) => (
-                <FormControl fullWidth margin="normal" error={!!fieldState.error}>
+                <FormControl
+                  fullWidth
+                  margin="normal"
+                  error={!!fieldState.error}
+                >
                   <InputLabel>Locations</InputLabel>
                   {/* guard: value must always be an array for <Select multiple> */}
                   <Select
@@ -517,8 +577,11 @@ export default function AdminUsersPage() {
                     input={<OutlinedInput label="Locations" />}
                     renderValue={(selected) =>
                       (selected as string[])
-                        .map((id) => locations.find((l) => l.id === id)?.code ?? id)
-                        .join(', ')
+                        .map(
+                          (id) =>
+                            locations.find((l) => l.id === id)?.code ?? id,
+                        )
+                        .join(", ")
                     }
                   >
                     {locations.map((loc) => (
@@ -535,20 +598,40 @@ export default function AdminUsersPage() {
             />
           </DialogContent>
           <DialogActions>
-            <Button onClick={() => { setCreateOpen(false); createForm.reset(); }}>Cancel</Button>
-            <Button type="submit" variant="contained" disabled={createMutation.isPending}>
-              {createMutation.isPending ? 'Saving...' : 'Save'}
+            <Button
+              onClick={() => {
+                setCreateOpen(false);
+                createForm.reset();
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="contained"
+              disabled={createMutation.isPending}
+            >
+              {createMutation.isPending ? "Saving..." : "Save"}
             </Button>
           </DialogActions>
         </form>
       </Dialog>
 
       {/* ── Edit Dialog ── */}
-      <Dialog open={!!editTarget} onClose={() => setEditTarget(null)} maxWidth="sm" fullWidth>
+      <Dialog
+        open={!!editTarget}
+        onClose={() => setEditTarget(null)}
+        maxWidth="sm"
+        fullWidth
+      >
         <DialogTitle>Edit User</DialogTitle>
         <form onSubmit={editForm.handleSubmit(onEditSubmit)}>
           <DialogContent>
-            {apiError && <Alert severity="error" sx={{ mb: 2 }}>{apiError}</Alert>}
+            {apiError && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                {apiError}
+              </Alert>
+            )}
 
             <Controller
               name="username"
@@ -597,7 +680,11 @@ export default function AdminUsersPage() {
               name="role"
               control={editForm.control}
               render={({ field, fieldState }) => (
-                <FormControl fullWidth margin="normal" error={!!fieldState.error}>
+                <FormControl
+                  fullWidth
+                  margin="normal"
+                  error={!!fieldState.error}
+                >
                   <InputLabel>Role</InputLabel>
                   <Select {...field} label="Role">
                     <MenuItem value="OPERATOR">Operator</MenuItem>
@@ -614,7 +701,11 @@ export default function AdminUsersPage() {
               name="locationIds"
               control={editForm.control}
               render={({ field, fieldState }) => (
-                <FormControl fullWidth margin="normal" error={!!fieldState.error}>
+                <FormControl
+                  fullWidth
+                  margin="normal"
+                  error={!!fieldState.error}
+                >
                   <InputLabel>Locations</InputLabel>
                   <Select
                     multiple
@@ -623,8 +714,11 @@ export default function AdminUsersPage() {
                     input={<OutlinedInput label="Locations" />}
                     renderValue={(selected) =>
                       (selected as string[])
-                        .map((id) => locations.find((l) => l.id === id)?.code ?? id)
-                        .join(', ')
+                        .map(
+                          (id) =>
+                            locations.find((l) => l.id === id)?.code ?? id,
+                        )
+                        .join(", ")
                     }
                   >
                     {locations.map((loc) => (
@@ -642,34 +736,57 @@ export default function AdminUsersPage() {
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setEditTarget(null)}>Cancel</Button>
-            <Button type="submit" variant="contained" disabled={updateMutation.isPending}>
-              {updateMutation.isPending ? 'Saving...' : 'Save'}
+            <Button
+              type="submit"
+              variant="contained"
+              disabled={updateMutation.isPending}
+            >
+              {updateMutation.isPending ? "Saving..." : "Save"}
             </Button>
           </DialogActions>
         </form>
       </Dialog>
 
       {/* ── Toggle Active Confirmation Dialog ── */}
-      <Dialog open={!!toggleTarget} onClose={() => { setToggleTarget(null); setBlockingCounts(null); }} maxWidth="sm" fullWidth>
+      <Dialog
+        open={!!toggleTarget}
+        onClose={() => {
+          setToggleTarget(null);
+          setBlockingCounts(null);
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
         <DialogTitle>
-          {toggleTarget?.isActive ? 'Deactivate User' : 'Activate User'}
+          {toggleTarget?.isActive ? "Deactivate User" : "Activate User"}
         </DialogTitle>
         <DialogContent>
-          {apiError && <Alert severity="error" sx={{ mb: 2 }}>{apiError}</Alert>}
+          {apiError && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {apiError}
+            </Alert>
+          )}
           {blockingCounts && (
             <Alert severity="error" sx={{ mb: 2 }}>
-              <strong>{toggleTarget?.username}</strong> is required to complete an active workflow:
-              <ul style={{ margin: '8px 0 0', paddingLeft: 20 }}>
+              <strong>{toggleTarget?.username}</strong> is required to complete
+              an active workflow:
+              <ul style={{ margin: "8px 0 0", paddingLeft: 20 }}>
                 {blockingCounts.adjustmentId && (
                   <li>
-                    Adjustment #{blockingCounts.adjustmentId.slice(-8).toUpperCase()}
-                    {blockingCounts.status ? ` — ${blockingCounts.status.replace(/_/g, ' ')}` : ''}
+                    Adjustment #
+                    {blockingCounts.adjustmentId.slice(-8).toUpperCase()}
+                    {blockingCounts.status
+                      ? ` — ${blockingCounts.status.replace(/_/g, " ")}`
+                      : ""}
                   </li>
                 )}
                 {blockingCounts.transferId && (
                   <li>
-                    Transfer #{blockingCounts.transferId.slice(-8).toUpperCase()}
-                    {blockingCounts.status ? ` — ${blockingCounts.status.replace(/_/g, ' ')}` : ''}
+                    Transfer #
+                    {blockingCounts.transferId.slice(-8).toUpperCase()}
+                    {blockingCounts.status
+                      ? ` — ${blockingCounts.status.replace(/_/g, " ")}`
+                      : ""}
                   </li>
                 )}
               </ul>
@@ -678,11 +795,17 @@ export default function AdminUsersPage() {
           )}
           {toggleTarget && !blockingCounts && (
             <Typography>
-              Are you sure you want to{' '}
-              <strong>{toggleTarget.isActive ? 'deactivate' : 'activate'}</strong>{' '}
+              Are you sure you want to{" "}
+              <strong>
+                {toggleTarget.isActive ? "deactivate" : "activate"}
+              </strong>{" "}
               user <strong>{toggleTarget.username}</strong>?
               {toggleTarget.isActive && (
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ mt: 1 }}
+                >
                   Inactive users will not be able to log in.
                 </Typography>
               )}
@@ -690,28 +813,48 @@ export default function AdminUsersPage() {
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => { setToggleTarget(null); setBlockingCounts(null); }}>Cancel</Button>
+          <Button
+            onClick={() => {
+              setToggleTarget(null);
+              setBlockingCounts(null);
+            }}
+          >
+            Cancel
+          </Button>
           {!blockingCounts && (
             <Button
               variant="contained"
-              color={toggleTarget?.isActive ? 'error' : 'success'}
+              color={toggleTarget?.isActive ? "error" : "success"}
               onClick={onToggleConfirm}
               disabled={toggleMutation.isPending}
             >
               {toggleMutation.isPending
-                ? 'Processing...'
-                : toggleTarget?.isActive ? 'Deactivate' : 'Activate'}
+                ? "Processing..."
+                : toggleTarget?.isActive
+                  ? "Deactivate"
+                  : "Activate"}
             </Button>
           )}
         </DialogActions>
       </Dialog>
 
       {/* ── Reset Password Dialog ── */}
-      <Dialog open={!!resetPasswordTarget} onClose={() => setResetPasswordTarget(null)} maxWidth="xs" fullWidth>
-        <DialogTitle>Reset Password — {resetPasswordTarget?.username}</DialogTitle>
+      <Dialog
+        open={!!resetPasswordTarget}
+        onClose={() => setResetPasswordTarget(null)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>
+          Reset Password — {resetPasswordTarget?.username}
+        </DialogTitle>
         <form onSubmit={resetPasswordForm.handleSubmit(onResetPasswordSubmit)}>
           <DialogContent>
-            {apiError && <Alert severity="error" sx={{ mb: 2 }}>{apiError}</Alert>}
+            {apiError && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                {apiError}
+              </Alert>
+            )}
 
             <Controller
               name="newPassword"
@@ -745,11 +888,20 @@ export default function AdminUsersPage() {
             />
           </DialogContent>
           <DialogActions>
-            <Button onClick={() => { setResetPasswordTarget(null); resetPasswordForm.reset(); }}>
+            <Button
+              onClick={() => {
+                setResetPasswordTarget(null);
+                resetPasswordForm.reset();
+              }}
+            >
               Cancel
             </Button>
-            <Button type="submit" variant="contained" disabled={resetPasswordMutation.isPending}>
-              {resetPasswordMutation.isPending ? 'Saving...' : 'Reset Password'}
+            <Button
+              type="submit"
+              variant="contained"
+              disabled={resetPasswordMutation.isPending}
+            >
+              {resetPasswordMutation.isPending ? "Saving..." : "Reset Password"}
             </Button>
           </DialogActions>
         </form>

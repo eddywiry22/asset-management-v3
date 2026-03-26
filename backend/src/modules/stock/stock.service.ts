@@ -65,12 +65,28 @@ export class StockService {
     userId: string,
     isAdmin: boolean,
   ): Promise<{ data: StockOverviewItem[]; total: number }> {
-    const { locationIds, productIds, categoryIds, page, limit, startDate, endDate } = params;
+    const {
+      locationIds,
+      productIds,
+      categoryIds,
+      page,
+      limit,
+      startDate,
+      endDate,
+    } = params;
 
-    logger.info({ productIds, locationIds, categoryIds }, 'Stock filter params');
+    logger.info("Stock filter params", {
+      productIds,
+      locationIds,
+      categoryIds,
+    });
 
     // Determine visible locations (enforces per-user access control)
-    const visibleLocationIds = await this.getVisibleLocationIds(userId, isAdmin, locationIds);
+    const visibleLocationIds = await this.getVisibleLocationIds(
+      userId,
+      isAdmin,
+      locationIds,
+    );
 
     if (visibleLocationIds.length === 0) {
       return { data: [], total: 0 };
@@ -79,9 +95,13 @@ export class StockService {
     // Fetch balances — both dimensions are independent AND conditions
     const skip = (page - 1) * limit;
     const whereClause: Record<string, unknown> = {
-      ...(productIds?.length        && { productId:  { in: productIds } }),
-      ...(visibleLocationIds.length && { locationId: { in: visibleLocationIds } }),
-      ...(categoryIds?.length       && { product: { categoryId: { in: categoryIds } } }),
+      ...(productIds?.length && { productId: { in: productIds } }),
+      ...(visibleLocationIds.length && {
+        locationId: { in: visibleLocationIds },
+      }),
+      ...(categoryIds?.length && {
+        product: { categoryId: { in: categoryIds } },
+      }),
     };
 
     const [balances, total] = await Promise.all([
@@ -90,10 +110,20 @@ export class StockService {
         skip,
         take: limit,
         include: {
-          product:  { select: { id: true, sku: true, name: true, uom: { select: { code: true } }, category: { select: { name: true } } } },
-          location: { select: { id: true, code: true, name: true, isActive: true } },
+          product: {
+            select: {
+              id: true,
+              sku: true,
+              name: true,
+              uom: { select: { code: true } },
+              category: { select: { name: true } },
+            },
+          },
+          location: {
+            select: { id: true, code: true, name: true, isActive: true },
+          },
         },
-        orderBy: [{ location: { code: 'asc' } }, { product: { sku: 'asc' } }],
+        orderBy: [{ location: { code: "asc" } }, { product: { sku: "asc" } }],
       }),
       prisma.stockBalance.count({ where: whereClause }),
     ]);
@@ -101,22 +131,28 @@ export class StockService {
     // Batch-fetch ProductLocation status for all balance rows (avoids N+1)
     const plRows: any[] = await (prisma as any).productLocation.findMany({
       where: {
-        OR: balances.map((b: any) => ({ productId: b.productId, locationId: b.locationId })),
+        OR: balances.map((b: any) => ({
+          productId: b.productId,
+          locationId: b.locationId,
+        })),
       },
     });
     const plMap = new Map<string, { isActive: boolean }>(
-      plRows.map((m: any) => [`${m.productId}:${m.locationId}`, { isActive: !!m.isActive }]),
+      plRows.map((m: any) => [
+        `${m.productId}:${m.locationId}`,
+        { isActive: !!m.isActive },
+      ]),
     );
 
     // For each balance, compute period-based metrics
     const overviewItems: StockOverviewItem[] = await Promise.all(
       balances.map(async (b: any) => {
-        const onHand     = Number(b.onHandQty);
-        const reserved   = Number(b.reservedQty);
+        const onHand = Number(b.onHandQty);
+        const reserved = Number(b.reservedQty);
 
         // Compute period sums from ledger
         let startingQty = 0;
-        let inboundQty  = 0;
+        let inboundQty = 0;
         let outboundQty = 0;
 
         const periodActive = startDate != null || endDate != null;
@@ -124,7 +160,7 @@ export class StockService {
         if (periodActive) {
           const sums = await stockLedgerRepository.sumBySourceType({
             locationId: b.locationId,
-            productId:  b.productId,
+            productId: b.productId,
             startDate,
             endDate,
           });
@@ -135,8 +171,8 @@ export class StockService {
               case LedgerSourceType.ADJUSTMENT:
               case LedgerSourceType.MOVEMENT_IN:
               case LedgerSourceType.TRANSFER_IN:
-                if (s.total > 0) inboundQty  += s.total;
-                else             outboundQty -= s.total;
+                if (s.total > 0) inboundQty += s.total;
+                else outboundQty -= s.total;
                 break;
               case LedgerSourceType.MOVEMENT_OUT:
               case LedgerSourceType.TRANSFER_OUT:
@@ -163,31 +199,33 @@ export class StockService {
 
         // onHandQty and availableQty reflect the historical balance when a period
         // filter is in use; otherwise they show current stock balance state.
-        const displayOnHand    = periodActive ? finalQty : onHand;
-        const displayAvailable = periodActive ? Math.max(0, finalQty) : Math.max(0, onHand - reserved);
+        const displayOnHand = periodActive ? finalQty : onHand;
+        const displayAvailable = periodActive
+          ? Math.max(0, finalQty)
+          : Math.max(0, onHand - reserved);
 
         const plStatus = plMap.get(`${b.productId}:${b.locationId}`);
         const isRegisteredNow = plStatus !== undefined;
-        const isInactiveNow   = isRegisteredNow && !plStatus!.isActive;
+        const isInactiveNow = isRegisteredNow && !plStatus!.isActive;
 
         return {
-          productId:           b.productId,
-          productSku:          b.product.sku,
-          productName:         b.product.name,
-          productCategoryName: b.product.category?.name ?? '',
-          uomCode:             b.product.uom.code,
-          locationId:       b.locationId,
-          locationCode:     b.location.code,
-          locationName:     b.location.name,
+          productId: b.productId,
+          productSku: b.product.sku,
+          productName: b.product.name,
+          productCategoryName: b.product.category?.name ?? "",
+          uomCode: b.product.uom.code,
+          locationId: b.locationId,
+          locationCode: b.location.code,
+          locationName: b.location.name,
           locationIsActive: b.location.isActive,
-          onHandQty:        displayOnHand,
-          reservedQty:    reserved,
-          availableQty:   displayAvailable,
+          onHandQty: displayOnHand,
+          reservedQty: reserved,
+          availableQty: displayAvailable,
           startingQty,
           inboundQty,
           outboundQty,
           finalQty,
-          pendingInbound:  0,
+          pendingInbound: 0,
           pendingOutbound: reserved,
           isRegisteredNow,
           isInactiveNow,
@@ -208,11 +246,15 @@ export class StockService {
   ): Promise<{ data: StockLedgerRow[]; total: number }> {
     const { productIds, locationIds, startDate, endDate, page, limit } = params;
 
-    logger.info({ productIds, locationIds }, 'Stock filter params');
+    logger.info("Stock filter params", { productIds, locationIds });
 
     // Determine visible locations — if specific locationIds were requested,
     // validate access to each; otherwise use all visible locations.
-    const visibleLocationIds = await this.getVisibleLocationIds(userId, isAdmin, locationIds);
+    const visibleLocationIds = await this.getVisibleLocationIds(
+      userId,
+      isAdmin,
+      locationIds,
+    );
 
     if (visibleLocationIds.length === 0) {
       return { data: [], total: 0 };
@@ -222,14 +264,16 @@ export class StockService {
     if (locationIds?.length) {
       for (const locId of locationIds) {
         if (!visibleLocationIds.includes(locId)) {
-          throw new ForbiddenError('You do not have access to this location');
+          throw new ForbiddenError("You do not have access to this location");
         }
       }
     }
 
     // Scope to requested locationIds (if any) intersected with visible ones,
     // otherwise scope to all visible locations to prevent data leakage.
-    const scopedLocationIds = locationIds?.length ? locationIds : visibleLocationIds;
+    const scopedLocationIds = locationIds?.length
+      ? locationIds
+      : visibleLocationIds;
 
     return stockLedgerRepository.findMany({
       productIds,
@@ -259,33 +303,43 @@ export class StockService {
 
     await stockBalanceRepository.upsertZero(tx as any, productId, locationId);
 
-    const locked        = await this.lockBalanceRow(tx as any, productId, locationId);
+    const locked = await this.lockBalanceRow(tx as any, productId, locationId);
     const currentOnHand = Number(locked.onHandQty);
-    const reserved      = Number(locked.reservedQty);
+    const reserved = Number(locked.reservedQty);
 
     if (qtyChange < 0) {
       const available = currentOnHand - reserved;
       if (available + qtyChange < 0) {
         throw new ValidationError(
           `Insufficient available stock for product ${productId} at location ${locationId}. ` +
-          `Available: ${available}, requested change: ${qtyChange}`,
+            `Available: ${available}, requested change: ${qtyChange}`,
         );
       }
     }
 
     let updated: any;
     if (qtyChange >= 0) {
-      updated = await stockBalanceRepository.increment(tx as any, productId, locationId, qtyChange);
+      updated = await stockBalanceRepository.increment(
+        tx as any,
+        productId,
+        locationId,
+        qtyChange,
+      );
     } else {
-      updated = await stockBalanceRepository.decrement(tx as any, productId, locationId, Math.abs(qtyChange));
+      updated = await stockBalanceRepository.decrement(
+        tx as any,
+        productId,
+        locationId,
+        Math.abs(qtyChange),
+      );
     }
 
     await stockLedgerRepository.create(tx as any, {
       productId,
       locationId,
-      changeQty:    qtyChange,
+      changeQty: qtyChange,
       balanceAfter: Number(updated.onHandQty),
-      sourceType:   LedgerSourceType.ADJUSTMENT,
+      sourceType: LedgerSourceType.ADJUSTMENT,
       sourceId,
     });
   }
@@ -307,9 +361,13 @@ export class StockService {
       await stockBalanceRepository.upsertZero(tx as any, productId, locationId);
 
       // Acquire row-level lock (SELECT FOR UPDATE) to prevent concurrent mutations
-      const locked = await this.lockBalanceRow(tx as any, productId, locationId);
+      const locked = await this.lockBalanceRow(
+        tx as any,
+        productId,
+        locationId,
+      );
       const currentOnHand = Number(locked.onHandQty);
-      const reserved      = Number(locked.reservedQty);
+      const reserved = Number(locked.reservedQty);
 
       if (qtyChange < 0) {
         const available = currentOnHand - reserved;
@@ -322,17 +380,27 @@ export class StockService {
 
       let updated: any;
       if (qtyChange >= 0) {
-        updated = await stockBalanceRepository.increment(tx as any, productId, locationId, qtyChange);
+        updated = await stockBalanceRepository.increment(
+          tx as any,
+          productId,
+          locationId,
+          qtyChange,
+        );
       } else {
-        updated = await stockBalanceRepository.decrement(tx as any, productId, locationId, Math.abs(qtyChange));
+        updated = await stockBalanceRepository.decrement(
+          tx as any,
+          productId,
+          locationId,
+          Math.abs(qtyChange),
+        );
       }
 
       await stockLedgerRepository.create(tx as any, {
         productId,
         locationId,
-        changeQty:    qtyChange,
+        changeQty: qtyChange,
         balanceAfter: Number(updated.onHandQty),
-        sourceType:   LedgerSourceType.ADJUSTMENT,
+        sourceType: LedgerSourceType.ADJUSTMENT,
         sourceId,
       });
     });
@@ -352,7 +420,11 @@ export class StockService {
     await prisma.$transaction(async (tx) => {
       await stockBalanceRepository.upsertZero(tx as any, productId, locationId);
 
-      const locked    = await this.lockBalanceRow(tx as any, productId, locationId);
+      const locked = await this.lockBalanceRow(
+        tx as any,
+        productId,
+        locationId,
+      );
       const available = Number(locked.onHandQty) - Number(locked.reservedQty);
 
       if (available < qty) {
@@ -361,14 +433,19 @@ export class StockService {
         );
       }
 
-      const updated = await stockBalanceRepository.decrement(tx as any, productId, locationId, qty);
+      const updated = await stockBalanceRepository.decrement(
+        tx as any,
+        productId,
+        locationId,
+        qty,
+      );
 
       await stockLedgerRepository.create(tx as any, {
         productId,
         locationId,
-        changeQty:    -qty,
+        changeQty: -qty,
         balanceAfter: Number(updated.onHandQty),
-        sourceType:   LedgerSourceType.MOVEMENT_OUT,
+        sourceType: LedgerSourceType.MOVEMENT_OUT,
         sourceId,
       });
     });
@@ -391,14 +468,19 @@ export class StockService {
       // Lock the row before incrementing to maintain consistent balanceAfter
       await this.lockBalanceRow(tx as any, productId, locationId);
 
-      const updated = await stockBalanceRepository.increment(tx as any, productId, locationId, qty);
+      const updated = await stockBalanceRepository.increment(
+        tx as any,
+        productId,
+        locationId,
+        qty,
+      );
 
       await stockLedgerRepository.create(tx as any, {
         productId,
         locationId,
-        changeQty:    qty,
+        changeQty: qty,
         balanceAfter: Number(updated.onHandQty),
-        sourceType:   LedgerSourceType.MOVEMENT_IN,
+        sourceType: LedgerSourceType.MOVEMENT_IN,
         sourceId,
       });
     });
@@ -415,13 +497,27 @@ export class StockService {
     qty: number;
     sourceId: string;
   }): Promise<void> {
-    const { productId, sourceLocationId, destinationLocationId, qty, sourceId } = params;
+    const {
+      productId,
+      sourceLocationId,
+      destinationLocationId,
+      qty,
+      sourceId,
+    } = params;
 
     // Decrease stock at source (TRANSFER_OUT)
     await prisma.$transaction(async (tx) => {
-      await stockBalanceRepository.upsertZero(tx as any, productId, sourceLocationId);
+      await stockBalanceRepository.upsertZero(
+        tx as any,
+        productId,
+        sourceLocationId,
+      );
 
-      const locked    = await this.lockBalanceRow(tx as any, productId, sourceLocationId);
+      const locked = await this.lockBalanceRow(
+        tx as any,
+        productId,
+        sourceLocationId,
+      );
       const available = Number(locked.onHandQty) - Number(locked.reservedQty);
 
       if (available < qty) {
@@ -430,32 +526,46 @@ export class StockService {
         );
       }
 
-      const updated = await stockBalanceRepository.decrement(tx as any, productId, sourceLocationId, qty);
+      const updated = await stockBalanceRepository.decrement(
+        tx as any,
+        productId,
+        sourceLocationId,
+        qty,
+      );
 
       await stockLedgerRepository.create(tx as any, {
         productId,
-        locationId:   sourceLocationId,
-        changeQty:    -qty,
+        locationId: sourceLocationId,
+        changeQty: -qty,
         balanceAfter: Number(updated.onHandQty),
-        sourceType:   LedgerSourceType.TRANSFER_OUT,
+        sourceType: LedgerSourceType.TRANSFER_OUT,
         sourceId,
       });
     });
 
     // Increase stock at destination (TRANSFER_IN)
     await prisma.$transaction(async (tx) => {
-      await stockBalanceRepository.upsertZero(tx as any, productId, destinationLocationId);
+      await stockBalanceRepository.upsertZero(
+        tx as any,
+        productId,
+        destinationLocationId,
+      );
 
       await this.lockBalanceRow(tx as any, productId, destinationLocationId);
 
-      const updated = await stockBalanceRepository.increment(tx as any, productId, destinationLocationId, qty);
+      const updated = await stockBalanceRepository.increment(
+        tx as any,
+        productId,
+        destinationLocationId,
+        qty,
+      );
 
       await stockLedgerRepository.create(tx as any, {
         productId,
-        locationId:   destinationLocationId,
-        changeQty:    qty,
+        locationId: destinationLocationId,
+        changeQty: qty,
         balanceAfter: Number(updated.onHandQty),
-        sourceType:   LedgerSourceType.TRANSFER_IN,
+        sourceType: LedgerSourceType.TRANSFER_IN,
         sourceId,
       });
     });
@@ -474,7 +584,11 @@ export class StockService {
     await prisma.$transaction(async (tx) => {
       await stockBalanceRepository.upsertZero(tx as any, productId, locationId);
 
-      const locked    = await this.lockBalanceRow(tx as any, productId, locationId);
+      const locked = await this.lockBalanceRow(
+        tx as any,
+        productId,
+        locationId,
+      );
       const available = Number(locked.onHandQty) - Number(locked.reservedQty);
 
       if (available < qty) {
@@ -483,7 +597,12 @@ export class StockService {
         );
       }
 
-      await stockBalanceRepository.reserve(tx as any, productId, locationId, qty);
+      await stockBalanceRepository.reserve(
+        tx as any,
+        productId,
+        locationId,
+        qty,
+      );
     });
   }
 
@@ -511,7 +630,12 @@ export class StockService {
         );
       }
 
-      await stockBalanceRepository.release(tx as any, productId, locationId, qty);
+      await stockBalanceRepository.release(
+        tx as any,
+        productId,
+        locationId,
+        qty,
+      );
     });
   }
 
@@ -590,7 +714,7 @@ export class StockService {
       `;
     if (!rows.length) {
       // Should not happen after upsertZero, but guard defensively
-      return { onHandQty: '0', reservedQty: '0' };
+      return { onHandQty: "0", reservedQty: "0" };
     }
     return rows[0];
   }
@@ -604,7 +728,9 @@ export class StockService {
       if (requestedLocationIds?.length) return requestedLocationIds;
 
       // Stage 8.4.2: admins see stock for all locations, including inactive
-      const locations = await prisma.location.findMany({ select: { id: true } });
+      const locations = await prisma.location.findMany({
+        select: { id: true },
+      });
       return locations.map((l) => l.id);
     }
 
@@ -618,7 +744,7 @@ export class StockService {
     if (requestedLocationIds?.length) {
       for (const locId of requestedLocationIds) {
         if (!userLocationIds.includes(locId)) {
-          throw new ForbiddenError('You do not have access to this location');
+          throw new ForbiddenError("You do not have access to this location");
         }
       }
       return requestedLocationIds;

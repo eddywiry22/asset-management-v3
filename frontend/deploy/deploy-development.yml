@@ -1,0 +1,34 @@
+version: "3.6"
+
+services:
+  fe:
+    image: ${IMAGE_VERSION}
+    networks:
+      - code-overlay
+    env_file:
+      - ./development.env
+    #   - development.env
+    # environment:
+    #   - NODE_ENV=${CI_ENVIRONMENT_NAME}
+    #   - VERSION="1.0.${CI_PIPELINE_ID}"
+    #   - ELASTIC_APM_ENVIRONMENT=${CI_ENVIRONMENT_NAME}
+    # volumes:
+    #   - upload_data:/usr/app/upload
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: "0.4"
+          memory: 256m
+        reservations:
+          cpus: "0.2"
+          memory: 128m
+      restart_policy:
+        condition: on-failure
+
+networks:
+  code-overlay:
+    external: true
+
+# volumes:
+#   upload_data:
