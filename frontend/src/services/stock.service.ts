@@ -65,6 +65,7 @@ export type LedgerQueryParams = {
 
 export type VisibleLocation = { id: string; code: string; name: string; isActive?: boolean; role?: string };
 export type RegisteredProduct = { id: string; sku: string; name: string };
+export type ProductFilterOption = { id: string; sku: string; name: string; categoryId: string };
 
 const stockService = {
   async getVisibleLocations(): Promise<VisibleLocation[]> {
@@ -77,6 +78,22 @@ const stockService = {
   async getRegisteredProducts(locationId: string): Promise<RegisteredProduct[]> {
     const res = await apiClient.get<{ success: boolean; data: RegisteredProduct[] }>(
       `stock/registered-products?locationId=${encodeURIComponent(locationId)}`,
+    );
+    return res.data.data;
+  },
+
+  async getFilterProducts(params: { categoryIds?: string[]; locationIds?: string[] } = {}): Promise<ProductFilterOption[]> {
+    const { categoryIds, locationIds } = params;
+    const query = new URLSearchParams();
+    if (categoryIds?.length) {
+      categoryIds.forEach(id => query.append('categoryIds', id));
+    }
+    if (locationIds?.length) {
+      locationIds.forEach(id => query.append('locationIds', id));
+    }
+    const qs = query.toString();
+    const res = await apiClient.get<{ success: boolean; data: ProductFilterOption[] }>(
+      `stock/filter-products${qs ? `?${qs}` : ''}`,
     );
     return res.data.data;
   },

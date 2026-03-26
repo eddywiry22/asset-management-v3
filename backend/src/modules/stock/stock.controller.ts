@@ -1,5 +1,5 @@
 import { Response, NextFunction } from 'express';
-import { stockService } from './stock.service';
+import { stockService, ProductFilterOption } from './stock.service';
 import { stockQuerySchema, ledgerQuerySchema } from './stock.validator';
 import { AuthenticatedRequest } from '../../types/request.types';
 import { ValidationError } from '../../utils/errors';
@@ -114,6 +114,19 @@ export class StockController {
         throw new ValidationError('locationId query parameter is required');
       }
       const products = await getRegisteredProductsAtLocation(locationId);
+      res.status(200).json({ success: true, data: products });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async getFilterProducts(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const categoryIds = toArray(req.query.categoryIds as string | string[] | undefined);
+      const locationIds = toArray(req.query.locationIds as string | string[] | undefined);
+
+      const products: ProductFilterOption[] = await stockService.getFilterProducts({ categoryIds, locationIds });
+
       res.status(200).json({ success: true, data: products });
     } catch (err) {
       next(err);
