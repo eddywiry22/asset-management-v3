@@ -65,6 +65,18 @@ export class ProductRepository {
       include: RELATIONS,
     }) as Promise<ProductWithRelations>;
   }
+
+  async getAllCategories(): Promise<{ id: string; name: string }[]> {
+    return prisma.category.findMany({ select: { id: true, name: true } });
+  }
+
+  async getAllVendors(): Promise<{ id: string; name: string }[]> {
+    return prisma.vendor.findMany({ select: { id: true, name: true } });
+  }
+
+  async getAllUoms(): Promise<{ id: string; name: string }[]> {
+    return prisma.uom.findMany({ select: { id: true, name: true } });
+  }
 }
 
 export const productRepository = new ProductRepository();

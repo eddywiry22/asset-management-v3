@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import ExcelJS from 'exceljs';
 import { productRepository, ProductWithRelations } from './repositories/product.repository';
 import { categoryRepository } from '../categories/repositories/category.repository';
 import { vendorRepository } from '../vendors/repositories/vendor.repository';
@@ -144,6 +145,80 @@ export class ProductsService {
     });
 
     return updated;
+  }
+
+  async generateBulkTemplate(): Promise<ExcelJS.Buffer> {
+    const [categories, vendors, uoms] = await Promise.all([
+      productRepository.getAllCategories(),
+      productRepository.getAllVendors(),
+      productRepository.getAllUoms(),
+    ]);
+
+    const workbook = new ExcelJS.Workbook();
+
+    // 1. Guidelines sheet
+    const guidelines = workbook.addWorksheet('Guidelines');
+    const guidelinesData = [
+      ['Bulk Product Upload Template'],
+      [''],
+      ['Instructions:'],
+      ['1. Fill in the "Add Products" sheet only.'],
+      ['2. Required fields: sku, name, categoryName, vendorName, uomName'],
+      ['3. SKU must be unique and not already exist.'],
+      ['4. categoryName, vendorName, uomName must match existing values.'],
+      ['5. Matching is case-insensitive.'],
+      ['6. Maximum 100 rows allowed.'],
+      ['7. Do not modify other sheets.'],
+      [''],
+      ['Example:'],
+      ['sku: PROD-001'],
+      ['name: Sample Product'],
+      ['categoryName: Electronics'],
+      ['vendorName: ABC Supplier'],
+      ['uomName: PCS'],
+    ];
+    guidelinesData.forEach((row) => guidelines.addRow(row));
+    guidelines.getColumn(1).width = 60;
+
+    // 2. Categories sheet
+    const categoriesSheet = workbook.addWorksheet('Categories');
+    categoriesSheet.addRow(['id', 'name']);
+    categoriesSheet.getRow(1).font = { bold: true };
+    categoriesSheet.getColumn(1).width = 38;
+    categoriesSheet.getColumn(2).width = 30;
+    categories.forEach((c) => categoriesSheet.addRow([c.id, c.name]));
+
+    // 3. Vendors sheet
+    const vendorsSheet = workbook.addWorksheet('Vendors');
+    vendorsSheet.addRow(['id', 'name']);
+    vendorsSheet.getRow(1).font = { bold: true };
+    vendorsSheet.getColumn(1).width = 38;
+    vendorsSheet.getColumn(2).width = 30;
+    vendors.forEach((v) => vendorsSheet.addRow([v.id, v.name]));
+
+    // 4. UOMs sheet
+    const uomsSheet = workbook.addWorksheet('UOMs');
+    uomsSheet.addRow(['id', 'name']);
+    uomsSheet.getRow(1).font = { bold: true };
+    uomsSheet.getColumn(1).width = 38;
+    uomsSheet.getColumn(2).width = 30;
+    uoms.forEach((u) => uomsSheet.addRow([u.id, u.name]));
+
+    // 5. Add Products sheet
+    const addProducts = workbook.addWorksheet('Add Products');
+    addProducts.addRow(['sku', 'name', 'categoryName', 'vendorName', 'uomName', 'error']);
+    const headerRow = addProducts.getRow(1);
+    headerRow.font = { bold: true };
+    addProducts.getColumn(1).width = 20;  // sku
+    addProducts.getColumn(2).width = 30;  // name
+    addProducts.getColumn(3).width = 25;  // categoryName
+    addProducts.getColumn(4).width = 25;  // vendorName
+    addProducts.getColumn(5).width = 25;  // uomName
+    addProducts.getColumn(6).width = 40;  // error
+    addProducts.views = [{ state: 'frozen', ySplit: 1 }];
+    addProducts.autoFilter = { from: 'A1', to: 'F1' };
+
+    return workbook.xlsx.writeBuffer();
   }
 }
 

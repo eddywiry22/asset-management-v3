@@ -3,8 +3,13 @@ import { productsController } from './products.controller';
 import { validateBody } from '../../utils/validation';
 import { createProductSchema, updateProductSchema } from './products.validator';
 import { AuthenticatedRequest } from '../../types/request.types';
+import { adminMiddleware } from '../../middlewares/admin.middleware';
 
 const router = Router();
+
+router.get('/bulk-template', adminMiddleware, (req, res, next) =>
+  productsController.downloadBulkTemplate(req as AuthenticatedRequest, res, next)
+);
 
 router.get('/', (req, res, next) =>
   productsController.getAll(req as AuthenticatedRequest, res, next)
