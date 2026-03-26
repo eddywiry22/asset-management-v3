@@ -1,4 +1,5 @@
 import { Response, NextFunction } from 'express';
+import ExcelJS from 'exceljs';
 import { productsService } from './products.service';
 import { productQuerySchema } from './products.validator';
 import { AuthenticatedRequest } from '../../types/request.types';
@@ -43,6 +44,23 @@ export class ProductsController {
     try {
       const data = await productsService.update(req.params.id, req.body, req.user.id);
       res.status(200).json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async downloadBulkTemplate(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const buffer: ExcelJS.Buffer = await productsService.generateBulkTemplate();
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+      res.setHeader(
+        'Content-Disposition',
+        'attachment; filename="bulk-product-template.xlsx"',
+      );
+      res.send(buffer);
     } catch (err) {
       next(err);
     }
