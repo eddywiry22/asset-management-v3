@@ -1,5 +1,14 @@
 import { Prisma } from '@prisma/client';
 import ExcelJS from 'exceljs';
+
+export interface BulkUploadRow {
+  rowNumber:    number;
+  sku:          string | null;
+  name:         string | null;
+  categoryName: string | null;
+  vendorName:   string | null;
+  uomName:      string | null;
+}
 import { productRepository, ProductWithRelations } from './repositories/product.repository';
 import { categoryRepository } from '../categories/repositories/category.repository';
 import { vendorRepository } from '../vendors/repositories/vendor.repository';
@@ -145,6 +154,46 @@ export class ProductsService {
     });
 
     return updated;
+  }
+
+  async parseBulkUpload(fileBuffer: Buffer): Promise<BulkUploadRow[]> {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(fileBuffer as unknown as ArrayBuffer);
+
+    const sheet = workbook.getWorksheet('Add Products');
+    if (!sheet) {
+      throw new ValidationError('Missing "Add Products" sheet in uploaded file');
+    }
+
+    const rows: BulkUploadRow[] = [];
+
+    sheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return; // skip header
+
+      const getCellValue = (col: number): string | null => {
+        const cell = row.getCell(col);
+        const val = cell.value;
+        if (val === null || val === undefined) return null;
+        const str = String(val).trim();
+        return str === '' ? null : str;
+      };
+
+      const parsed: BulkUploadRow = {
+        rowNumber,
+        sku:          getCellValue(1),
+        name:         getCellValue(2),
+        categoryName: getCellValue(3),
+        vendorName:   getCellValue(4),
+        uomName:      getCellValue(5),
+      };
+
+      // Skip completely empty rows
+      if (parsed.sku || parsed.name || parsed.categoryName || parsed.vendorName || parsed.uomName) {
+        rows.push(parsed);
+      }
+    });
+
+    return rows;
   }
 
   async generateBulkTemplate(): Promise<ExcelJS.Buffer> {
