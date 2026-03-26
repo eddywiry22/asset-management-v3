@@ -59,9 +59,25 @@ export class ProductsController {
       if (ext !== 'xlsx') {
         throw new ValidationError('File must be an .xlsx file');
       }
-      const rows = await productsService.parseBulkUpload(req.file.buffer);
-      const result = await productsService.validateBulkRows(rows);
-      res.status(200).json({ success: true, data: result });
+      const rows       = await productsService.parseBulkUpload(req.file.buffer);
+      const validation = await productsService.validateBulkRows(rows);
+      const insert     = await productsService.processBulkInsert(validation.validRows, req.user.id);
+
+      res.status(200).json({
+        success: true,
+        data: {
+          summary: {
+            total:   validation.summary.total,
+            valid:   validation.summary.valid,
+            invalid: validation.summary.invalid,
+            success: insert.summary.success,
+            failed:  insert.summary.failed,
+          },
+          invalidRows: validation.invalidRows,
+          successRows: insert.successRows,
+          failedRows:  insert.failedRows,
+        },
+      });
     } catch (err) {
       next(err);
     }

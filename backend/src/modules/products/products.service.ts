@@ -316,6 +316,41 @@ export class ProductsService {
     };
   }
 
+  async processBulkInsert(
+    validRows: Array<{
+      rowNumber: number;
+      data: { sku: string; name: string; categoryId: string; vendorId: string; uomId: string };
+    }>,
+    performedBy: string,
+  ): Promise<{
+    summary: { total: number; success: number; failed: number };
+    successRows: Array<{ rowNumber: number; sku: string }>;
+    failedRows:  Array<{ rowNumber: number; sku: string; error: string }>;
+  }> {
+    const successRows: Array<{ rowNumber: number; sku: string }> = [];
+    const failedRows:  Array<{ rowNumber: number; sku: string; error: string }> = [];
+
+    for (const row of validRows) {
+      try {
+        await this.create(row.data, performedBy);
+        successRows.push({ rowNumber: row.rowNumber, sku: row.data.sku });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Failed to create product';
+        failedRows.push({ rowNumber: row.rowNumber, sku: row.data.sku, error: message });
+      }
+    }
+
+    return {
+      summary: {
+        total:   validRows.length,
+        success: successRows.length,
+        failed:  failedRows.length,
+      },
+      successRows,
+      failedRows,
+    };
+  }
+
   async parseBulkUpload(fileBuffer: Buffer): Promise<BulkUploadRow[]> {
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(fileBuffer as unknown as ArrayBuffer);
