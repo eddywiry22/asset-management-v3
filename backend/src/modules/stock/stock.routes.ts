@@ -3,6 +3,9 @@ import { stockController } from './stock.controller';
 
 const router = Router();
 
+// GET /v1/stock/filter-products?categoryIds=<id>&locationIds=<id> — products for filter dropdowns (master data, no stock dependency)
+router.get('/filter-products', (req, res, next) => stockController.getFilterProducts(req as any, res, next));
+
 // GET /v1/stock/registered-products?locationId=<id> — products registered at a location
 router.get('/registered-products', (req, res, next) => stockController.getRegisteredProducts(req as any, res, next));
 
