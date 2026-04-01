@@ -79,6 +79,7 @@ export const productsService = {
     formData.append('file', file);
     const res = await apiClient.post('/admin/products/bulk-upload', formData, {
       responseType: 'blob',
+      headers: { 'Content-Type': undefined }, // clear json default; let browser set multipart boundary
     });
     const url = window.URL.createObjectURL(new Blob([res.data]));
     const a = document.createElement('a');
