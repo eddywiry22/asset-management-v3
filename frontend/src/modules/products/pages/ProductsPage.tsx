@@ -397,7 +397,7 @@ export default function ProductsPage() {
     for (let i = 0; i < updatedRows.length; i++) {
       const row = updatedRows[i];
       try {
-        await apiClient.post('/products', {
+        await apiClient.post('/admin/products', {
           sku:        row.sku,
           name:       row.name,
           categoryId: row.categoryId,
