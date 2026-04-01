@@ -77,6 +77,11 @@ export class ProductRepository {
   async getAllUoms(): Promise<{ id: string; name: string }[]> {
     return prisma.uom.findMany({ select: { id: true, name: true } });
   }
+
+  async getAllSkus(): Promise<string[]> {
+    const products = await prisma.product.findMany({ select: { sku: true } });
+    return products.map((p) => p.sku.toLowerCase());
+  }
 }
 
 export const productRepository = new ProductRepository();

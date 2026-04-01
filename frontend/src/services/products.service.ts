@@ -73,4 +73,21 @@ export const productsService = {
     a.remove();
     window.URL.revokeObjectURL(url);
   },
+
+  async uploadBulkProducts(file: File): Promise<void> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await apiClient.post('/admin/products/bulk-upload', formData, {
+      responseType: 'blob',
+      headers: { 'Content-Type': undefined }, // clear json default; let browser set multipart boundary
+    });
+    const url = window.URL.createObjectURL(new Blob([res.data]));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'bulk-upload-result.xlsx';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  },
 };

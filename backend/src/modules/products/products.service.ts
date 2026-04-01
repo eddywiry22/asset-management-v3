@@ -156,6 +156,246 @@ export class ProductsService {
     return updated;
   }
 
+  async validateBulkRows(rows: BulkUploadRow[]): Promise<{
+    summary: { total: number; valid: number; invalid: number };
+    validRows: Array<{
+      rowNumber: number;
+      data: { sku: string; name: string; categoryId: string; vendorId: string; uomId: string };
+    }>;
+    invalidRows: Array<{
+      rowNumber: number;
+      raw: { sku: string | null; name: string | null; categoryName: string | null; vendorName: string | null; uomName: string | null };
+      errors: string[];
+    }>;
+  }> {
+    // Preload all reference data in one round-trip
+    const [categories, vendors, uoms, existingSkus] = await Promise.all([
+      productRepository.getAllCategories(),
+      productRepository.getAllVendors(),
+      productRepository.getAllUoms(),
+      productRepository.getAllSkus(),
+    ]);
+
+    // Build lookup map with duplicate-name detection
+    const buildLookupMap = (
+      items: { id: string; name: string }[],
+      entityLabel: string,
+    ): Map<string, string> => {
+      const nameToIds = new Map<string, string[]>();
+      for (const item of items) {
+        const key = item.name.trim().toLowerCase();
+        const existing = nameToIds.get(key);
+        if (existing) existing.push(item.id);
+        else nameToIds.set(key, [item.id]);
+      }
+      const map = new Map<string, string>();
+      for (const [key, ids] of nameToIds) {
+        if (ids.length > 1) {
+          throw new ValidationError(`Duplicate ${entityLabel} names detected in system`);
+        }
+        map.set(key, ids[0]);
+      }
+      return map;
+    };
+
+    const categoryMap = buildLookupMap(categories, 'category');
+    const vendorMap   = buildLookupMap(vendors,    'vendor');
+    const uomMap      = buildLookupMap(uoms,       'UOM');
+
+    const existingSkuSet = new Set(existingSkus);
+
+    // Detect duplicate SKUs within the file (case-insensitive)
+    const fileSkuRows = new Map<string, number[]>();
+    for (const row of rows) {
+      if (row.sku) {
+        const key = row.sku.trim().toLowerCase();
+        const existing = fileSkuRows.get(key);
+        if (existing) existing.push(row.rowNumber);
+        else fileSkuRows.set(key, [row.rowNumber]);
+      }
+    }
+    const duplicateFileSkus = new Set<string>();
+    for (const [key, rowNums] of fileSkuRows) {
+      if (rowNums.length > 1) duplicateFileSkus.add(key);
+    }
+
+    const validRows: Array<{
+      rowNumber: number;
+      data: { sku: string; name: string; categoryId: string; vendorId: string; uomId: string };
+    }> = [];
+
+    const invalidRows: Array<{
+      rowNumber: number;
+      raw: { sku: string | null; name: string | null; categoryName: string | null; vendorName: string | null; uomName: string | null };
+      errors: string[];
+    }> = [];
+
+    for (const row of rows) {
+      const errors: string[] = [];
+
+      // Normalize: trim + empty → null
+      const sku          = row.sku?.trim()          || null;
+      const name         = row.name?.trim()         || null;
+      const categoryName = row.categoryName?.trim() || null;
+      const vendorName   = row.vendorName?.trim()   || null;
+      const uomName      = row.uomName?.trim()      || null;
+
+      // Required field checks
+      if (!sku)          errors.push('SKU is required');
+      if (!name)         errors.push('Name is required');
+      if (!categoryName) errors.push('Category name is required');
+      if (!vendorName)   errors.push('Vendor name is required');
+      if (!uomName)      errors.push('UOM name is required');
+
+      // Reference mapping
+      let categoryId: string | undefined;
+      let vendorId:   string | undefined;
+      let uomId:      string | undefined;
+
+      if (categoryName) {
+        categoryId = categoryMap.get(categoryName.toLowerCase());
+        if (!categoryId) errors.push(`Invalid categoryName: ${categoryName}`);
+      }
+
+      if (vendorName) {
+        vendorId = vendorMap.get(vendorName.toLowerCase());
+        if (!vendorId) errors.push(`Invalid vendorName: ${vendorName}`);
+      }
+
+      if (uomName) {
+        uomId = uomMap.get(uomName.toLowerCase());
+        if (!uomId) errors.push(`Invalid uomName: ${uomName}`);
+      }
+
+      // Duplicate SKU checks
+      if (sku && duplicateFileSkus.has(sku.toLowerCase())) {
+        errors.push('Duplicate SKU in file');
+      }
+
+      if (sku && existingSkuSet.has(sku.toLowerCase())) {
+        errors.push('SKU already exists');
+      }
+
+      if (errors.length > 0) {
+        invalidRows.push({
+          rowNumber: row.rowNumber,
+          raw: {
+            sku:          row.sku,
+            name:         row.name,
+            categoryName: row.categoryName,
+            vendorName:   row.vendorName,
+            uomName:      row.uomName,
+          },
+          errors,
+        });
+      } else {
+        validRows.push({
+          rowNumber: row.rowNumber,
+          data: {
+            sku:        sku!,
+            name:       name!,
+            categoryId: categoryId!,
+            vendorId:   vendorId!,
+            uomId:      uomId!,
+          },
+        });
+      }
+    }
+
+    // Sort invalidRows by rowNumber
+    invalidRows.sort((a, b) => a.rowNumber - b.rowNumber);
+
+    return {
+      summary: {
+        total:   rows.length,
+        valid:   validRows.length,
+        invalid: invalidRows.length,
+      },
+      validRows,
+      invalidRows,
+    };
+  }
+
+  async processBulkInsert(
+    validRows: Array<{
+      rowNumber: number;
+      data: { sku: string; name: string; categoryId: string; vendorId: string; uomId: string };
+    }>,
+    performedBy: string,
+  ): Promise<{
+    summary: { total: number; success: number; failed: number };
+    successRows: Array<{ rowNumber: number; sku: string }>;
+    failedRows:  Array<{ rowNumber: number; sku: string; error: string }>;
+  }> {
+    const successRows: Array<{ rowNumber: number; sku: string }> = [];
+    const failedRows:  Array<{ rowNumber: number; sku: string; error: string }> = [];
+
+    for (const row of validRows) {
+      try {
+        await this.create(row.data, performedBy);
+        successRows.push({ rowNumber: row.rowNumber, sku: row.data.sku });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Failed to create product';
+        failedRows.push({ rowNumber: row.rowNumber, sku: row.data.sku, error: message });
+      }
+    }
+
+    return {
+      summary: {
+        total:   validRows.length,
+        success: successRows.length,
+        failed:  failedRows.length,
+      },
+      successRows,
+      failedRows,
+    };
+  }
+
+  async annotateWorkbook(
+    fileBuffer: Buffer,
+    invalidRows: Array<{ rowNumber: number; errors: string[] }>,
+    failedRows:  Array<{ rowNumber: number; sku: string; error: string }>,
+  ): Promise<Buffer> {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(fileBuffer as unknown as ArrayBuffer);
+
+    const sheet = workbook.getWorksheet('Add Products');
+    if (!sheet) {
+      throw new ValidationError('Missing "Add Products" sheet in uploaded file');
+    }
+
+    // Build error map: rowNumber → error messages
+    const errorMap = new Map<number, string[]>();
+
+    for (const row of invalidRows) {
+      errorMap.set(row.rowNumber, [...row.errors]);
+    }
+
+    for (const row of failedRows) {
+      const existing = errorMap.get(row.rowNumber) ?? [];
+      existing.push(row.error);
+      errorMap.set(row.rowNumber, existing);
+    }
+
+    // Write errors into column F, preserving all other columns
+    sheet.eachRow((_row, rowNumber) => {
+      if (rowNumber === 1) return; // skip header
+      const errors = errorMap.get(rowNumber);
+      if (errors && errors.length > 0) {
+        sheet.getCell(`F${rowNumber}`).value = errors.join('; ');
+      }
+    });
+
+    return workbook.xlsx.writeBuffer() as Promise<Buffer>;
+  }
+
+  async processBulkUpload(fileBuffer: Buffer, performedBy: string): Promise<Buffer> {
+    const rows       = await this.parseBulkUpload(fileBuffer);
+    const validation = await this.validateBulkRows(rows);
+    const insert     = await this.processBulkInsert(validation.validRows, performedBy);
+    return this.annotateWorkbook(fileBuffer, validation.invalidRows, insert.failedRows);
+  }
+
   async parseBulkUpload(fileBuffer: Buffer): Promise<BulkUploadRow[]> {
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(fileBuffer as unknown as ArrayBuffer);

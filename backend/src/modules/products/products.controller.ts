@@ -59,8 +59,17 @@ export class ProductsController {
       if (ext !== 'xlsx') {
         throw new ValidationError('File must be an .xlsx file');
       }
-      const rows = await productsService.parseBulkUpload(req.file.buffer);
-      res.status(200).json({ success: true, data: { rows } });
+      const buffer = await productsService.processBulkUpload(req.file.buffer, req.user.id);
+
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+      res.setHeader(
+        'Content-Disposition',
+        'attachment; filename="bulk-upload-result.xlsx"',
+      );
+      res.send(buffer);
     } catch (err) {
       next(err);
     }
