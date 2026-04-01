@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import {
   Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
   FormControl, IconButton, InputLabel, MenuItem, Paper,
@@ -12,6 +12,7 @@ import FilterListIcon from '@mui/icons-material/FilterList';
 import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
 import DeleteIcon from '@mui/icons-material/Delete';
 import DownloadIcon from '@mui/icons-material/Download';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -81,6 +82,9 @@ export default function ProductsPage() {
   const [apiError, setApiError]                   = useState('');
   const [snackMsg, setSnackMsg]                   = useState('');
   const [templateLoading, setTemplateLoading]     = useState(false);
+  const [uploadFile, setUploadFile]               = useState<File | null>(null);
+  const [uploadLoading, setUploadLoading]         = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ---------------------------------------------------------------------------
   // Reference data
@@ -286,6 +290,32 @@ export default function ProductsPage() {
   };
 
   // ---------------------------------------------------------------------------
+  // Bulk upload
+  // ---------------------------------------------------------------------------
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = e.target.files?.[0];
+    if (selected) setUploadFile(selected);
+    // Reset input so the same file can be re-selected after a run
+    e.target.value = '';
+  };
+
+  const handleUpload = async () => {
+    if (!uploadFile) return;
+    setUploadLoading(true);
+    try {
+      await productsService.uploadBulkProducts(uploadFile);
+      setUploadFile(null);
+      setSnackMsg('Upload complete. Check downloaded file for results.');
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+    } catch (err) {
+      console.error(err);
+      setSnackMsg('Bulk upload failed. Please try again.');
+    } finally {
+      setUploadLoading(false);
+    }
+  };
+
+  // ---------------------------------------------------------------------------
   // Bulk template download
   // ---------------------------------------------------------------------------
   const handleDownloadTemplate = async () => {
@@ -308,7 +338,7 @@ export default function ProductsPage() {
       {/* Header */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
         <Typography variant="h5">Products</Typography>
-        <Stack direction="row" spacing={1}>
+        <Stack direction="row" spacing={1} alignItems="center">
           <Tooltip title="Download Excel template for bulk product upload">
             <span>
               <Button
@@ -321,6 +351,44 @@ export default function ProductsPage() {
               </Button>
             </span>
           </Tooltip>
+
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx"
+            style={{ display: 'none' }}
+            onChange={handleFileChange}
+          />
+
+          <Tooltip title="Select an .xlsx file to bulk upload products">
+            <span>
+              <Button
+                variant="outlined"
+                startIcon={<UploadFileIcon />}
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadLoading}
+              >
+                {uploadFile ? uploadFile.name : 'Choose File'}
+              </Button>
+            </span>
+          </Tooltip>
+
+          {uploadFile && (
+            <Tooltip title="Upload selected file and download annotated result">
+              <span>
+                <Button
+                  variant="contained"
+                  startIcon={uploadLoading ? <CircularProgress size={16} /> : <UploadFileIcon />}
+                  onClick={handleUpload}
+                  disabled={uploadLoading}
+                >
+                  {uploadLoading ? 'Uploading…' : 'Upload'}
+                </Button>
+              </span>
+            </Tooltip>
+          )}
+
           <Button
             variant="contained"
             startIcon={<AddIcon />}
