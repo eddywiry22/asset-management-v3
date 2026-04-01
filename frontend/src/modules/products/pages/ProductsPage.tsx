@@ -24,6 +24,7 @@ import { uomsService } from '../../../services/uoms.service';
 import { savedFiltersService } from '../../../services/savedFilters.service';
 import SaveFilterModal from '../../../components/SaveFilterModal';
 import ProductAdvancedFilterModal from '../components/ProductAdvancedFilterModal';
+import apiClient from '../../../api/client';
 
 // ---------------------------------------------------------------------------
 // Form schemas
@@ -45,6 +46,37 @@ const editSchema = z.object({
 
 type CreateForm = z.infer<typeof createSchema>;
 type EditForm   = z.infer<typeof editSchema>;
+
+// ---------------------------------------------------------------------------
+// Multi-create types
+// ---------------------------------------------------------------------------
+type ProductRow = {
+  id: string;
+  sku: string;
+  name: string;
+  categoryId: string;
+  vendorId: string;
+  uomId: string;
+  errors?: {
+    sku?: string;
+    name?: string;
+    categoryId?: string;
+    vendorId?: string;
+    uomId?: string;
+  };
+  status?: 'idle' | 'success' | 'error';
+  errorMessage?: string;
+};
+
+const createEmptyRow = (): ProductRow => ({
+  id: crypto.randomUUID(),
+  sku: '',
+  name: '',
+  categoryId: '',
+  vendorId: '',
+  uomId: '',
+  status: 'idle',
+});
 
 // ---------------------------------------------------------------------------
 // Applied filter shape
@@ -85,6 +117,11 @@ export default function ProductsPage() {
   const [uploadFile, setUploadFile]               = useState<File | null>(null);
   const [uploadLoading, setUploadLoading]         = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // -- Multi-create state --
+  const [createMode, setCreateMode]   = useState<'single' | 'multi'>('single');
+  const [rows, setRows]               = useState<ProductRow[]>([createEmptyRow()]);
+  const [multiLoading, setMultiLoading] = useState(false);
 
   // ---------------------------------------------------------------------------
   // Reference data
@@ -290,6 +327,110 @@ export default function ProductsPage() {
   };
 
   // ---------------------------------------------------------------------------
+  // Create modal close (resets mode + rows)
+  // ---------------------------------------------------------------------------
+  const handleCreateClose = () => {
+    if (multiLoading) return;
+    setCreateOpen(false);
+    setCreateMode('single');
+    setRows([createEmptyRow()]);
+    setApiError('');
+    createForm.reset();
+  };
+
+  // ---------------------------------------------------------------------------
+  // Multi-create handlers
+  // ---------------------------------------------------------------------------
+  const handleAddRow = () => {
+    if (rows.length >= 20) return;
+    setRows(prev => [...prev, createEmptyRow()]);
+  };
+
+  const handleRemoveRow = (id: string) => {
+    setRows(prev => {
+      if (prev.length === 1) return [createEmptyRow()];
+      return prev.filter(r => r.id !== id);
+    });
+  };
+
+  const handleRowChange = (
+    id: string,
+    field: keyof Pick<ProductRow, 'sku' | 'name' | 'categoryId' | 'vendorId' | 'uomId'>,
+    value: string,
+  ) => {
+    setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
+  };
+
+  const validateRows = (rowsToValidate: ProductRow[]): ProductRow[] => {
+    const skuCount: Record<string, number> = {};
+    rowsToValidate.forEach(r => {
+      if (r.sku.trim()) {
+        const key = r.sku.trim().toLowerCase();
+        skuCount[key] = (skuCount[key] || 0) + 1;
+      }
+    });
+
+    return rowsToValidate.map(r => {
+      const errors: ProductRow['errors'] = {};
+      if (!r.sku.trim()) {
+        errors.sku = 'Required';
+      } else if (skuCount[r.sku.trim().toLowerCase()] > 1) {
+        errors.sku = 'Duplicate in list';
+      }
+      if (!r.name.trim())    errors.name       = 'Required';
+      if (!r.categoryId)     errors.categoryId = 'Required';
+      if (!r.vendorId)       errors.vendorId   = 'Required';
+      if (!r.uomId)          errors.uomId      = 'Required';
+      return { ...r, errors };
+    });
+  };
+
+  const handleMultiSubmit = async () => {
+    const validated = validateRows(rows);
+    setRows(validated);
+    const hasError = validated.some(r => Object.keys(r.errors || {}).length > 0);
+    if (hasError) return;
+
+    setMultiLoading(true);
+    const updatedRows = [...validated];
+
+    for (let i = 0; i < updatedRows.length; i++) {
+      const row = updatedRows[i];
+      try {
+        await apiClient.post('/admin/products', {
+          sku:        row.sku,
+          name:       row.name,
+          categoryId: row.categoryId,
+          vendorId:   row.vendorId,
+          uomId:      row.uomId,
+        });
+        updatedRows[i] = { ...row, status: 'success', errors: {} };
+      } catch (err: any) {
+        updatedRows[i] = {
+          ...row,
+          status: 'error',
+          errorMessage:
+            err?.response?.data?.error?.message ||
+            err?.response?.data?.message ||
+            'Failed',
+        };
+      }
+      setRows([...updatedRows]);
+    }
+
+    setMultiLoading(false);
+    queryClient.invalidateQueries({ queryKey: ['products'] });
+
+    const successCount = updatedRows.filter(r => r.status === 'success').length;
+    const failCount    = updatedRows.filter(r => r.status === 'error').length;
+    if (failCount === 0) {
+      setSnackMsg(`${successCount} product${successCount !== 1 ? 's' : ''} created successfully`);
+    } else {
+      setSnackMsg(`${successCount} succeeded, ${failCount} failed — fix errors and retry`);
+    }
+  };
+
+  // ---------------------------------------------------------------------------
   // Bulk upload
   // ---------------------------------------------------------------------------
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -329,6 +470,13 @@ export default function ProductsPage() {
       setTemplateLoading(false);
     }
   };
+
+  // ---------------------------------------------------------------------------
+  // Derived helpers for multi-create
+  // ---------------------------------------------------------------------------
+  const allRowsEmpty = rows.every(
+    r => !r.sku.trim() && !r.name.trim() && !r.categoryId && !r.vendorId && !r.uomId,
+  );
 
   // ---------------------------------------------------------------------------
   // Render
@@ -618,71 +766,293 @@ export default function ProductsPage() {
       />
 
       {/* Create Modal */}
-      <Dialog open={createOpen} onClose={() => setCreateOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Add Product</DialogTitle>
-        <form onSubmit={createForm.handleSubmit(onCreateSubmit)}>
-          <DialogContent>
-            {apiError && <Alert severity="error" sx={{ mb: 2 }}>{apiError}</Alert>}
-            <Controller
-              name="sku"
-              control={createForm.control}
-              render={({ field, fieldState }) => (
-                <TextField {...field} label="SKU" fullWidth margin="normal"
-                  error={!!fieldState.error} helperText={fieldState.error?.message} />
-              )}
-            />
-            <Controller
-              name="name"
-              control={createForm.control}
-              render={({ field, fieldState }) => (
-                <TextField {...field} label="Name" fullWidth margin="normal"
-                  error={!!fieldState.error} helperText={fieldState.error?.message} />
-              )}
-            />
-            <Controller
-              name="categoryId"
-              control={createForm.control}
-              render={({ field, fieldState }) => (
-                <TextField {...field} select label="Category" fullWidth margin="normal"
-                  error={!!fieldState.error} helperText={fieldState.error?.message}>
-                  {categories.filter(c => c.isActive).map((c) => (
-                    <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
-                  ))}
-                </TextField>
-              )}
-            />
-            <Controller
-              name="vendorId"
-              control={createForm.control}
-              render={({ field, fieldState }) => (
-                <TextField {...field} select label="Vendor" fullWidth margin="normal"
-                  error={!!fieldState.error} helperText={fieldState.error?.message}>
-                  {vendors.filter(v => v.isActive).map((v) => (
-                    <MenuItem key={v.id} value={v.id}>{v.name}</MenuItem>
-                  ))}
-                </TextField>
-              )}
-            />
-            <Controller
-              name="uomId"
-              control={createForm.control}
-              render={({ field, fieldState }) => (
-                <TextField {...field} select label="Unit of Measurement" fullWidth margin="normal"
-                  error={!!fieldState.error} helperText={fieldState.error?.message}>
-                  {uoms.map((u) => (
-                    <MenuItem key={u.id} value={u.id}>{u.code} — {u.name}</MenuItem>
-                  ))}
-                </TextField>
-              )}
-            />
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setCreateOpen(false)}>Cancel</Button>
-            <Button type="submit" variant="contained" disabled={createMutation.isPending}>
-              {createMutation.isPending ? 'Saving…' : 'Save'}
-            </Button>
-          </DialogActions>
-        </form>
+      <Dialog
+        open={createOpen}
+        onClose={handleCreateClose}
+        maxWidth={createMode === 'multi' ? 'xl' : 'sm'}
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <span>Add Product</span>
+            <TextField
+              select
+              size="small"
+              value={createMode}
+              onChange={(e) => setCreateMode(e.target.value as 'single' | 'multi')}
+              sx={{ minWidth: 160 }}
+              disabled={multiLoading || createMutation.isPending}
+            >
+              <MenuItem value="single">Single Create</MenuItem>
+              <MenuItem value="multi">Multi Create</MenuItem>
+            </TextField>
+          </Box>
+        </DialogTitle>
+
+        {/* ── Single Create ── */}
+        {createMode === 'single' && (
+          <form onSubmit={createForm.handleSubmit(onCreateSubmit)}>
+            <DialogContent>
+              {apiError && <Alert severity="error" sx={{ mb: 2 }}>{apiError}</Alert>}
+              <Controller
+                name="sku"
+                control={createForm.control}
+                render={({ field, fieldState }) => (
+                  <TextField {...field} label="SKU" fullWidth margin="normal"
+                    error={!!fieldState.error} helperText={fieldState.error?.message} />
+                )}
+              />
+              <Controller
+                name="name"
+                control={createForm.control}
+                render={({ field, fieldState }) => (
+                  <TextField {...field} label="Name" fullWidth margin="normal"
+                    error={!!fieldState.error} helperText={fieldState.error?.message} />
+                )}
+              />
+              <Controller
+                name="categoryId"
+                control={createForm.control}
+                render={({ field, fieldState }) => (
+                  <TextField {...field} select label="Category" fullWidth margin="normal"
+                    error={!!fieldState.error} helperText={fieldState.error?.message}>
+                    {categories.filter(c => c.isActive).map((c) => (
+                      <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
+                    ))}
+                  </TextField>
+                )}
+              />
+              <Controller
+                name="vendorId"
+                control={createForm.control}
+                render={({ field, fieldState }) => (
+                  <TextField {...field} select label="Vendor" fullWidth margin="normal"
+                    error={!!fieldState.error} helperText={fieldState.error?.message}>
+                    {vendors.filter(v => v.isActive).map((v) => (
+                      <MenuItem key={v.id} value={v.id}>{v.name}</MenuItem>
+                    ))}
+                  </TextField>
+                )}
+              />
+              <Controller
+                name="uomId"
+                control={createForm.control}
+                render={({ field, fieldState }) => (
+                  <TextField {...field} select label="Unit of Measurement" fullWidth margin="normal"
+                    error={!!fieldState.error} helperText={fieldState.error?.message}>
+                    {uoms.map((u) => (
+                      <MenuItem key={u.id} value={u.id}>{u.code} — {u.name}</MenuItem>
+                    ))}
+                  </TextField>
+                )}
+              />
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={handleCreateClose}>Cancel</Button>
+              <Button type="submit" variant="contained" disabled={createMutation.isPending}>
+                {createMutation.isPending ? 'Saving…' : 'Save'}
+              </Button>
+            </DialogActions>
+          </form>
+        )}
+
+        {/* ── Multi Create ── */}
+        {createMode === 'multi' && (
+          <>
+            <DialogContent sx={{ pb: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                <Typography variant="subtitle1" fontWeight={600}>
+                  Multi Create Products
+                </Typography>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<AddIcon />}
+                  onClick={handleAddRow}
+                  disabled={multiLoading || rows.length >= 20}
+                >
+                  Add Row {rows.length >= 20 ? '(max 20)' : `(${rows.length}/20)`}
+                </Button>
+              </Box>
+
+              <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto' }}>
+                <Table size="small" sx={{ minWidth: 900 }}>
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: 'grey.50' }}>
+                      <TableCell sx={{ width: 40, p: 1 }}>#</TableCell>
+                      <TableCell sx={{ minWidth: 130 }}>SKU *</TableCell>
+                      <TableCell sx={{ minWidth: 160 }}>Name *</TableCell>
+                      <TableCell sx={{ minWidth: 150 }}>Category *</TableCell>
+                      <TableCell sx={{ minWidth: 150 }}>Vendor *</TableCell>
+                      <TableCell sx={{ minWidth: 140 }}>UOM *</TableCell>
+                      <TableCell sx={{ width: 60, textAlign: 'center' }}>Status</TableCell>
+                      <TableCell sx={{ width: 48 }} />
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {rows.map((row, idx) => (
+                      <TableRow
+                        key={row.id}
+                        sx={{
+                          bgcolor:
+                            row.status === 'success' ? 'success.50' :
+                            row.status === 'error'   ? 'error.50'   :
+                            'inherit',
+                          '&:hover': { bgcolor: row.status === 'success' ? 'success.100' : row.status === 'error' ? 'error.100' : 'action.hover' },
+                          verticalAlign: 'top',
+                        }}
+                      >
+                        {/* Row number */}
+                        <TableCell sx={{ p: 1, pt: 1.5, color: 'text.secondary', fontSize: 12 }}>
+                          {idx + 1}
+                        </TableCell>
+
+                        {/* SKU */}
+                        <TableCell sx={{ p: 0.5 }}>
+                          <TextField
+                            size="small"
+                            fullWidth
+                            value={row.sku}
+                            onChange={(e) => handleRowChange(row.id, 'sku', e.target.value)}
+                            error={!!row.errors?.sku}
+                            helperText={row.errors?.sku}
+                            disabled={multiLoading || row.status === 'success'}
+                            inputProps={{ style: { fontSize: 13 } }}
+                          />
+                        </TableCell>
+
+                        {/* Name */}
+                        <TableCell sx={{ p: 0.5 }}>
+                          <TextField
+                            size="small"
+                            fullWidth
+                            value={row.name}
+                            onChange={(e) => handleRowChange(row.id, 'name', e.target.value)}
+                            error={!!row.errors?.name}
+                            helperText={row.errors?.name}
+                            disabled={multiLoading || row.status === 'success'}
+                            inputProps={{ style: { fontSize: 13 } }}
+                          />
+                        </TableCell>
+
+                        {/* Category */}
+                        <TableCell sx={{ p: 0.5 }}>
+                          <TextField
+                            select
+                            size="small"
+                            fullWidth
+                            value={row.categoryId}
+                            onChange={(e) => handleRowChange(row.id, 'categoryId', e.target.value)}
+                            error={!!row.errors?.categoryId}
+                            helperText={row.errors?.categoryId}
+                            disabled={multiLoading || row.status === 'success'}
+                            inputProps={{ style: { fontSize: 13 } }}
+                          >
+                            <MenuItem value=""><em>Select…</em></MenuItem>
+                            {categories.filter(c => c.isActive).map((c) => (
+                              <MenuItem key={c.id} value={c.id} sx={{ fontSize: 13 }}>{c.name}</MenuItem>
+                            ))}
+                          </TextField>
+                        </TableCell>
+
+                        {/* Vendor */}
+                        <TableCell sx={{ p: 0.5 }}>
+                          <TextField
+                            select
+                            size="small"
+                            fullWidth
+                            value={row.vendorId}
+                            onChange={(e) => handleRowChange(row.id, 'vendorId', e.target.value)}
+                            error={!!row.errors?.vendorId}
+                            helperText={row.errors?.vendorId}
+                            disabled={multiLoading || row.status === 'success'}
+                            inputProps={{ style: { fontSize: 13 } }}
+                          >
+                            <MenuItem value=""><em>Select…</em></MenuItem>
+                            {vendors.filter(v => v.isActive).map((v) => (
+                              <MenuItem key={v.id} value={v.id} sx={{ fontSize: 13 }}>{v.name}</MenuItem>
+                            ))}
+                          </TextField>
+                        </TableCell>
+
+                        {/* UOM */}
+                        <TableCell sx={{ p: 0.5 }}>
+                          <TextField
+                            select
+                            size="small"
+                            fullWidth
+                            value={row.uomId}
+                            onChange={(e) => handleRowChange(row.id, 'uomId', e.target.value)}
+                            error={!!row.errors?.uomId}
+                            helperText={row.errors?.uomId}
+                            disabled={multiLoading || row.status === 'success'}
+                            inputProps={{ style: { fontSize: 13 } }}
+                          >
+                            <MenuItem value=""><em>Select…</em></MenuItem>
+                            {uoms.map((u) => (
+                              <MenuItem key={u.id} value={u.id} sx={{ fontSize: 13 }}>
+                                {u.code} — {u.name}
+                              </MenuItem>
+                            ))}
+                          </TextField>
+                        </TableCell>
+
+                        {/* Status */}
+                        <TableCell sx={{ textAlign: 'center', p: 0.5, pt: 1.5 }}>
+                          {row.status === 'success' && (
+                            <Tooltip title="Created successfully">
+                              <span style={{ fontSize: 18 }}>✅</span>
+                            </Tooltip>
+                          )}
+                          {row.status === 'error' && (
+                            <Tooltip title={row.errorMessage ?? 'Failed'}>
+                              <span style={{ fontSize: 18 }}>❌</span>
+                            </Tooltip>
+                          )}
+                          {row.errorMessage && row.status === 'error' && (
+                            <Typography variant="caption" color="error" display="block" sx={{ mt: 0.5, lineHeight: 1.2 }}>
+                              {row.errorMessage}
+                            </Typography>
+                          )}
+                        </TableCell>
+
+                        {/* Remove */}
+                        <TableCell sx={{ p: 0.5, pt: 1 }}>
+                          <IconButton
+                            size="small"
+                            onClick={() => handleRemoveRow(row.id)}
+                            disabled={multiLoading || row.status === 'success'}
+                            color="error"
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                {rows.length} row{rows.length !== 1 ? 's' : ''} · Rows persist after submit so you can fix errors and retry
+              </Typography>
+            </DialogContent>
+
+            <DialogActions>
+              <Button onClick={handleCreateClose} disabled={multiLoading}>
+                Close
+              </Button>
+              <Button
+                variant="contained"
+                onClick={handleMultiSubmit}
+                disabled={multiLoading || allRowsEmpty}
+                startIcon={multiLoading ? <CircularProgress size={16} /> : undefined}
+              >
+                {multiLoading ? 'Creating…' : `Create All (${rows.filter(r => r.status !== 'success').length})`}
+              </Button>
+            </DialogActions>
+          </>
+        )}
       </Dialog>
 
       {/* Edit Modal */}
