@@ -59,25 +59,17 @@ export class ProductsController {
       if (ext !== 'xlsx') {
         throw new ValidationError('File must be an .xlsx file');
       }
-      const rows       = await productsService.parseBulkUpload(req.file.buffer);
-      const validation = await productsService.validateBulkRows(rows);
-      const insert     = await productsService.processBulkInsert(validation.validRows, req.user.id);
+      const buffer = await productsService.processBulkUpload(req.file.buffer, req.user.id);
 
-      res.status(200).json({
-        success: true,
-        data: {
-          summary: {
-            total:   validation.summary.total,
-            valid:   validation.summary.valid,
-            invalid: validation.summary.invalid,
-            success: insert.summary.success,
-            failed:  insert.summary.failed,
-          },
-          invalidRows: validation.invalidRows,
-          successRows: insert.successRows,
-          failedRows:  insert.failedRows,
-        },
-      });
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+      res.setHeader(
+        'Content-Disposition',
+        'attachment; filename="bulk-upload-result.xlsx"',
+      );
+      res.send(buffer);
     } catch (err) {
       next(err);
     }

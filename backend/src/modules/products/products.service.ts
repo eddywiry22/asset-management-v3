@@ -351,6 +351,51 @@ export class ProductsService {
     };
   }
 
+  async annotateWorkbook(
+    fileBuffer: Buffer,
+    invalidRows: Array<{ rowNumber: number; errors: string[] }>,
+    failedRows:  Array<{ rowNumber: number; sku: string; error: string }>,
+  ): Promise<Buffer> {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(fileBuffer as unknown as ArrayBuffer);
+
+    const sheet = workbook.getWorksheet('Add Products');
+    if (!sheet) {
+      throw new ValidationError('Missing "Add Products" sheet in uploaded file');
+    }
+
+    // Build error map: rowNumber → error messages
+    const errorMap = new Map<number, string[]>();
+
+    for (const row of invalidRows) {
+      errorMap.set(row.rowNumber, [...row.errors]);
+    }
+
+    for (const row of failedRows) {
+      const existing = errorMap.get(row.rowNumber) ?? [];
+      existing.push(row.error);
+      errorMap.set(row.rowNumber, existing);
+    }
+
+    // Write errors into column F, preserving all other columns
+    sheet.eachRow((_row, rowNumber) => {
+      if (rowNumber === 1) return; // skip header
+      const errors = errorMap.get(rowNumber);
+      if (errors && errors.length > 0) {
+        sheet.getCell(`F${rowNumber}`).value = errors.join('; ');
+      }
+    });
+
+    return workbook.xlsx.writeBuffer() as Promise<Buffer>;
+  }
+
+  async processBulkUpload(fileBuffer: Buffer, performedBy: string): Promise<Buffer> {
+    const rows       = await this.parseBulkUpload(fileBuffer);
+    const validation = await this.validateBulkRows(rows);
+    const insert     = await this.processBulkInsert(validation.validRows, performedBy);
+    return this.annotateWorkbook(fileBuffer, validation.invalidRows, insert.failedRows);
+  }
+
   async parseBulkUpload(fileBuffer: Buffer): Promise<BulkUploadRow[]> {
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(fileBuffer as unknown as ArrayBuffer);
