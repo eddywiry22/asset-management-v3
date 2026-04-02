@@ -94,7 +94,7 @@ export class StockService {
           product:  { select: { id: true, sku: true, name: true, lifecycleStatus: true, uom: { select: { code: true } }, category: { select: { name: true } } } },
           location: { select: { id: true, code: true, name: true, isActive: true } },
         },
-        orderBy: [{ product: { lifecycleStatus: 'asc' } }, { location: { code: 'asc' } }, { product: { sku: 'asc' } }],
+        orderBy: [{ product: { lifecycleStatus: 'asc' } }, { product: { name: 'asc' } }, { location: { code: 'asc' } }],
       }),
       prisma.stockBalance.count({ where: whereClause }),
     ]);
