@@ -10,6 +10,7 @@ export type StockOverviewItem = {
   productSku: string;
   productName: string;
   productCategoryName: string;
+  productLifecycleStatus: 'ACTIVE' | 'RETIRED';
   uomCode: string;
   locationId: string;
   locationCode: string;
@@ -90,7 +91,7 @@ export class StockService {
         skip,
         take: limit,
         include: {
-          product:  { select: { id: true, sku: true, name: true, uom: { select: { code: true } }, category: { select: { name: true } } } },
+          product:  { select: { id: true, sku: true, name: true, lifecycleStatus: true, uom: { select: { code: true } }, category: { select: { name: true } } } },
           location: { select: { id: true, code: true, name: true, isActive: true } },
         },
         orderBy: [{ location: { code: 'asc' } }, { product: { sku: 'asc' } }],
@@ -171,10 +172,11 @@ export class StockService {
         const isInactiveNow   = isRegisteredNow && !plStatus!.isActive;
 
         return {
-          productId:           b.productId,
-          productSku:          b.product.sku,
-          productName:         b.product.name,
-          productCategoryName: b.product.category?.name ?? '',
+          productId:              b.productId,
+          productSku:             b.product.sku,
+          productName:            b.product.name,
+          productCategoryName:    b.product.category?.name ?? '',
+          productLifecycleStatus: b.product.lifecycleStatus as 'ACTIVE' | 'RETIRED',
           uomCode:             b.product.uom.code,
           locationId:       b.locationId,
           locationCode:     b.location.code,

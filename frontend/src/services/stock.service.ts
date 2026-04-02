@@ -5,6 +5,7 @@ export type StockOverviewItem = {
   productSku: string;
   productName: string;
   productCategoryName: string;
+  productLifecycleStatus: 'ACTIVE' | 'RETIRED';
   uomCode: string;
   locationId: string;
   locationCode: string;
