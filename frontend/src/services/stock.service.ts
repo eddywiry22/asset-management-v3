@@ -5,6 +5,7 @@ export type StockOverviewItem = {
   productSku: string;
   productName: string;
   productCategoryName: string;
+  productLifecycleStatus: 'ACTIVE' | 'RETIRED';
   uomCode: string;
   locationId: string;
   locationCode: string;
@@ -64,7 +65,7 @@ export type LedgerQueryParams = {
 };
 
 export type VisibleLocation = { id: string; code: string; name: string; isActive?: boolean; role?: string };
-export type RegisteredProduct = { id: string; sku: string; name: string };
+export type RegisteredProduct = { id: string; sku: string; name: string; lifecycleStatus: 'ACTIVE' | 'RETIRED' };
 export type ProductFilterOption = { id: string; sku: string; name: string; categoryId: string };
 
 const stockService = {

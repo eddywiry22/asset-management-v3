@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent,
   DialogTitle, Divider, FormControl, IconButton, InputLabel, MenuItem, Select,
@@ -55,7 +55,7 @@ function userLabel(u: { email: string | null; phone: string | null } | null | un
 // ---------------------------------------------------------------------------
 // Product selector type
 // ---------------------------------------------------------------------------
-type SimpleProduct = { id: string; sku: string; name: string };
+type SimpleProduct = { id: string; sku: string; name: string; lifecycleStatus?: string };
 type SimpleLocation = { id: string; code: string; name: string };
 
 // ---------------------------------------------------------------------------
@@ -90,8 +90,11 @@ function ItemDialog({
   });
 
   const locations: SimpleLocation[] = locationsRes ?? [];
-  const products: SimpleProduct[]   = registeredProducts ?? [];
-  const noProducts = !!locationId && (registeredProducts !== undefined) && products.length === 0;
+  const activeProducts: SimpleProduct[] = useMemo(
+    () => (registeredProducts ?? []).filter((p) => p.lifecycleStatus !== 'RETIRED'),
+    [registeredProducts],
+  );
+  const noProducts = !!locationId && (registeredProducts !== undefined) && activeProducts.length === 0;
 
   const handleLocationChange = (newLocationId: string) => {
     setLocationId(newLocationId);
@@ -123,7 +126,7 @@ function ItemDialog({
           <FormControl fullWidth size="small" disabled={!locationId || noProducts}>
             <InputLabel>Product</InputLabel>
             <Select label="Product" value={productId} onChange={(e) => setProductId(e.target.value)}>
-              {products.map((p: SimpleProduct) => (
+              {activeProducts.map((p: SimpleProduct) => (
                 <MenuItem key={p.id} value={p.id}>{p.sku} — {p.name}</MenuItem>
               ))}
             </Select>

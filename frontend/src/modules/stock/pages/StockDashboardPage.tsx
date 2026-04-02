@@ -561,10 +561,28 @@ export default function StockDashboardPage() {
               </TableHead>
               <TableBody>
                 {rows.map((row) => (
-                  <TableRow key={`${row.productId}-${row.locationId}`} hover>
+                  <TableRow
+                    key={`${row.productId}-${row.locationId}`}
+                    hover
+                    sx={{ opacity: row.productLifecycleStatus === 'RETIRED' ? 0.7 : 1 }}
+                  >
                     <TableCell><strong>{row.productSku}</strong></TableCell>
                     <TableCell>{row.productCategoryName}</TableCell>
-                    <TableCell>{row.productName}</TableCell>
+                    <TableCell>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        {row.productName}
+                        {row.productLifecycleStatus === 'RETIRED' && (
+                          <Tooltip title="This product is retired and cannot be used in new transactions" arrow>
+                            <Chip
+                              label="RETIRED"
+                              size="small"
+                              color="default"
+                              sx={{ fontSize: '0.65rem', height: 18 }}
+                            />
+                          </Tooltip>
+                        )}
+                      </Box>
+                    </TableCell>
                     <TableCell>{row.uomCode}</TableCell>
                     <TableCell>
                       <Chip label={row.locationCode} size="small" variant="outlined" />

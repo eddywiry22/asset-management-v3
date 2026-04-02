@@ -3,7 +3,7 @@ import {
   Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
   FormControl, FormControlLabel, IconButton, InputLabel, MenuItem, Select, SelectChangeEvent,
   Stack, Switch, Table, TableBody, TableCell, TableContainer,
-  TableHead, TablePagination, TableRow, Typography, Paper, CircularProgress,
+  TableHead, TablePagination, TableRow, TextField, Typography, Paper, CircularProgress,
   Alert, Tooltip, Snackbar, Toolbar,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
@@ -142,6 +142,16 @@ export default function ProductRegistrationsPage() {
   const registrations = data?.data  ?? [];
   const total         = data?.meta?.total ?? 0;
 
+  // Sort: ACTIVE rows first, RETIRED rows last; preserve relative order within each group
+  const sortedRegistrations = useMemo(() => {
+    return [...registrations].sort((a, b) => {
+      const aRetired = a.product?.lifecycleStatus === 'RETIRED';
+      const bRetired = b.product?.lifecycleStatus === 'RETIRED';
+      if (aRetired === bRetired) return 0;
+      return aRetired ? 1 : -1;
+    });
+  }, [registrations]);
+
   // ── Forms ───────────────────────────────────────────────────────────────────
 
   const createForm = useForm<CreateForm>({
@@ -237,6 +247,7 @@ export default function ProductRegistrationsPage() {
   // ── Handlers ─────────────────────────────────────────────────────────────────
 
   const openEdit = (item: ProductRegistration) => {
+    if (item.product?.lifecycleStatus === 'RETIRED') return;
     setEditTarget(item);
     editForm.reset({ isActive: item.isActive });
     setApiError('');
@@ -316,17 +327,21 @@ export default function ProductRegistrationsPage() {
     setSelectedIds([]);
   };
 
-  // Bulk selection helpers
+  // Bulk selection helpers — retired rows are excluded from selection entirely
+  const selectableRegistrations = registrations.filter(
+    (r) => r.product?.lifecycleStatus !== 'RETIRED',
+  );
   const allPageSelected =
-    registrations.length > 0 && registrations.every((r) => selectedIds.includes(r.id));
+    selectableRegistrations.length > 0 &&
+    selectableRegistrations.every((r) => selectedIds.includes(r.id));
   const somePageSelected =
-    registrations.some((r) => selectedIds.includes(r.id)) && !allPageSelected;
+    selectableRegistrations.some((r) => selectedIds.includes(r.id)) && !allPageSelected;
 
   const handleSelectAll = () => {
     if (allPageSelected) {
       setSelectedIds([]);
     } else {
-      setSelectedIds(registrations.map((r) => r.id));
+      setSelectedIds(selectableRegistrations.map((r) => r.id));
     }
   };
 
@@ -615,7 +630,7 @@ export default function ProductRegistrationsPage() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {registrations.map((item) => {
+                {sortedRegistrations.map((item) => {
                   const isRetired = item.product?.lifecycleStatus === 'RETIRED';
                   return (
                   <TableRow
