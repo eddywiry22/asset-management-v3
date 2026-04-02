@@ -66,6 +66,11 @@ export const productsService = {
     return res.data.data;
   },
 
+  async renameSku(id: string, newSku: string): Promise<Product> {
+    const res = await apiClient.patch<{ success: boolean; data: Product }>(`/admin/products/${id}/rename-sku`, { newSku });
+    return res.data.data;
+  },
+
   async downloadBulkTemplate(): Promise<void> {
     const res = await apiClient.get('/admin/products/bulk-template', {
       responseType: 'blob',

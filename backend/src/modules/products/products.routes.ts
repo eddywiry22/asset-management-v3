@@ -41,4 +41,8 @@ router.patch('/:id/retire', adminMiddleware, (req, res, next) =>
   productsController.retireProduct(req as AuthenticatedRequest, res, next)
 );
 
+router.patch('/:id/rename-sku', adminMiddleware, (req, res, next) =>
+  productsController.renameSku(req as AuthenticatedRequest, res, next)
+);
+
 export default router;

@@ -12,7 +12,8 @@ export type AuditAction =
   | 'FINALIZE_BLOCKED'
   | 'BLOCKED'
   | 'USER_PASSWORD_RESET'
-  | 'RETIRE';
+  | 'RETIRE'
+  | 'SKU_RENAME';
 
 export type AuditEntityType =
   | 'PRODUCT'

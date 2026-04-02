@@ -39,6 +39,7 @@ const createSchema = z.object({
 });
 
 const editSchema = z.object({
+  sku:        z.string().min(1, 'SKU is required'),
   name:       z.string().min(1, 'Name is required'),
   categoryId: z.string().min(1, 'Category is required'),
   vendorId:   z.string().min(1, 'Vendor is required'),
@@ -116,6 +117,8 @@ export default function ProductsPage() {
   const [savedFilterAnchor, setSavedFilterAnchor] = useState('');
   const [apiError, setApiError]                   = useState('');
   const [snackMsg, setSnackMsg]                   = useState('');
+  const [originalSku, setOriginalSku]             = useState('');
+  const [editSaving, setEditSaving]               = useState(false);
   const [templateLoading, setTemplateLoading]     = useState(false);
   const [uploadFile, setUploadFile]               = useState<File | null>(null);
   const [uploadLoading, setUploadLoading]         = useState(false);
@@ -294,19 +297,6 @@ export default function ProductsPage() {
     },
   });
 
-  const updateMutation = useMutation({
-    mutationFn: ({ id, data: formData }: { id: string; data: EditForm }) =>
-      productsService.update(id, formData),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['products'] });
-      setEditTarget(null);
-      setApiError('');
-    },
-    onError: (err: any) => {
-      setApiError(err?.response?.data?.error?.message ?? 'Failed to update product');
-    },
-  });
-
   const retireMutation = useMutation({
     mutationFn: (id: string) => productsService.retire(id),
     onSuccess: () => {
@@ -322,7 +312,9 @@ export default function ProductsPage() {
 
   const openEdit = (item: Product) => {
     setEditTarget(item);
+    setOriginalSku(item.sku);
     editForm.reset({
+      sku:        item.sku,
       name:       item.name,
       categoryId: item.categoryId,
       vendorId:   item.vendorId,
@@ -336,10 +328,39 @@ export default function ProductsPage() {
     createMutation.mutate(formData);
   };
 
-  const onEditSubmit = (formData: EditForm) => {
+  const onEditSubmit = async (formData: EditForm) => {
     if (!editTarget) return;
     setApiError('');
-    updateMutation.mutate({ id: editTarget.id, data: formData });
+
+    const normalizedSku  = formData.sku.trim().toUpperCase();
+    const isSkuChanged   = normalizedSku !== originalSku.trim().toUpperCase();
+
+    if (isSkuChanged) {
+      const confirmed = window.confirm(
+        `Change SKU from "${originalSku}" to "${normalizedSku}"? This affects system-wide references.`
+      );
+      if (!confirmed) return;
+    }
+
+    setEditSaving(true);
+    try {
+      if (isSkuChanged) {
+        await productsService.renameSku(editTarget.id, normalizedSku);
+      }
+      await productsService.update(editTarget.id, {
+        name:       formData.name,
+        categoryId: formData.categoryId,
+        vendorId:   formData.vendorId,
+        uomId:      formData.uomId,
+      });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      setEditTarget(null);
+      setSnackMsg('Product updated successfully');
+    } catch (err: any) {
+      setApiError(err?.response?.data?.error?.message ?? 'Update failed');
+    } finally {
+      setEditSaving(false);
+    }
   };
 
   // ---------------------------------------------------------------------------
@@ -1114,6 +1135,15 @@ export default function ProductsPage() {
           <DialogContent>
             {apiError && <Alert severity="error" sx={{ mb: 2 }}>{apiError}</Alert>}
             <Controller
+              name="sku"
+              control={editForm.control}
+              render={({ field, fieldState }) => (
+                <TextField {...field} label="SKU" fullWidth margin="normal"
+                  error={!!fieldState.error}
+                  helperText={fieldState.error?.message ?? 'Changing SKU affects system-wide reference'} />
+              )}
+            />
+            <Controller
               name="name"
               control={editForm.control}
               render={({ field, fieldState }) => (
@@ -1160,8 +1190,8 @@ export default function ProductsPage() {
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setEditTarget(null)}>Cancel</Button>
-            <Button type="submit" variant="contained" disabled={updateMutation.isPending}>
-              {updateMutation.isPending ? 'Saving…' : 'Save'}
+            <Button type="submit" variant="contained" disabled={editSaving}>
+              {editSaving ? 'Saving…' : 'Save'}
             </Button>
           </DialogActions>
         </form>
