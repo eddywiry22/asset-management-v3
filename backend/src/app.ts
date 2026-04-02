@@ -18,6 +18,7 @@ import stockAdjustmentRoutes from './modules/stock-adjustments/stockAdjustment.r
 import stockTransferRoutes from './modules/stock-transfers/transfer.routes';
 import savedFiltersRoutes from './modules/saved-filters/savedFilters.routes';
 import dashboardRoutes from './modules/dashboard/dashboard.routes';
+import attachmentsRoutes from './modules/attachments/attachments.routes';
 import { productsController } from './modules/products/products.controller';
 import { AuthenticatedRequest } from './types/request.types';
 
@@ -73,6 +74,9 @@ v1Router.use('/saved-filters', authMiddleware, savedFiltersRoutes);
 
 // /v1/dashboard — requires auth, accessible by all roles
 v1Router.use('/dashboard', dashboardRoutes);
+
+// /v1/attachments — requires auth, accessible by all roles (upload/delete restricted to admin in routes)
+v1Router.use('/attachments', authMiddleware, attachmentsRoutes);
 
 app.use('/v1', v1Router);
 
