@@ -7,6 +7,7 @@ export interface Product {
   categoryId: string;
   vendorId: string;
   uomId: string;
+  lifecycleStatus: 'ACTIVE' | 'RETIRED';
   createdAt: string;
   updatedAt: string;
   category: { id: string; name: string };
@@ -57,6 +58,11 @@ export const productsService = {
 
   async update(id: string, input: UpdateProductInput): Promise<Product> {
     const res = await apiClient.put<{ success: boolean; data: Product }>(`/admin/products/${id}`, input);
+    return res.data.data;
+  },
+
+  async retire(id: string): Promise<Product> {
+    const res = await apiClient.patch<{ success: boolean; data: Product }>(`/admin/products/${id}/retire`);
     return res.data.data;
   },
 
