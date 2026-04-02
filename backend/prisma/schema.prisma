@@ -367,6 +367,26 @@ model SavedFilter {
   @@index([createdBy, module])
 }
 
+// ---------------------------------------------------------------------------
+// Attachments — generic file attachments for Adjustment & Transfer requests
+// ---------------------------------------------------------------------------
+
+model Attachment {
+  id         String   @id @default(uuid())
+  entityType String   // 'ADJUSTMENT' | 'TRANSFER'
+  entityId   String
+
+  fileName   String
+  filePath   String
+  mimeType   String
+  fileSize   Int
+
+  uploadedBy String
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+}
+
 model StockTransferItem {
   id                   String   @id @default(uuid())
   requestId            String

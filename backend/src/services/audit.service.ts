@@ -13,7 +13,9 @@ export type AuditAction =
   | 'BLOCKED'
   | 'USER_PASSWORD_RESET'
   | 'RETIRE'
-  | 'SKU_RENAME';
+  | 'SKU_RENAME'
+  | 'ATTACHMENT_UPLOAD'
+  | 'ATTACHMENT_DELETE';
 
 export type AuditEntityType =
   | 'PRODUCT'
@@ -27,7 +29,8 @@ export type AuditEntityType =
   | 'UOM'
   | 'GOODS'
   | 'STOCK_ADJUSTMENT_REQUEST'
-  | 'STOCK_TRANSFER_REQUEST';
+  | 'STOCK_TRANSFER_REQUEST'
+  | 'ATTACHMENT';
 
 export interface CreateAuditLogInput {
   /** New canonical field name */

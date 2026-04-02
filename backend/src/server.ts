@@ -1,9 +1,12 @@
+import fs from 'fs';
 import { env, validateEnv } from './config/env';
 import { connectDatabase, disconnectDatabase } from './config/database';
 import logger from './utils/logger';
 import app from './app';
 
 async function bootstrap(): Promise<void> {
+  fs.mkdirSync('uploads', { recursive: true });
+
   validateEnv();
 
   await connectDatabase();
