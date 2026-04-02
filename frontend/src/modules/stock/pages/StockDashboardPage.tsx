@@ -569,17 +569,19 @@ export default function StockDashboardPage() {
                     <TableCell><strong>{row.productSku}</strong></TableCell>
                     <TableCell>{row.productCategoryName}</TableCell>
                     <TableCell>
-                      {row.productName}
-                      {row.productLifecycleStatus === 'RETIRED' && (
-                        <Tooltip title="This product is retired and cannot be used in new transactions" arrow>
-                          <Chip
-                            label="RETIRED"
-                            size="small"
-                            color="default"
-                            sx={{ ml: 1, fontSize: '0.65rem', height: 18 }}
-                          />
-                        </Tooltip>
-                      )}
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        {row.productName}
+                        {row.productLifecycleStatus === 'RETIRED' && (
+                          <Tooltip title="This product is retired and cannot be used in new transactions" arrow>
+                            <Chip
+                              label="RETIRED"
+                              size="small"
+                              color="default"
+                              sx={{ fontSize: '0.65rem', height: 18 }}
+                            />
+                          </Tooltip>
+                        )}
+                      </Box>
                     </TableCell>
                     <TableCell>{row.uomCode}</TableCell>
                     <TableCell>
