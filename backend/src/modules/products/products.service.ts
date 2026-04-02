@@ -177,6 +177,41 @@ export class ProductsService {
     return updated;
   }
 
+  async renameSku(id: string, newSku: string, performedBy: string): Promise<ProductWithRelations> {
+    const normalizedSku = newSku.trim();
+
+    if (!normalizedSku) {
+      throw new ValidationError('SKU cannot be empty');
+    }
+
+    const product = await productRepository.findById(id);
+    if (!product) {
+      throw new NotFoundError(`Product not found: ${id}`);
+    }
+
+    if (product.sku.toLowerCase() === normalizedSku.toLowerCase()) {
+      throw new ValidationError('New SKU must be different from current SKU');
+    }
+
+    const existing = await productRepository.findBySkuInsensitive(normalizedSku);
+    if (existing) {
+      throw new ValidationError('SKU already exists');
+    }
+
+    const updated = await productRepository.updateSku(id, normalizedSku);
+
+    await auditService.log({
+      entityType:  'PRODUCT',
+      entityId:    id,
+      action:      'SKU_RENAME',
+      beforeValue: { sku: product.sku },
+      afterValue:  { sku: normalizedSku },
+      performedBy,
+    });
+
+    return updated;
+  }
+
   async validateBulkRows(rows: BulkUploadRow[]): Promise<{
     summary: { total: number; valid: number; invalid: number };
     validRows: Array<{

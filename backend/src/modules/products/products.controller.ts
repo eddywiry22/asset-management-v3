@@ -59,6 +59,22 @@ export class ProductsController {
     }
   }
 
+  async renameSku(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { newSku } = req.body;
+
+      if (!newSku) {
+        throw new ValidationError('newSku is required');
+      }
+
+      const data = await productsService.renameSku(id, newSku, req.user.id);
+      res.status(200).json({ success: true, message: 'SKU updated successfully', data });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async uploadBulkProducts(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       if (!req.file) {

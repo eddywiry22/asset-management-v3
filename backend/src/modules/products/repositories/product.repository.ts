@@ -91,6 +91,21 @@ export class ProductRepository {
     const products = await prisma.product.findMany({ select: { sku: true } });
     return products.map((p) => p.sku.toLowerCase());
   }
+
+  async findBySkuInsensitive(sku: string): Promise<{ id: string } | null> {
+    return prisma.product.findFirst({
+      where: { sku },
+      select: { id: true },
+    });
+  }
+
+  async updateSku(id: string, newSku: string): Promise<ProductWithRelations> {
+    return prisma.product.update({
+      where: { id },
+      data:  { sku: newSku },
+      include: RELATIONS,
+    }) as Promise<ProductWithRelations>;
+  }
 }
 
 export const productRepository = new ProductRepository();
