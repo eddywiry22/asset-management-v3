@@ -8,7 +8,7 @@ export type ProductLocationRow = {
   isActive:   boolean;
   createdAt:  Date;
   updatedAt:  Date;
-  product:    { id: string; sku: string; name: string; category?: { id: string; name: string } | null };
+  product:    { id: string; sku: string; name: string; lifecycleStatus: 'ACTIVE' | 'RETIRED'; category?: { id: string; name: string } | null };
   location:   { id: string; code: string; name: string };
 };
 
@@ -17,7 +17,7 @@ export type ProductLocationRow = {
 const pl = () => (prisma as any).productLocation;
 
 const INCLUDE = {
-  product:  { select: { id: true, sku: true, name: true, category: { select: { id: true, name: true } } } },
+  product:  { select: { id: true, sku: true, name: true, lifecycleStatus: true, category: { select: { id: true, name: true } } } },
   location: { select: { id: true, code: true, name: true } },
 };
 
@@ -44,7 +44,7 @@ export class ProductLocationRepository {
       prisma.productLocation.findMany({
         where,
         include: {
-          product:  { select: { id: true, name: true, sku: true, category: { select: { id: true, name: true } } } },
+          product:  { select: { id: true, name: true, sku: true, lifecycleStatus: true, category: { select: { id: true, name: true } } } },
           location: { select: { id: true, code: true, name: true } },
         },
         orderBy: [
