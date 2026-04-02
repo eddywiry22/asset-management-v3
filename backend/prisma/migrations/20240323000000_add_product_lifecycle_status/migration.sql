@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE `Product` ADD COLUMN `lifecycleStatus` VARCHAR(191) NOT NULL DEFAULT 'ACTIVE';

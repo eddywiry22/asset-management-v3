@@ -8,6 +8,7 @@ export type ProductWithRelations = {
   categoryId: string;
   vendorId: string;
   uomId: string;
+  lifecycleStatus: string;
   createdAt: Date;
   updatedAt: Date;
   category: { id: string; name: string };
@@ -62,6 +63,14 @@ export class ProductRepository {
     return prisma.product.update({
       where: { id },
       data,
+      include: RELATIONS,
+    }) as Promise<ProductWithRelations>;
+  }
+
+  async retire(id: string): Promise<ProductWithRelations> {
+    return prisma.product.update({
+      where: { id },
+      data:  { lifecycleStatus: 'RETIRED' },
       include: RELATIONS,
     }) as Promise<ProductWithRelations>;
   }

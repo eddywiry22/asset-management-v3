@@ -37,4 +37,8 @@ router.put('/:id', validateBody(updateProductSchema), (req, res, next) =>
   productsController.update(req as AuthenticatedRequest, res, next)
 );
 
+router.patch('/:id/retire', adminMiddleware, (req, res, next) =>
+  productsController.retireProduct(req as AuthenticatedRequest, res, next)
+);
+
 export default router;

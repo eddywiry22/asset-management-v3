@@ -124,6 +124,27 @@ export class ProductsService {
     return product as ProductWithRelations;
   }
 
+  async retireProduct(id: string, performedBy: string): Promise<void> {
+    const product = await productRepository.findById(id);
+    if (!product) throw new NotFoundError(`Product not found: ${id}`);
+
+    if (product.lifecycleStatus === 'RETIRED') {
+      throw new ValidationError('Product is already retired');
+    }
+
+    const before = { lifecycleStatus: product.lifecycleStatus };
+    await productRepository.retire(id);
+
+    await auditService.log({
+      entityType:  'PRODUCT',
+      entityId:    id,
+      action:      'RETIRE',
+      beforeValue: before,
+      afterValue:  { lifecycleStatus: 'RETIRED' },
+      performedBy,
+    });
+  }
+
   async update(id: string, dto: UpdateProductDto, performedBy: string): Promise<ProductWithRelations> {
     const before = await this.findById(id);
 

@@ -169,6 +169,9 @@ export class StockAdjustmentService {
 
     const product = await prisma.product.findUnique({ where: { id: dto.productId } });
     if (!product) throw new NotFoundError(`Product not found: ${dto.productId}`);
+    if (product.lifecycleStatus !== 'ACTIVE') {
+      throw new ValidationError('Product is retired and cannot be used');
+    }
     const location = await prisma.location.findUnique({ where: { id: dto.locationId } });
     if (!location) throw new NotFoundError(`Location not found: ${dto.locationId}`);
 
