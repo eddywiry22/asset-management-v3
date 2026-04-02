@@ -64,7 +64,7 @@ function getCurrentUser(): AuthUser | null {
   }
 }
 
-type SimpleProduct = { id: string; sku: string; name: string };
+type SimpleProduct = { id: string; sku: string; name: string; lifecycleStatus?: string };
 
 // ---------------------------------------------------------------------------
 // Add/Edit Item Dialog
@@ -90,8 +90,11 @@ function ItemDialog({
     queryFn:  () => stockService.getRegisteredProducts(sourceLocationId!),
     enabled:  open && !initial && !!sourceLocationId,
   });
-  const products: SimpleProduct[] = registeredProducts ?? [];
-  const noProducts = !initial && !!sourceLocationId && (registeredProducts !== undefined) && products.length === 0;
+  const activeProducts: SimpleProduct[] = useMemo(
+    () => (registeredProducts ?? []).filter((p) => p.lifecycleStatus !== 'RETIRED'),
+    [registeredProducts],
+  );
+  const noProducts = !initial && !!sourceLocationId && (registeredProducts !== undefined) && activeProducts.length === 0;
 
   const handleSave = () => {
     const qtyNum = parseFloat(qty);
@@ -121,7 +124,7 @@ function ItemDialog({
                   value={productId}
                   onChange={(e) => setProductId(e.target.value)}
                 >
-                  {products.map((p: SimpleProduct) => (
+                  {activeProducts.map((p: SimpleProduct) => (
                     <MenuItem key={p.id} value={p.id}>{p.sku} — {p.name}</MenuItem>
                   ))}
                 </Select>

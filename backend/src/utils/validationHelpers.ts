@@ -144,11 +144,11 @@ export async function getProductLocationStatus(
  */
 export async function getRegisteredProductsAtLocation(
   locationId: string,
-): Promise<Array<{ id: string; sku: string; name: string }>> {
+): Promise<Array<{ id: string; sku: string; name: string; lifecycleStatus: string }>> {
   try {
     const mappings = await (prisma as any).productLocation.findMany({
       where:   { locationId, isActive: true },
-      include: { product: { select: { id: true, sku: true, name: true } } },
+      include: { product: { select: { id: true, sku: true, name: true, lifecycleStatus: true } } },
     });
     return mappings.map((m: any) => m.product).filter(Boolean);
   } catch {
