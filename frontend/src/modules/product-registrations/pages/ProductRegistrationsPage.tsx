@@ -142,16 +142,6 @@ export default function ProductRegistrationsPage() {
   const registrations = data?.data  ?? [];
   const total         = data?.meta?.total ?? 0;
 
-  // Sort: ACTIVE rows first, RETIRED rows last; preserve relative order within each group
-  const sortedRegistrations = useMemo(() => {
-    return [...registrations].sort((a, b) => {
-      const aRetired = a.product?.lifecycleStatus === 'RETIRED';
-      const bRetired = b.product?.lifecycleStatus === 'RETIRED';
-      if (aRetired === bRetired) return 0;
-      return aRetired ? 1 : -1;
-    });
-  }, [registrations]);
-
   // ── Forms ───────────────────────────────────────────────────────────────────
 
   const createForm = useForm<CreateForm>({
@@ -630,7 +620,7 @@ export default function ProductRegistrationsPage() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {sortedRegistrations.map((item) => {
+                {registrations.map((item) => {
                   const isRetired = item.product?.lifecycleStatus === 'RETIRED';
                   return (
                   <TableRow

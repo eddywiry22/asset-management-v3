@@ -48,6 +48,7 @@ export class ProductLocationRepository {
           location: { select: { id: true, code: true, name: true } },
         },
         orderBy: [
+          { product: { lifecycleStatus: 'asc' } },
           { product:  { name: 'asc' } },
           { location: { code: 'asc' } },
         ],
