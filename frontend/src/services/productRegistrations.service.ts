@@ -7,7 +7,7 @@ export interface ProductRegistration {
   isActive:   boolean;
   createdAt:  string;
   updatedAt:  string;
-  product:    { id: string; sku: string; name: string; category?: { id: string; name: string } | null };
+  product:    { id: string; sku: string; name: string; lifecycleStatus: 'ACTIVE' | 'RETIRED'; category?: { id: string; name: string } | null };
   location:   { id: string; code: string; name: string };
 }
 

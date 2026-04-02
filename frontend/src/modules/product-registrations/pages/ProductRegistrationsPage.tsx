@@ -610,17 +610,30 @@ export default function ProductRegistrationsPage() {
                   <TableCell>Product Name</TableCell>
                   <TableCell>Location</TableCell>
                   <TableCell>Status</TableCell>
+                  <TableCell>Lifecycle</TableCell>
                   <TableCell align="right">Actions</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {registrations.map((item) => (
-                  <TableRow key={item.id} selected={selectedIds.includes(item.id)} hover>
+                {registrations.map((item) => {
+                  const isRetired = item.product?.lifecycleStatus === 'RETIRED';
+                  return (
+                  <TableRow
+                    key={item.id}
+                    selected={selectedIds.includes(item.id)}
+                    hover
+                    sx={{ opacity: isRetired ? 0.5 : 1 }}
+                  >
                     <TableCell padding="checkbox">
-                      <Checkbox
-                        checked={selectedIds.includes(item.id)}
-                        onChange={() => handleSelectRow(item.id)}
-                      />
+                      <Tooltip title={isRetired ? 'This product is retired and cannot be modified' : ''} arrow>
+                        <span>
+                          <Checkbox
+                            checked={selectedIds.includes(item.id)}
+                            onChange={() => handleSelectRow(item.id)}
+                            disabled={isRetired}
+                          />
+                        </span>
+                      </Tooltip>
                     </TableCell>
                     <TableCell><strong>{item.product?.sku}</strong></TableCell>
                     <TableCell>{item.product?.category?.name}</TableCell>
@@ -633,16 +646,33 @@ export default function ProductRegistrationsPage() {
                         size="small"
                       />
                     </TableCell>
+                    <TableCell>
+                      <Chip
+                        label={isRetired ? 'RETIRED' : 'ACTIVE'}
+                        color={isRetired ? 'default' : 'success'}
+                        size="small"
+                      />
+                    </TableCell>
                     <TableCell align="right">
-                      <Button size="small" startIcon={<EditIcon />} onClick={() => openEdit(item)}>
-                        Edit
-                      </Button>
+                      <Tooltip title={isRetired ? 'This product is retired and cannot be modified' : ''} arrow>
+                        <span>
+                          <Button
+                            size="small"
+                            startIcon={<EditIcon />}
+                            onClick={() => openEdit(item)}
+                            disabled={isRetired}
+                          >
+                            Edit
+                          </Button>
+                        </span>
+                      </Tooltip>
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
                 {registrations.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} align="center">No product registrations found</TableCell>
+                    <TableCell colSpan={8} align="center">No product registrations found</TableCell>
                   </TableRow>
                 )}
               </TableBody>
@@ -701,7 +731,7 @@ export default function ProductRegistrationsPage() {
                   error={!!fieldState.error}
                   helperText={fieldState.error?.message}
                 >
-                  {products.filter((p) => p.isActive).map((p) => (
+                  {products.filter((p) => p.lifecycleStatus !== 'RETIRED').map((p) => (
                     <MenuItem key={p.id} value={p.id}>{p.sku} — {p.name}</MenuItem>
                   ))}
                 </TextField>
@@ -754,22 +784,30 @@ export default function ProductRegistrationsPage() {
           <DialogContent>
             {apiError && <Alert severity="error" sx={{ mb: 2 }}>{apiError}</Alert>}
             {editTarget && (
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                <strong>{editTarget.product?.sku}</strong> — {editTarget.product?.name}
-                {' '}at{' '}
-                <strong>{editTarget.location?.code}</strong> — {editTarget.location?.name}
-              </Typography>
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="body2" color="text.secondary">
+                  <strong>{editTarget.product?.sku}</strong> — {editTarget.product?.name}
+                  {' '}at{' '}
+                  <strong>{editTarget.location?.code}</strong> — {editTarget.location?.name}
+                </Typography>
+                {editTarget.product?.lifecycleStatus === 'RETIRED' && (
+                  <Chip label="RETIRED" color="default" size="small" sx={{ mt: 1 }} />
+                )}
+              </Box>
             )}
             <Controller
               name="isActive"
               control={editForm.control}
               render={({ field }) => {
+                const isRetired     = editTarget?.product?.lifecycleStatus === 'RETIRED';
                 const hasPending    = deactivationCheck && !deactivationCheck.canDeactivate;
-                const switchDisabled = !!hasPending && field.value === true;
-                const tooltipTitle  = hasPending
-                  ? `Cannot deactivate: ${deactivationCheck.pendingCount} pending request(s) exist ` +
-                    `(${deactivationCheck.adjustments} adjustment(s), ${deactivationCheck.transfers} transfer(s)). Resolve them first.`
-                  : '';
+                const switchDisabled = isRetired || (!!hasPending && field.value === true);
+                const tooltipTitle  = isRetired
+                  ? 'This product is retired and cannot be modified'
+                  : hasPending
+                    ? `Cannot deactivate: ${deactivationCheck.pendingCount} pending request(s) exist ` +
+                      `(${deactivationCheck.adjustments} adjustment(s), ${deactivationCheck.transfers} transfer(s)). Resolve them first.`
+                    : '';
                 return (
                   <Tooltip title={tooltipTitle} arrow>
                     <FormControlLabel
@@ -790,7 +828,11 @@ export default function ProductRegistrationsPage() {
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setEditTarget(null)}>Cancel</Button>
-            <Button type="submit" variant="contained" disabled={updateMutation.isPending}>
+            <Button
+              type="submit"
+              variant="contained"
+              disabled={updateMutation.isPending || editTarget?.product?.lifecycleStatus === 'RETIRED'}
+            >
               {updateMutation.isPending ? 'Saving...' : 'Save'}
             </Button>
           </DialogActions>

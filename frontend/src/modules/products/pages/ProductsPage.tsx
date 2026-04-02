@@ -13,6 +13,7 @@ import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
 import DeleteIcon from '@mui/icons-material/Delete';
 import DownloadIcon from '@mui/icons-material/Download';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
+import BlockIcon from '@mui/icons-material/Block';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -108,6 +109,8 @@ export default function ProductsPage() {
   // -- Modal state --
   const [createOpen, setCreateOpen]               = useState(false);
   const [editTarget, setEditTarget]               = useState<Product | null>(null);
+  const [retireTarget, setRetireTarget]           = useState<Product | null>(null);
+  const [retireError, setRetireError]             = useState('');
   const [filterModalOpen, setFilterModalOpen]     = useState(false);
   const [openSave, setOpenSave]                   = useState(false);
   const [savedFilterAnchor, setSavedFilterAnchor] = useState('');
@@ -301,6 +304,19 @@ export default function ProductsPage() {
     },
     onError: (err: any) => {
       setApiError(err?.response?.data?.error?.message ?? 'Failed to update product');
+    },
+  });
+
+  const retireMutation = useMutation({
+    mutationFn: (id: string) => productsService.retire(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      setRetireTarget(null);
+      setRetireError('');
+      setSnackMsg('Product retired successfully');
+    },
+    onError: (err: any) => {
+      setRetireError(err?.response?.data?.error?.message ?? 'Failed to retire product');
     },
   });
 
@@ -700,27 +716,63 @@ export default function ProductsPage() {
                   <TableCell>Category</TableCell>
                   <TableCell>Vendor</TableCell>
                   <TableCell>UOM</TableCell>
+                  <TableCell>Status</TableCell>
                   <TableCell align="right">Actions</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {products.map((item) => (
-                  <TableRow key={item.id} hover>
+                {[...products]
+                  .sort((a, b) => {
+                    if (a.lifecycleStatus === b.lifecycleStatus) return 0;
+                    return a.lifecycleStatus === 'ACTIVE' ? -1 : 1;
+                  })
+                  .map((item) => (
+                  <TableRow
+                    key={item.id}
+                    hover
+                    sx={{ opacity: item.lifecycleStatus === 'RETIRED' ? 0.5 : 1 }}
+                  >
                     <TableCell><strong>{item.sku}</strong></TableCell>
                     <TableCell>{item.name}</TableCell>
                     <TableCell>{item.category?.name}</TableCell>
                     <TableCell>{item.vendor?.name}</TableCell>
                     <TableCell>{item.uom?.code}</TableCell>
+                    <TableCell>
+                      <Chip
+                        label={item.lifecycleStatus === 'RETIRED' ? 'RETIRED' : 'ACTIVE'}
+                        color={item.lifecycleStatus === 'RETIRED' ? 'default' : 'success'}
+                        size="small"
+                      />
+                    </TableCell>
                     <TableCell align="right">
-                      <Button size="small" startIcon={<EditIcon />} onClick={() => openEdit(item)}>
-                        Edit
-                      </Button>
+                      <Stack direction="row" spacing={1} justifyContent="flex-end">
+                        <Button
+                          size="small"
+                          startIcon={<EditIcon />}
+                          onClick={() => openEdit(item)}
+                          disabled={item.lifecycleStatus === 'RETIRED'}
+                        >
+                          Edit
+                        </Button>
+                        {item.lifecycleStatus === 'ACTIVE' && (
+                          <Tooltip title="Retire this product">
+                            <Button
+                              size="small"
+                              color="error"
+                              startIcon={<BlockIcon />}
+                              onClick={() => { setRetireTarget(item); setRetireError(''); }}
+                            >
+                              Retire
+                            </Button>
+                          </Tooltip>
+                        )}
+                      </Stack>
                     </TableCell>
                   </TableRow>
                 ))}
                 {products.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} align="center">No products found</TableCell>
+                    <TableCell colSpan={7} align="center">No products found</TableCell>
                   </TableRow>
                 )}
               </TableBody>
@@ -1113,6 +1165,36 @@ export default function ProductsPage() {
             </Button>
           </DialogActions>
         </form>
+      </Dialog>
+
+      {/* Retire Confirmation Modal */}
+      <Dialog open={!!retireTarget} onClose={() => { setRetireTarget(null); setRetireError(''); }} maxWidth="xs" fullWidth>
+        <DialogTitle>Retire Product</DialogTitle>
+        <DialogContent>
+          {retireError && <Alert severity="error" sx={{ mb: 2 }}>{retireError}</Alert>}
+          {retireTarget && (
+            <Typography variant="body2" sx={{ mb: 1 }}>
+              <strong>{retireTarget.sku}</strong> — {retireTarget.name}
+            </Typography>
+          )}
+          <Alert severity="warning" sx={{ mt: 1 }}>
+            This product will no longer be usable in new transactions.
+            Existing records will remain unchanged.
+          </Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setRetireTarget(null); setRetireError(''); }} disabled={retireMutation.isPending}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            disabled={retireMutation.isPending}
+            onClick={() => retireTarget && retireMutation.mutate(retireTarget.id)}
+          >
+            {retireMutation.isPending ? 'Retiring…' : 'Confirm Retire'}
+          </Button>
+        </DialogActions>
       </Dialog>
 
       {/* Snackbar */}
