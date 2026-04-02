@@ -11,7 +11,8 @@ export type AuditAction =
   | 'TRANSFER_CREATE'
   | 'FINALIZE_BLOCKED'
   | 'BLOCKED'
-  | 'USER_PASSWORD_RESET';
+  | 'USER_PASSWORD_RESET'
+  | 'RETIRE';
 
 export type AuditEntityType =
   | 'PRODUCT'

@@ -252,6 +252,9 @@ export class TransferService {
 
     const product = await prisma.product.findUnique({ where: { id: dto.productId } });
     if (!product) throw new NotFoundError(`Product not found: ${dto.productId}`);
+    if (product.lifecycleStatus !== 'ACTIVE') {
+      throw new ValidationError('Product is retired and cannot be used');
+    }
 
     // Stage 8.2: Hard-blocking product-location validation
     // M1: missing row is treated identically to inactive (PRODUCT_INACTIVE).

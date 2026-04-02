@@ -50,6 +50,15 @@ export class ProductsController {
     }
   }
 
+  async retireProduct(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      await productsService.retireProduct(req.params.id, req.user.id);
+      res.status(200).json({ success: true, message: 'Product retired successfully' });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async uploadBulkProducts(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       if (!req.file) {

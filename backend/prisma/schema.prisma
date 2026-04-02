@@ -101,14 +101,15 @@ model Uom {
 }
 
 model Product {
-  id         String   @id @default(uuid())
-  sku        String   @unique
-  name       String
-  categoryId String
-  vendorId   String
-  uomId      String
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id              String   @id @default(uuid())
+  sku             String   @unique
+  name            String
+  categoryId      String
+  vendorId        String
+  uomId           String
+  lifecycleStatus String   @default("ACTIVE")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   category      Category       @relation(fields: [categoryId], references: [id])
   vendor        Vendor         @relation(fields: [vendorId], references: [id])
