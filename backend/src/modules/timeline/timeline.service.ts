@@ -20,7 +20,7 @@ export interface TimelineResult {
   events: TimelineEvent[];
 }
 
-const FALLBACK_USER: TimelineUser = { id: 'unknown', username: 'System' };
+const FALLBACK_USER: TimelineUser = { id: 'system', username: 'System' };
 
 export class TimelineService {
   async getTimeline(entityType: string, entityId: string): Promise<TimelineResult> {
@@ -50,6 +50,14 @@ export class TimelineService {
 
     console.log('Timeline audit logs:', auditLogs);
 
+    const STATUS_TO_ACTION: Record<string, string> = {
+      SUBMITTED: 'SUBMIT',
+      APPROVED:  'APPROVE',
+      REJECTED:  'REJECT',
+      CANCELLED: 'CANCEL',
+      FINALIZED: 'FINALIZE',
+    };
+
     const auditEvents = (auditLogs || [])
       .map((log) => {
         try {
@@ -57,48 +65,21 @@ export class TimelineService {
 
           if (log.action !== 'STATUS_CHANGE') return null;
 
-          let beforeSnapshot = log.beforeSnapshot;
-          let afterSnapshot = log.afterSnapshot;
+          const beforeStatus = (log.beforeSnapshot as any)?.status;
+          const afterStatus  = (log.afterSnapshot as any)?.status;
 
-          // Parse if string
-          if (typeof beforeSnapshot === 'string') {
-            try { beforeSnapshot = JSON.parse(beforeSnapshot); } catch { beforeSnapshot = null; }
-          }
+          console.log('Timeline STATUS_CHANGE:', { beforeStatus, afterStatus });
 
-          if (typeof afterSnapshot === 'string') {
-            try { afterSnapshot = JSON.parse(afterSnapshot); } catch { afterSnapshot = null; }
-          }
+          if (!afterStatus || beforeStatus === afterStatus) return null;
 
-          const beforeStatus = (beforeSnapshot as any)?.status as string | undefined;
-          const afterStatus = (afterSnapshot as any)?.status as string | undefined;
-
-          // Only proceed if status actually changed
-          if (!afterStatus || beforeStatus === afterStatus) {
-            return null;
-          }
-
-          const STATUS_TO_ACTION: Record<string, string> = {
-            SUBMITTED:               'SUBMIT',
-            APPROVED:                'APPROVE',
-            ORIGIN_MANAGER_APPROVED: 'APPROVE',
-            READY_TO_FINALIZE:       'APPROVE',
-            REJECTED:                'REJECT',
-            CANCELLED:               'CANCEL',
-            FINALIZED:               'FINALIZE',
-          };
-
-          const mappedAction = STATUS_TO_ACTION[afterStatus] || 'UPDATE';
-
-          console.log('Timeline status change:', beforeStatus, '→', afterStatus, '| action:', mappedAction);
+          const action = STATUS_TO_ACTION[afterStatus] || 'UPDATE';
 
           return {
             id: `audit-${log.id}`,
             type: 'SYSTEM' as const,
-            action: mappedAction,
-            user: log.user || FALLBACK_USER,
-            timestamp: log.timestamp
-              ? new Date(log.timestamp).toISOString()
-              : new Date().toISOString(),
+            action,
+            user: log.user || { id: 'system', username: 'System' },
+            timestamp: log.timestamp,
             metadata: {
               from: beforeStatus,
               to: afterStatus,
