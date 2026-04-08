@@ -32,6 +32,8 @@ const STATUS_TO_ACTION: Record<string, string> = {
   FINALIZED:               'FINALIZE',
 };
 
+const FALLBACK_USER: TimelineUser = { id: 'unknown', username: 'System' };
+
 export class TimelineService {
   async getTimeline(entityType: string, entityId: string): Promise<TimelineResult> {
     const normalizedType = entityType.toUpperCase();
@@ -42,88 +44,92 @@ export class TimelineService {
       commentRepository.findByEntity(normalizedType, entityId),
     ]);
 
-    console.log('Timeline audit logs:', JSON.stringify(auditLogs, null, 2));
+    console.log('Timeline audit logs:', auditLogs);
 
-    const auditEvents: (TimelineEvent | null)[] = auditLogs.map((log) => {
-      const user: TimelineUser = log.user;
-      const timestamp = new Date(log.timestamp).toISOString();
-      const metadata = {
-        beforeSnapshot: log.beforeSnapshot,
-        afterSnapshot: log.afterSnapshot,
-        warnings: log.warnings,
-      };
+    const auditEvents = auditLogs.map((log) => {
+      try {
+        const user: TimelineUser = log.user || FALLBACK_USER;
+        const timestamp = (log as any).createdAt
+          ? new Date((log as any).createdAt).toISOString()
+          : new Date(log.timestamp).toISOString();
+        const metadata = {
+          beforeSnapshot: log.beforeSnapshot,
+          warnings: log.warnings,
+        };
 
-      // Direct lifecycle actions stored with explicit action names
-      if (['SUBMIT', 'APPROVE', 'REJECT', 'CANCEL'].includes(log.action)) {
+        // Direct lifecycle actions stored with explicit action names
+        if (['SUBMIT', 'APPROVE', 'REJECT', 'CANCEL'].includes(log.action)) {
+          return {
+            id: `audit-${log.id}`,
+            type: 'SYSTEM' as const,
+            action: log.action,
+            user,
+            timestamp,
+            metadata: (log as any).metadata || {},
+          };
+        }
+
+        // STATUS_CHANGE: workflow services log all transitions this way.
+        // Derive semantic action from afterValue.status.
+        if (log.action === 'STATUS_CHANGE') {
+          const status = (log as any).afterValue?.status as string | undefined;
+
+          if (!status) return null;
+
+          const mappedAction = STATUS_TO_ACTION[status];
+          if (!mappedAction) return null;
+
+          return {
+            id: `audit-${log.id}`,
+            type: 'SYSTEM' as const,
+            action: mappedAction,
+            user,
+            timestamp,
+            metadata,
+          };
+        }
+
+        if (log.action === 'ATTACHMENT_UPLOAD') {
+          return {
+            id: `audit-${log.id}`,
+            type: 'ATTACHMENT' as const,
+            action: 'UPLOADED',
+            user,
+            timestamp,
+            metadata,
+          };
+        }
+
+        if (log.action === 'ATTACHMENT_DELETE') {
+          return {
+            id: `audit-${log.id}`,
+            type: 'ATTACHMENT' as const,
+            action: 'DELETED',
+            user,
+            timestamp,
+            metadata,
+          };
+        }
+
         return {
           id: `audit-${log.id}`,
           type: 'SYSTEM' as const,
           action: log.action,
           user,
           timestamp,
-          metadata: (log as any).metadata || {},
-        };
-      }
-
-      // STATUS_CHANGE: workflow services log all transitions this way.
-      // Derive semantic action from afterValue.status (or afterSnapshot.status as fallback)
-      // so they appear as readable SYSTEM events (SUBMIT / APPROVE / REJECT / CANCEL / FINALIZE).
-      if (log.action === 'STATUS_CHANGE') {
-        const status = (log as any).afterValue?.status ?? (log.afterSnapshot as any)?.status as string | undefined;
-
-        if (!status) return null;
-
-        const mappedAction = STATUS_TO_ACTION[status];
-
-        if (!mappedAction) return null;
-
-        return {
-          id: `audit-${log.id}`,
-          type: 'SYSTEM' as const,
-          action: mappedAction,
-          user,
-          timestamp,
           metadata,
         };
+      } catch (err) {
+        console.error('Timeline mapping error:', log, err);
+        return null;
       }
-
-      if (log.action === 'ATTACHMENT_UPLOAD') {
-        return {
-          id: `audit-${log.id}`,
-          type: 'ATTACHMENT' as const,
-          action: 'UPLOADED',
-          user,
-          timestamp,
-          metadata,
-        };
-      }
-
-      if (log.action === 'ATTACHMENT_DELETE') {
-        return {
-          id: `audit-${log.id}`,
-          type: 'ATTACHMENT' as const,
-          action: 'DELETED',
-          user,
-          timestamp,
-          metadata,
-        };
-      }
-
-      return {
-        id: `audit-${log.id}`,
-        type: 'SYSTEM' as const,
-        action: log.action,
-        user,
-        timestamp,
-        metadata,
-      };
     }).filter(Boolean) as TimelineEvent[];
 
     const attachmentEvents: TimelineEvent[] = attachments.map((a) => ({
       id: `attachment-${a.id}`,
       type: 'ATTACHMENT' as const,
       action: 'UPLOADED',
-      user: a.uploadedBy,
+      user: a.uploadedBy || FALLBACK_USER,
       timestamp: new Date(a.createdAt).toISOString(),
       metadata: {
         fileName: a.fileName,
@@ -136,7 +142,7 @@ export class TimelineService {
       id: `comment-${c.id}`,
       type: 'COMMENT' as const,
       action: 'COMMENTED',
-      user: c.createdBy,
+      user: c.createdBy || FALLBACK_USER,
       timestamp: new Date(c.createdAt).toISOString(),
       metadata: {
         message: c.message,
