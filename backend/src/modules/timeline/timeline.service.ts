@@ -20,6 +20,18 @@ export interface TimelineResult {
   events: TimelineEvent[];
 }
 
+// Maps the new status value from STATUS_CHANGE audit logs to a semantic action
+// that the frontend can display meaningfully.
+const STATUS_TO_ACTION: Record<string, string> = {
+  SUBMITTED:               'SUBMIT',
+  APPROVED:                'APPROVE',
+  ORIGIN_MANAGER_APPROVED: 'APPROVE',
+  READY_TO_FINALIZE:       'APPROVE',
+  REJECTED:                'REJECT',
+  CANCELLED:               'CANCEL',
+  FINALIZED:               'FINALIZE',
+};
+
 export class TimelineService {
   async getTimeline(entityType: string, entityId: string): Promise<TimelineResult> {
     const normalizedType = entityType.toUpperCase();
@@ -30,7 +42,7 @@ export class TimelineService {
       commentRepository.findByEntity(normalizedType, entityId),
     ]);
 
-    const lifecycleActions = ['SUBMIT', 'APPROVE', 'REJECT', 'CANCEL'];
+    console.log('Timeline audit logs:', JSON.stringify(auditLogs, null, 2));
 
     const auditEvents: TimelineEvent[] = auditLogs.map((log) => {
       const user: TimelineUser = log.user;
@@ -41,7 +53,8 @@ export class TimelineService {
         warnings: log.warnings,
       };
 
-      if (lifecycleActions.includes(log.action)) {
+      // Direct lifecycle actions stored with explicit action names
+      if (['SUBMIT', 'APPROVE', 'REJECT', 'CANCEL'].includes(log.action)) {
         return {
           id: `audit-${log.id}`,
           type: 'SYSTEM' as const,
@@ -49,6 +62,24 @@ export class TimelineService {
           user,
           timestamp,
           metadata: (log as any).metadata || {},
+        };
+      }
+
+      // STATUS_CHANGE: workflow services log all transitions this way.
+      // Derive semantic action from afterSnapshot.status so they appear
+      // as readable SYSTEM events (SUBMIT / APPROVE / REJECT / CANCEL / FINALIZE).
+      if (log.action === 'STATUS_CHANGE') {
+        const newStatus = (log.afterSnapshot as any)?.status as string | undefined;
+        const semanticAction = newStatus
+          ? (STATUS_TO_ACTION[newStatus] ?? log.action)
+          : log.action;
+        return {
+          id: `audit-${log.id}`,
+          type: 'SYSTEM' as const,
+          action: semanticAction,
+          user,
+          timestamp,
+          metadata,
         };
       }
 

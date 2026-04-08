@@ -121,7 +121,10 @@ export class AuditRepository {
 
   async findByEntity(entityType: string, entityId: string): Promise<AuditTimelineRow[]> {
     const data = await prisma.auditLog.findMany({
-      where: { entityType, entityId },
+      where: {
+        entityType: { equals: entityType, mode: 'insensitive' },
+        entityId,
+      },
       orderBy: { timestamp: 'asc' },
       include: {
         user: {

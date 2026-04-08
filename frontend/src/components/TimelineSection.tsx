@@ -152,6 +152,9 @@ export default function TimelineSection({ entityType, entityId }: Props) {
                     <Button onClick={() => handleEdit(event.metadata.commentId)}>
                       Save
                     </Button>
+                    <Button onClick={() => setEditingId(null)}>
+                      Cancel
+                    </Button>
                   </Box>
                 ) : (
                   <Typography>
