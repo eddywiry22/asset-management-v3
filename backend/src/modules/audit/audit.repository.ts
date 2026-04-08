@@ -18,6 +18,19 @@ export interface AuditLogRow {
   };
 }
 
+/** Lightweight row type used exclusively by the timeline aggregation. */
+export interface AuditTimelineRow {
+  id: string;
+  action: string;
+  entityType: string;
+  entityId: string;
+  timestamp: Date;
+  beforeSnapshot: object | null;
+  afterSnapshot: object | null;
+  warnings: object | null;
+  user: { id: string; username: string };
+}
+
 export interface AuditLogFilters {
   dateStart?: Date;
   dateEnd?: Date;
@@ -106,17 +119,17 @@ export class AuditRepository {
     return { data: data as unknown as AuditLogRow[], total };
   }
 
-  async findByEntity(entityType: string, entityId: string): Promise<AuditLogRow[]> {
+  async findByEntity(entityType: string, entityId: string): Promise<AuditTimelineRow[]> {
     const data = await prisma.auditLog.findMany({
       where: { entityType, entityId },
       orderBy: { timestamp: 'asc' },
       include: {
         user: {
-          select: { id: true, email: true, phone: true },
+          select: { id: true, username: true },
         },
       },
     });
-    return data as unknown as AuditLogRow[];
+    return data as unknown as AuditTimelineRow[];
   }
 }
 

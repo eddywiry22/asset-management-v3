@@ -2,12 +2,17 @@ import { auditRepository } from '../audit/audit.repository';
 import { attachmentRepository } from '../attachments/repositories/attachment.repository';
 import { commentRepository } from '../comments/repositories/comment.repository';
 
+export interface TimelineUser {
+  id: string;
+  name: string;
+}
+
 export interface TimelineEvent {
   id: string;
   type: 'SYSTEM' | 'ATTACHMENT' | 'COMMENT';
   action: string;
-  user: object;
-  timestamp: Date;
+  user: TimelineUser;
+  timestamp: string;
   metadata: object;
 }
 
@@ -17,31 +22,61 @@ export interface TimelineResult {
 
 export class TimelineService {
   async getTimeline(entityType: string, entityId: string): Promise<TimelineResult> {
+    const normalizedType = entityType.toUpperCase();
+
     const [auditLogs, attachments, comments] = await Promise.all([
-      auditRepository.findByEntity(entityType, entityId),
-      attachmentRepository.findByEntity(entityType, entityId),
-      commentRepository.findByEntity(entityType, entityId),
+      auditRepository.findByEntity(normalizedType, entityId),
+      attachmentRepository.findByEntity(normalizedType, entityId),
+      commentRepository.findByEntity(normalizedType, entityId),
     ]);
 
-    const auditEvents: TimelineEvent[] = auditLogs.map((log) => ({
-      id: log.id,
-      type: 'SYSTEM',
-      action: log.action,
-      user: log.user,
-      timestamp: log.timestamp,
-      metadata: {
+    const auditEvents: TimelineEvent[] = auditLogs.map((log) => {
+      const user: TimelineUser = { id: log.user.id, name: log.user.username };
+      const timestamp = new Date(log.timestamp).toISOString();
+      const metadata = {
         beforeSnapshot: log.beforeSnapshot,
         afterSnapshot: log.afterSnapshot,
         warnings: log.warnings,
-      },
-    }));
+      };
+
+      if (log.action === 'ATTACHMENT_UPLOAD') {
+        return {
+          id: `audit-${log.id}`,
+          type: 'ATTACHMENT' as const,
+          action: 'UPLOADED',
+          user,
+          timestamp,
+          metadata,
+        };
+      }
+
+      if (log.action === 'ATTACHMENT_DELETE') {
+        return {
+          id: `audit-${log.id}`,
+          type: 'ATTACHMENT' as const,
+          action: 'DELETED',
+          user,
+          timestamp,
+          metadata,
+        };
+      }
+
+      return {
+        id: `audit-${log.id}`,
+        type: 'SYSTEM' as const,
+        action: log.action,
+        user,
+        timestamp,
+        metadata,
+      };
+    });
 
     const attachmentEvents: TimelineEvent[] = attachments.map((a) => ({
-      id: a.id,
-      type: 'ATTACHMENT',
+      id: `attachment-${a.id}`,
+      type: 'ATTACHMENT' as const,
       action: 'UPLOADED',
-      user: a.uploadedBy,
-      timestamp: a.createdAt,
+      user: { id: a.uploadedBy.id, name: a.uploadedBy.username },
+      timestamp: new Date(a.createdAt).toISOString(),
       metadata: {
         fileName: a.fileName,
         description: a.description,
@@ -50,11 +85,11 @@ export class TimelineService {
     }));
 
     const commentEvents: TimelineEvent[] = comments.map((c) => ({
-      id: c.id,
-      type: 'COMMENT',
+      id: `comment-${c.id}`,
+      type: 'COMMENT' as const,
       action: 'COMMENTED',
-      user: c.createdBy,
-      timestamp: c.createdAt,
+      user: { id: c.createdBy.id, name: c.createdBy.username },
+      timestamp: new Date(c.createdAt).toISOString(),
       metadata: {
         message: c.message,
         isEdited: c.isEdited,

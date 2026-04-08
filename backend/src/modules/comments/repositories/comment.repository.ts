@@ -2,7 +2,7 @@ import prisma from '../../../config/database';
 import { Comment } from '@prisma/client';
 
 export type CommentWithAuthor = Comment & {
-  createdBy: { id: string; name?: string | null; username: string };
+  createdBy: { id: string; username: string };
 };
 
 export class CommentRepository {
