@@ -28,10 +28,24 @@ export default function TimelineSection({ entityType, entityId }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const currentUser = (() => {
+    try {
+      const raw = localStorage.getItem('auth_user');
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  })();
 
   const fetchTimeline = async () => {
-    const data = await getTimeline(entityType, entityId);
-    setEvents(data);
+    try {
+      const data = await getTimeline(entityType, entityId);
+      setEvents(data);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   useEffect(() => {
@@ -40,20 +54,35 @@ export default function TimelineSection({ entityType, entityId }: Props) {
 
   const handleCreate = async () => {
     if (!comment.trim()) return;
-    await createComment({ entityType, entityId, message: comment });
-    setComment('');
-    fetchTimeline();
+    try {
+      await createComment({ entityType, entityId, message: comment });
+      setComment('');
+      fetchTimeline();
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const handleEdit = async (id: string) => {
-    await editComment(id, editingText);
-    setEditingId(null);
-    fetchTimeline();
+    try {
+      await editComment(id, editingText);
+      setEditingId(null);
+      fetchTimeline();
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const handleDelete = async (id: string) => {
-    await deleteComment(id);
-    fetchTimeline();
+    try {
+      setDeleting(true);
+      await deleteComment(id);
+      fetchTimeline();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const formatTime = (date: string) => new Date(date).toLocaleString();
@@ -74,35 +103,8 @@ export default function TimelineSection({ entityType, entityId }: Props) {
     }
   };
 
-  if (!events.length) {
-    return (
-      <Box mt={4}>
-        <Typography variant="h6" gutterBottom>
-          Activity Timeline
-        </Typography>
-
-        <Typography color="textSecondary">
-          No activities yet.
-        </Typography>
-
-        <Typography variant="body2" color="textSecondary">
-          Start by adding a comment or performing an action.
-        </Typography>
-
-        <Box display="flex" gap={2} mt={2}>
-          <TextField
-            fullWidth
-            placeholder="Write a comment..."
-            value={comment}
-            onChange={(e) => setComment(e.target.value)}
-          />
-          <Button variant="contained" onClick={handleCreate}>
-            Send
-          </Button>
-        </Box>
-      </Box>
-    );
-  }
+  const isOwner = (event: any) =>
+    currentUser && event.user?.id === currentUser.id;
 
   return (
     <Box mt={4}>
@@ -110,7 +112,7 @@ export default function TimelineSection({ entityType, entityId }: Props) {
         Activity Timeline
       </Typography>
 
-      {/* Comment input */}
+      {/* Comment input always visible */}
       <Box display="flex" gap={2} mb={3}>
         <TextField
           fullWidth
@@ -123,91 +125,108 @@ export default function TimelineSection({ entityType, entityId }: Props) {
         </Button>
       </Box>
 
-      {/* Timeline list */}
-      {events.map((event) => (
-        <Box key={event.id} mb={2} p={2} border="1px solid #eee" borderRadius={2}>
-          <Typography variant="subtitle2">
-            {event.user?.username || '-'}
-          </Typography>
-
-          {/* COMMENT */}
-          {event.type === 'COMMENT' && (
-            <>
-              {editingId === event.metadata.commentId ? (
-                <Box display="flex" gap={1}>
-                  <TextField
-                    fullWidth
-                    value={editingText}
-                    onChange={(e) => setEditingText(e.target.value)}
-                  />
-                  <Button onClick={() => handleEdit(event.metadata.commentId)}>
-                    Save
-                  </Button>
-                </Box>
-              ) : (
-                <Typography>
-                  💬 {event.metadata.message}{' '}
-                  {event.metadata.isEdited && '(edited)'}
-                </Typography>
-              )}
-
-              {!event.metadata.isDeleted && (
-                <Box>
-                  <Button
-                    size="small"
-                    onClick={() => {
-                      setEditingId(event.metadata.commentId);
-                      setEditingText(event.metadata.message);
-                    }}
-                  >
-                    Edit
-                  </Button>
-
-                  <Button
-                    size="small"
-                    color="error"
-                    onClick={() => setDeleteId(event.metadata.commentId)}
-                  >
-                    Delete
-                  </Button>
-                </Box>
-              )}
-            </>
-          )}
-
-          {/* ATTACHMENT */}
-          {event.type === 'ATTACHMENT' && (
-            <Typography>
-              📎 {event.action === 'UPLOADED' ? 'Uploaded' : 'Deleted'}{' '}
-              {event.metadata?.fileName}
-              {event.metadata?.description && (
-                <> — "{event.metadata.description}"</>
-              )}
-            </Typography>
-          )}
-
-          {/* SYSTEM */}
-          {event.type === 'SYSTEM' && (
-            <Typography>⚙️ {getSystemText(event)}</Typography>
-          )}
-
-          <Typography variant="caption" color="textSecondary">
-            {formatTime(event.timestamp)}
+      {events.length === 0 ? (
+        <Box mt={2}>
+          <Typography color="textSecondary">No activities yet.</Typography>
+          <Typography variant="body2" color="textSecondary">
+            Start by adding a comment or performing an action.
           </Typography>
         </Box>
-      ))}
+      ) : (
+        events.map((event) => (
+          <Box key={event.id} mb={2} p={2} border="1px solid #eee" borderRadius={2}>
+            <Typography variant="subtitle2">
+              {event.user?.username || '-'}
+            </Typography>
+
+            {/* COMMENT */}
+            {event.type === 'COMMENT' && (
+              <>
+                {editingId === event.metadata.commentId ? (
+                  <Box display="flex" gap={1}>
+                    <TextField
+                      fullWidth
+                      value={editingText}
+                      onChange={(e) => setEditingText(e.target.value)}
+                    />
+                    <Button onClick={() => handleEdit(event.metadata.commentId)}>
+                      Save
+                    </Button>
+                  </Box>
+                ) : (
+                  <Typography>
+                    💬 {event.metadata.message}{' '}
+                    {event.metadata.isEdited && '(edited)'}
+                  </Typography>
+                )}
+
+                {!event.metadata.isDeleted && isOwner(event) && (
+                  <Box>
+                    <Button
+                      size="small"
+                      onClick={() => {
+                        setEditingId(event.metadata.commentId);
+                        setEditingText(event.metadata.message);
+                      }}
+                    >
+                      Edit
+                    </Button>
+
+                    <Button
+                      size="small"
+                      color="error"
+                      onClick={() => setDeleteId(event.metadata.commentId)}
+                    >
+                      Delete
+                    </Button>
+                  </Box>
+                )}
+              </>
+            )}
+
+            {/* ATTACHMENT */}
+            {event.type === 'ATTACHMENT' && (
+              <Typography>
+                📎 {event.action === 'UPLOADED' ? 'Uploaded' : 'Deleted'}{' '}
+                {event.metadata?.fileName}
+                {event.metadata?.description && (
+                  <> — "{event.metadata.description}"</>
+                )}
+              </Typography>
+            )}
+
+            {/* SYSTEM */}
+            {event.type === 'SYSTEM' && (
+              <Typography
+                color={
+                  event.action === 'APPROVE'
+                    ? 'success.main'
+                    : event.action === 'REJECT'
+                    ? 'error.main'
+                    : 'text.primary'
+                }
+              >
+                {getSystemText(event)}
+              </Typography>
+            )}
+
+            <Typography variant="caption" color="textSecondary">
+              {formatTime(event.timestamp)}
+            </Typography>
+          </Box>
+        ))
+      )}
 
       <Dialog open={!!deleteId} onClose={() => setDeleteId(null)}>
         <DialogTitle>Delete Comment</DialogTitle>
         <DialogContent>
-          <Typography>
-            Are you sure you want to delete this comment?
-          </Typography>
+          <Typography>Are you sure you want to delete this comment?</Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDeleteId(null)}>Cancel</Button>
           <Button
             color="error"
+            disabled={deleting}
             onClick={async () => {
               if (deleteId) {
                 await handleDelete(deleteId);
