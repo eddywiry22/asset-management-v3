@@ -4,7 +4,7 @@ import { commentRepository } from '../comments/repositories/comment.repository';
 
 export interface TimelineUser {
   id: string;
-  name: string;
+  username: string;
 }
 
 export interface TimelineEvent {
@@ -31,7 +31,7 @@ export class TimelineService {
     ]);
 
     const auditEvents: TimelineEvent[] = auditLogs.map((log) => {
-      const user: TimelineUser = { id: log.user.id, name: log.user.username };
+      const user: TimelineUser = log.user;
       const timestamp = new Date(log.timestamp).toISOString();
       const metadata = {
         beforeSnapshot: log.beforeSnapshot,
@@ -75,7 +75,7 @@ export class TimelineService {
       id: `attachment-${a.id}`,
       type: 'ATTACHMENT' as const,
       action: 'UPLOADED',
-      user: { id: a.uploadedBy.id, name: a.uploadedBy.username },
+      user: a.uploadedBy,
       timestamp: new Date(a.createdAt).toISOString(),
       metadata: {
         fileName: a.fileName,
@@ -88,7 +88,7 @@ export class TimelineService {
       id: `comment-${c.id}`,
       type: 'COMMENT' as const,
       action: 'COMMENTED',
-      user: { id: c.createdBy.id, name: c.createdBy.username },
+      user: c.createdBy,
       timestamp: new Date(c.createdAt).toISOString(),
       metadata: {
         message: c.message,
