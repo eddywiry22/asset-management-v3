@@ -19,11 +19,14 @@ export class AttachmentsController {
       const { entityType, entityId } = req.params;
       assertValidEntityType(entityType);
 
+      const { description } = req.body;
+
       const result = await this.service.uploadAttachment(
         entityType,
         entityId,
         req.file,
         req.user.id,
+        description,
       );
 
       res.json({ success: true, data: result });

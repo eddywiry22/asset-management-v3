@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { Attachment } from '@prisma/client';
-import { AttachmentRepository, attachmentRepository } from './repositories/attachment.repository';
+import { AttachmentRepository, AttachmentWithUploader, attachmentRepository } from './repositories/attachment.repository';
 import { auditService } from '../../services/audit.service';
 import { NotFoundError, ValidationError } from '../../utils/errors';
 import prisma from '../../config/database';
@@ -25,6 +25,7 @@ export class AttachmentsService {
     entityId: string,
     file: Express.Multer.File | undefined,
     userId: string,
+    description?: string,
   ): Promise<Attachment> {
     assertEntityType(entityType);
 
@@ -47,7 +48,8 @@ export class AttachmentsService {
       filePath,
       mimeType: file.mimetype,
       fileSize: file.size,
-      uploadedBy: userId,
+      description: description || null,
+      uploadedById: userId,
     });
 
     await auditService.log({
@@ -55,13 +57,13 @@ export class AttachmentsService {
       action: 'ATTACHMENT_UPLOAD',
       entityType: 'ATTACHMENT',
       entityId: attachment.id,
-      afterSnapshot: { entityType, entityId, fileName: file.originalname },
+      afterSnapshot: { entityType, entityId, fileName: file.originalname, description },
     });
 
     return attachment;
   }
 
-  async getAttachments(entityType: EntityType, entityId: string): Promise<Attachment[]> {
+  async getAttachments(entityType: EntityType, entityId: string): Promise<AttachmentWithUploader[]> {
     assertEntityType(entityType);
     return this.repo.findByEntity(entityType, entityId);
   }
