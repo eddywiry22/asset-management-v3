@@ -11,16 +11,19 @@ export interface Attachment {
 
 const attachmentsService = {
   list: async (entityType: string, entityId: string): Promise<Attachment[]> => {
-    const res = await apiClient.get(`/attachments/${entityType}/${entityId}`);
+    const res = await apiClient.get(`/attachments/${entityType.toUpperCase()}/${entityId}`);
     return res.data?.data ?? res.data ?? [];
   },
 
   upload: async (entityType: string, entityId: string, files: File[]): Promise<void> => {
-    const form = new FormData();
-    files.forEach((f) => form.append('files', f));
-    await apiClient.post(`/attachments/${entityType}/${entityId}`, form, {
-      headers: { 'Content-Type': undefined },
-    });
+    const type = entityType.toUpperCase();
+    for (const file of files) {
+      const form = new FormData();
+      form.append('file', file);
+      await apiClient.post(`/attachments/${type}/${entityId}`, form, {
+        headers: { 'Content-Type': undefined },
+      });
+    }
   },
 
   delete: async (id: string): Promise<void> => {
