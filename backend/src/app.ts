@@ -19,6 +19,8 @@ import stockTransferRoutes from './modules/stock-transfers/transfer.routes';
 import savedFiltersRoutes from './modules/saved-filters/savedFilters.routes';
 import dashboardRoutes from './modules/dashboard/dashboard.routes';
 import attachmentsRoutes from './modules/attachments/attachments.routes';
+import commentsRoutes from './modules/comments/comments.routes';
+import timelineRoutes from './modules/timeline/timeline.routes';
 import { productsController } from './modules/products/products.controller';
 import { AuthenticatedRequest } from './types/request.types';
 
@@ -77,6 +79,12 @@ v1Router.use('/dashboard', dashboardRoutes);
 
 // /v1/attachments — requires auth, accessible by all roles (upload/delete restricted to admin in routes)
 v1Router.use('/attachments', authMiddleware, attachmentsRoutes);
+
+// /v1/comments — requires auth, accessible by all roles
+v1Router.use('/comments', authMiddleware, commentsRoutes);
+
+// /v1/timeline — requires auth, returns unified activity timeline for any entity
+v1Router.use('/timeline', authMiddleware, timelineRoutes);
 
 app.use('/v1', v1Router);
 

@@ -34,6 +34,7 @@ model User {
   transfersCancelled            StockTransferRequest[] @relation("TransferCancelledBy")
   transfersRejected             StockTransferRequest[] @relation("TransferRejectedBy")
   attachments                   Attachment[]
+  comments                      Comment[]
 }
 
 model Location {
@@ -386,6 +387,30 @@ model Attachment {
   uploadedById String
   uploadedBy   User     @relation(fields: [uploadedById], references: [id])
   createdAt    DateTime @default(now())
+
+  @@index([entityType, entityId])
+}
+
+// ---------------------------------------------------------------------------
+// Comments — generic comment system for any entity
+// ---------------------------------------------------------------------------
+
+model Comment {
+  id          String   @id @default(uuid())
+
+  entityType  String
+  entityId    String
+
+  message     String   @db.Text
+
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
+
+  isEdited    Boolean  @default(false)
+  isDeleted   Boolean  @default(false)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@index([entityType, entityId])
 }
