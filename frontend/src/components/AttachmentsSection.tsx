@@ -85,11 +85,15 @@ export default function AttachmentsSection({
 
   const queryKey = ['attachments', entityType, entityId];
 
-  const { data: attachments = [], isLoading } = useQuery<Attachment[]>({
+  const { data: rawAttachments = [], isLoading } = useQuery<Attachment[]>({
     queryKey,
     queryFn: () => attachmentsService.list(entityType, entityId),
     enabled: !!entityId,
   });
+
+  const attachments = [...rawAttachments].sort(
+    (a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime(),
+  );
 
   const refresh = () => queryClient.invalidateQueries({ queryKey });
 
@@ -209,15 +213,20 @@ export default function AttachmentsSection({
           />
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button
-            variant="outlined"
-            size="small"
-            startIcon={uploading ? <CircularProgress size={14} /> : <CloudUploadIcon />}
-            onClick={handleUploadClick}
-            disabled={uploading}
-          >
-            Upload
-          </Button>
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={uploading ? <CircularProgress size={14} /> : <CloudUploadIcon />}
+              onClick={handleUploadClick}
+              disabled={uploading}
+            >
+              {uploading ? 'Uploading...' : 'Upload'}
+            </Button>
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.25 }}>
+              JPG, PNG, PDF · Max 5 MB · Up to 5 files
+            </Typography>
+          </Box>
           <IconButton size="small" onClick={() => setCollapsed((c) => !c)}>
             {collapsed ? <ExpandMoreIcon /> : <ExpandLessIcon />}
           </IconButton>
@@ -257,8 +266,10 @@ export default function AttachmentsSection({
                 )}
                 {!isLoading && attachments.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={5} align="center" sx={{ color: 'text.secondary' }}>
-                      No attachments yet.
+                    <TableCell colSpan={5} align="center" sx={{ py: 3 }}>
+                      <Typography variant="body2" color="text.secondary">
+                        No attachments yet. Upload files to support this request.
+                      </Typography>
                     </TableCell>
                   </TableRow>
                 )}

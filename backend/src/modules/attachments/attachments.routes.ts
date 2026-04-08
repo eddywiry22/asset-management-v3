@@ -7,8 +7,8 @@ import { ValidationError } from '../../utils/errors';
 
 const router = Router();
 
-// POST /v1/attachments/:entityType/:entityId — upload a file (admin only)
-router.post('/:entityType/:entityId', adminMiddleware, (req, res, next) => {
+// POST /v1/attachments/:entityType/:entityId — upload a file (any authenticated user)
+router.post('/:entityType/:entityId', (req, res, next) => {
   upload.single('file')(req, res, (err) => {
     if (err) return next(new ValidationError(err.message));
     attachmentsController.upload(req as unknown as AuthenticatedRequest, res, next);

@@ -9,6 +9,14 @@ import prisma from '../../config/database';
 
 export type EntityType = 'ADJUSTMENT' | 'TRANSFER';
 
+const ALLOWED_ENTITY_TYPES: EntityType[] = ['ADJUSTMENT', 'TRANSFER'];
+
+function assertEntityType(entityType: string): asserts entityType is EntityType {
+  if (!ALLOWED_ENTITY_TYPES.includes(entityType as EntityType)) {
+    throw new ValidationError('Invalid entity type');
+  }
+}
+
 export class AttachmentsService {
   constructor(private readonly repo: AttachmentRepository) {}
 
@@ -18,6 +26,8 @@ export class AttachmentsService {
     file: Express.Multer.File | undefined,
     userId: string,
   ): Promise<Attachment> {
+    assertEntityType(entityType);
+
     if (!file) {
       throw new ValidationError('No file uploaded');
     }
@@ -52,6 +62,7 @@ export class AttachmentsService {
   }
 
   async getAttachments(entityType: EntityType, entityId: string): Promise<Attachment[]> {
+    assertEntityType(entityType);
     return this.repo.findByEntity(entityType, entityId);
   }
 
