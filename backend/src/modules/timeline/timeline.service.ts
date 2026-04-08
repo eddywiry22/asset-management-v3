@@ -1,4 +1,6 @@
 import prisma from '../../config/database';
+import { commentRepository, CommentWithAuthor } from '../comments/repositories/comment.repository';
+import { attachmentRepository, AttachmentWithUploader } from '../attachments/repositories/attachment.repository';
 
 interface RawAuditLog {
   id: string;
@@ -13,14 +15,11 @@ interface RawAuditLog {
 
 export interface TimelineEvent {
   id: string;
-  type: 'SYSTEM';
+  type: 'SYSTEM' | 'COMMENT' | 'ATTACHMENT';
   action: string;
   user: { id: string; username: string };
   timestamp: Date;
-  metadata: {
-    from: string | undefined;
-    to: string;
-  };
+  metadata: object;
 }
 
 export interface TimelineResult {
@@ -60,7 +59,12 @@ export class TimelineService {
       orderBy: { timestamp: 'asc' },
     }) as unknown as RawAuditLog[];
 
-    const events = logs.map((log) => {
+    const [comments, attachments] = await Promise.all([
+      commentRepository.findByEntity(entityType, entityId),
+      attachmentRepository.findByEntity(entityType, entityId),
+    ]);
+
+    const systemEvents = logs.map((log) => {
       if (log.action !== 'STATUS_CHANGE') return null;
 
       const beforeStatus = (log.beforeSnapshot as any)?.status;
@@ -82,6 +86,52 @@ export class TimelineService {
         },
       };
     }).filter(Boolean) as TimelineEvent[];
+
+    const commentEvents = comments.map((c: CommentWithAuthor) => {
+      try {
+        return {
+          id: `comment-${c.id}`,
+          type: 'COMMENT' as const,
+          action: 'COMMENT',
+          user: c.createdBy,
+          timestamp: c.createdAt,
+          metadata: {
+            content: c.message,
+            editedAt: c.isEdited ? c.updatedAt : null,
+          },
+        };
+      } catch {
+        return null;
+      }
+    }).filter(Boolean) as TimelineEvent[];
+
+    const attachmentEvents = attachments.map((a: AttachmentWithUploader) => {
+      try {
+        return {
+          id: `attachment-${a.id}`,
+          type: 'ATTACHMENT' as const,
+          action: 'UPLOAD',
+          user: a.uploadedBy,
+          timestamp: a.createdAt,
+          metadata: {
+            fileName: a.fileName,
+            filePath: a.filePath,
+          },
+        };
+      } catch {
+        return null;
+      }
+    }).filter(Boolean) as TimelineEvent[];
+
+    const events = [
+      ...systemEvents,
+      ...commentEvents,
+      ...attachmentEvents,
+    ];
+
+    events.sort((a, b) =>
+      new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
 
     return { events };
   }
