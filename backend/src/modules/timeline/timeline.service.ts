@@ -30,6 +30,8 @@ export class TimelineService {
       commentRepository.findByEntity(normalizedType, entityId),
     ]);
 
+    const lifecycleActions = ['SUBMIT', 'APPROVE', 'REJECT', 'CANCEL'];
+
     const auditEvents: TimelineEvent[] = auditLogs.map((log) => {
       const user: TimelineUser = log.user;
       const timestamp = new Date(log.timestamp).toISOString();
@@ -38,6 +40,17 @@ export class TimelineService {
         afterSnapshot: log.afterSnapshot,
         warnings: log.warnings,
       };
+
+      if (lifecycleActions.includes(log.action)) {
+        return {
+          id: `audit-${log.id}`,
+          type: 'SYSTEM' as const,
+          action: log.action,
+          user,
+          timestamp,
+          metadata: (log as any).metadata || {},
+        };
+      }
 
       if (log.action === 'ATTACHMENT_UPLOAD') {
         return {

@@ -4,6 +4,10 @@ import {
   Typography,
   TextField,
   Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material';
 
 import { getTimeline } from '../services/timeline.service';
@@ -23,6 +27,7 @@ export default function TimelineSection({ entityType, entityId }: Props) {
   const [comment, setComment] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const fetchTimeline = async () => {
     const data = await getTimeline(entityType, entityId);
@@ -52,6 +57,52 @@ export default function TimelineSection({ entityType, entityId }: Props) {
   };
 
   const formatTime = (date: string) => new Date(date).toLocaleString();
+
+  const getSystemText = (event: any) => {
+    const username = event.user?.username || 'System';
+    switch (event.action) {
+      case 'SUBMIT':
+        return `${username} submitted the request`;
+      case 'APPROVE':
+        return `${username} approved the request`;
+      case 'REJECT':
+        return `${username} rejected the request`;
+      case 'CANCEL':
+        return `${username} cancelled the request`;
+      default:
+        return event.action;
+    }
+  };
+
+  if (!events.length) {
+    return (
+      <Box mt={4}>
+        <Typography variant="h6" gutterBottom>
+          Activity Timeline
+        </Typography>
+
+        <Typography color="textSecondary">
+          No activities yet.
+        </Typography>
+
+        <Typography variant="body2" color="textSecondary">
+          Start by adding a comment or performing an action.
+        </Typography>
+
+        <Box display="flex" gap={2} mt={2}>
+          <TextField
+            fullWidth
+            placeholder="Write a comment..."
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+          />
+          <Button variant="contained" onClick={handleCreate}>
+            Send
+          </Button>
+        </Box>
+      </Box>
+    );
+  }
 
   return (
     <Box mt={4}>
@@ -115,7 +166,7 @@ export default function TimelineSection({ entityType, entityId }: Props) {
                   <Button
                     size="small"
                     color="error"
-                    onClick={() => handleDelete(event.metadata.commentId)}
+                    onClick={() => setDeleteId(event.metadata.commentId)}
                   >
                     Delete
                   </Button>
@@ -137,7 +188,7 @@ export default function TimelineSection({ entityType, entityId }: Props) {
 
           {/* SYSTEM */}
           {event.type === 'SYSTEM' && (
-            <Typography>{event.action}</Typography>
+            <Typography>⚙️ {getSystemText(event)}</Typography>
           )}
 
           <Typography variant="caption" color="textSecondary">
@@ -145,6 +196,29 @@ export default function TimelineSection({ entityType, entityId }: Props) {
           </Typography>
         </Box>
       ))}
+
+      <Dialog open={!!deleteId} onClose={() => setDeleteId(null)}>
+        <DialogTitle>Delete Comment</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Are you sure you want to delete this comment?
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteId(null)}>Cancel</Button>
+          <Button
+            color="error"
+            onClick={async () => {
+              if (deleteId) {
+                await handleDelete(deleteId);
+                setDeleteId(null);
+              }
+            }}
+          >
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
