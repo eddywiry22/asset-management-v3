@@ -1,4 +1,5 @@
 import fs from 'fs';
+import path from 'path';
 import crypto from 'crypto';
 import { Attachment } from '@prisma/client';
 import { AttachmentRepository, attachmentRepository } from './repositories/attachment.repository';
@@ -7,6 +8,14 @@ import { NotFoundError, ValidationError } from '../../utils/errors';
 import prisma from '../../config/database';
 
 export type EntityType = 'ADJUSTMENT' | 'TRANSFER';
+
+const ALLOWED_ENTITY_TYPES: EntityType[] = ['ADJUSTMENT', 'TRANSFER'];
+
+function assertEntityType(entityType: string): asserts entityType is EntityType {
+  if (!ALLOWED_ENTITY_TYPES.includes(entityType as EntityType)) {
+    throw new ValidationError('Invalid entity type');
+  }
+}
 
 export class AttachmentsService {
   constructor(private readonly repo: AttachmentRepository) {}
@@ -17,16 +26,19 @@ export class AttachmentsService {
     file: Express.Multer.File | undefined,
     userId: string,
   ): Promise<Attachment> {
+    assertEntityType(entityType);
+
     if (!file) {
       throw new ValidationError('No file uploaded');
     }
 
-    const dir = `uploads/${entityType}/${entityId}`;
+    const dir = path.resolve('uploads', entityType, entityId);
     fs.mkdirSync(dir, { recursive: true });
 
     const fileName = `${crypto.randomUUID()}-${file.originalname}`;
-    const filePath = `${dir}/${fileName}`;
+    const filePath = path.join(dir, fileName);
     fs.writeFileSync(filePath, file.buffer);
+    console.log('Attachment saved to:', filePath);
 
     const attachment = await this.repo.create({
       entityType,
@@ -50,6 +62,7 @@ export class AttachmentsService {
   }
 
   async getAttachments(entityType: EntityType, entityId: string): Promise<Attachment[]> {
+    assertEntityType(entityType);
     return this.repo.findByEntity(entityType, entityId);
   }
 
@@ -92,6 +105,13 @@ export class AttachmentsService {
     if (!attachment) {
       throw new NotFoundError('Attachment not found');
     }
+
+    console.log('Downloading file from:', attachment.filePath);
+
+    if (!fs.existsSync(attachment.filePath)) {
+      throw new NotFoundError('File not found on server');
+    }
+
     return attachment;
   }
 

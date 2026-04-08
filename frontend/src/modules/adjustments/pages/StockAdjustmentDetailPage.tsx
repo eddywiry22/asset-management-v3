@@ -24,6 +24,7 @@ import { useAuth } from '../../../context/AuthContext';
 import ActionReasonModal from '../../../components/ActionReasonModal';
 import { WorkflowWarningBanner } from '../../../components/WorkflowWarningBanner';
 import { WORKFLOW_WARNINGS } from '../../../utils/workflowWarnings';
+import AttachmentsSection from '../../../components/AttachmentsSection';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -505,10 +506,18 @@ export default function StockAdjustmentDetailPage() {
         </TableContainer>
       </Paper>
 
+      {/* Attachments */}
+      <AttachmentsSection
+        entityType="adjustment"
+        entityId={id!}
+        isAdmin={isAdmin}
+        requestStatus={req.status}
+      />
+
       {/* Workflow Actions */}
       {!isTerminal && (
         <>
-          <Divider sx={{ mb: 2 }} />
+          <Divider sx={{ mb: 2, mt: 3 }} />
           <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
 
             {/* DRAFT: Submit (creator only) */}

@@ -63,7 +63,11 @@ export class AttachmentsController {
 
       const file = await this.service.getAttachmentFile(id);
 
-      res.download(file.filePath, file.fileName);
+      res.download(file.filePath, file.fileName, (err) => {
+        if (err) {
+          next(err);
+        }
+      });
     } catch (err) {
       next(err);
     }
