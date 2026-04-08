@@ -5,8 +5,9 @@ export interface Attachment {
   fileName: string;
   fileSize: number;
   mimeType: string;
-  uploadedAt: string;
-  uploadedBy: { email: string | null; phone: string | null } | null;
+  description: string | null;
+  createdAt: string;
+  uploadedBy: { id: string; username: string } | null;
 }
 
 const attachmentsService = {
@@ -15,11 +16,17 @@ const attachmentsService = {
     return res.data?.data ?? res.data ?? [];
   },
 
-  upload: async (entityType: string, entityId: string, files: File[]): Promise<void> => {
+  upload: async (
+    entityType: string,
+    entityId: string,
+    files: File[],
+    descriptionMap: Record<string, string> = {},
+  ): Promise<void> => {
     const type = entityType.toUpperCase();
     for (const file of files) {
       const form = new FormData();
       form.append('file', file);
+      form.append('description', descriptionMap[file.name] || '');
       await apiClient.post(`/attachments/${type}/${entityId}`, form, {
         headers: { 'Content-Type': undefined },
       });

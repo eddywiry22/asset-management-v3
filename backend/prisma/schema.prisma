@@ -33,6 +33,7 @@ model User {
   transfersDestinationApproved  StockTransferRequest[] @relation("TransferDestinationApprovedBy")
   transfersCancelled            StockTransferRequest[] @relation("TransferCancelledBy")
   transfersRejected             StockTransferRequest[] @relation("TransferRejectedBy")
+  attachments                   Attachment[]
 }
 
 model Location {
@@ -376,13 +377,15 @@ model Attachment {
   entityType String   // 'ADJUSTMENT' | 'TRANSFER'
   entityId   String
 
-  fileName   String
-  filePath   String
-  mimeType   String
-  fileSize   Int
+  fileName    String
+  filePath    String
+  mimeType    String
+  fileSize    Int
+  description String?
 
-  uploadedBy String
-  createdAt  DateTime @default(now())
+  uploadedById String
+  uploadedBy   User     @relation(fields: [uploadedById], references: [id])
+  createdAt    DateTime @default(now())
 
   @@index([entityType, entityId])
 }

@@ -7,6 +7,7 @@ import {
   Chip,
   CircularProgress,
   Dialog,
+  DialogActions,
   DialogContent,
   DialogTitle,
   IconButton,
@@ -18,6 +19,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TextField,
   Tooltip,
   Typography,
 } from '@mui/material';
@@ -48,9 +50,9 @@ function fmtSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function userLabel(u: { email: string | null; phone: string | null } | null | undefined): string {
+function userLabel(u: { username: string } | null | undefined): string {
   if (!u) return '—';
-  return u.email ?? u.phone ?? '(unknown)';
+  return u.username;
 }
 
 function isImage(mimeType: string): boolean {
@@ -71,7 +73,7 @@ export default function AttachmentsSection({
   requestStatus,
 }: AttachmentsSectionProps) {
   const queryClient = useQueryClient();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const modalFileInputRef = useRef<HTMLInputElement>(null);
 
   const [uploading, setUploading]         = useState(false);
   const [deleting, setDeleting]           = useState<string | null>(null);
@@ -80,6 +82,11 @@ export default function AttachmentsSection({
   const [previewLoading, setPreviewLoading] = useState(false);
   const [collapsed, setCollapsed]         = useState(false);
   const [snack, setSnack] = useState<{ msg: string; severity: 'success' | 'error' | 'info' } | null>(null);
+
+  // Upload modal state
+  const [modalOpen, setModalOpen]           = useState(false);
+  const [pendingFiles, setPendingFiles]     = useState<File[]>([]);
+  const [descriptionMap, setDescriptionMap] = useState<Record<string, string>>({});
 
   const isDraft = requestStatus === 'DRAFT';
 
@@ -92,43 +99,62 @@ export default function AttachmentsSection({
   });
 
   const attachments = [...rawAttachments].sort(
-    (a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime(),
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   );
 
   const refresh = () => queryClient.invalidateQueries({ queryKey });
 
-  const handleUploadClick = () => {
-    fileInputRef.current?.click();
+  const openUploadModal = () => {
+    setPendingFiles([]);
+    setDescriptionMap({});
+    setModalOpen(true);
   };
 
-  const handleFilesSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selected: File[] = Array.from(e.target.files ?? ([] as File[]));
+  const closeUploadModal = () => {
+    setModalOpen(false);
+    setPendingFiles([]);
+    setDescriptionMap({});
+    if (modalFileInputRef.current) modalFileInputRef.current.value = '';
+  };
+
+  const handleModalFilesSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected: File[] = Array.from(e.target.files ?? []);
     if (selected.length === 0) return;
 
-    const invalid = selected.filter((f: File) => !ALLOWED_TYPES.includes(f.type));
+    const invalid = selected.filter((f) => !ALLOWED_TYPES.includes(f.type));
     if (invalid.length > 0) {
-      setSnack({ msg: `Invalid file type(s): ${invalid.map((f: File) => f.name).join(', ')}. Allowed: JPG, PNG, PDF.`, severity: 'error' });
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      setSnack({ msg: `Invalid file type(s): ${invalid.map((f) => f.name).join(', ')}. Allowed: JPG, PNG, PDF.`, severity: 'error' });
+      if (modalFileInputRef.current) modalFileInputRef.current.value = '';
       return;
     }
 
-    const tooLarge = selected.filter((f: File) => f.size > MAX_SIZE_BYTES);
+    const tooLarge = selected.filter((f) => f.size > MAX_SIZE_BYTES);
     if (tooLarge.length > 0) {
-      setSnack({ msg: `File(s) exceed 5 MB: ${tooLarge.map((f: File) => f.name).join(', ')}.`, severity: 'error' });
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      setSnack({ msg: `File(s) exceed 5 MB: ${tooLarge.map((f) => f.name).join(', ')}.`, severity: 'error' });
+      if (modalFileInputRef.current) modalFileInputRef.current.value = '';
       return;
     }
 
+    setPendingFiles(selected);
+    setDescriptionMap({});
+  };
+
+  const handleDescriptionChange = (fileName: string, value: string) => {
+    setDescriptionMap((prev) => ({ ...prev, [fileName]: value }));
+  };
+
+  const handleModalUpload = async () => {
+    if (pendingFiles.length === 0) return;
     setUploading(true);
     try {
-      await attachmentsService.upload(entityType, entityId, selected);
+      await attachmentsService.upload(entityType, entityId, pendingFiles, descriptionMap);
       refresh();
-      setSnack({ msg: `${selected.length} file(s) uploaded successfully.`, severity: 'success' });
+      setSnack({ msg: `${pendingFiles.length} file(s) uploaded successfully.`, severity: 'success' });
+      closeUploadModal();
     } catch (err: any) {
       setSnack({ msg: err?.response?.data?.error?.message ?? 'Upload failed.', severity: 'error' });
     } finally {
       setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
@@ -142,8 +168,6 @@ export default function AttachmentsSection({
 
   const handlePreview = async (att: Attachment) => {
     if (!isImage(att.mimeType)) {
-      // PDFs: open download endpoint directly in new tab (browser will render PDF natively)
-      // We use a programmatic click via an anchor to avoid popup blockers
       try {
         setPreviewLoading(true);
         const blobUrl = await attachmentsService.getPreviewBlob(att.id);
@@ -154,7 +178,6 @@ export default function AttachmentsSection({
         document.body.appendChild(a);
         a.click();
         a.remove();
-        // Revoke after a short delay so the tab has time to load
         setTimeout(() => window.URL.revokeObjectURL(blobUrl), 10_000);
       } catch {
         setSnack({ msg: 'Failed to open file.', severity: 'error' });
@@ -217,11 +240,10 @@ export default function AttachmentsSection({
             <Button
               variant="outlined"
               size="small"
-              startIcon={uploading ? <CircularProgress size={14} /> : <CloudUploadIcon />}
-              onClick={handleUploadClick}
-              disabled={uploading}
+              startIcon={<CloudUploadIcon />}
+              onClick={openUploadModal}
             >
-              {uploading ? 'Uploading...' : 'Upload'}
+              Upload
             </Button>
             <Typography variant="caption" color="text.secondary" sx={{ mt: 0.25 }}>
               JPG, PNG, PDF · Max 5 MB · Up to 5 files
@@ -233,16 +255,6 @@ export default function AttachmentsSection({
         </Box>
       </Box>
 
-      {/* Hidden file input */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        multiple
-        accept={ALLOWED_EXT}
-        style={{ display: 'none' }}
-        onChange={handleFilesSelected}
-      />
-
       {!collapsed && (
         <Paper>
           <TableContainer>
@@ -251,6 +263,7 @@ export default function AttachmentsSection({
                 <TableRow>
                   <TableCell>Filename</TableCell>
                   <TableCell>Size</TableCell>
+                  <TableCell>Description</TableCell>
                   <TableCell>Uploaded By</TableCell>
                   <TableCell>Uploaded At</TableCell>
                   <TableCell align="center">Actions</TableCell>
@@ -259,14 +272,14 @@ export default function AttachmentsSection({
               <TableBody>
                 {isLoading && (
                   <TableRow>
-                    <TableCell colSpan={5} align="center">
+                    <TableCell colSpan={6} align="center">
                       <CircularProgress size={20} />
                     </TableCell>
                   </TableRow>
                 )}
                 {!isLoading && attachments.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={5} align="center" sx={{ py: 3 }}>
+                    <TableCell colSpan={6} align="center" sx={{ py: 3 }}>
                       <Typography variant="body2" color="text.secondary">
                         No attachments yet. Upload files to support this request.
                       </Typography>
@@ -288,8 +301,13 @@ export default function AttachmentsSection({
                     <TableCell sx={{ color: 'text.secondary', whiteSpace: 'nowrap' }}>
                       {fmtSize(att.fileSize)}
                     </TableCell>
+                    <TableCell sx={{ color: 'text.secondary', maxWidth: 200 }}>
+                      <Typography variant="body2" noWrap title={att.description ?? undefined}>
+                        {att.description || '—'}
+                      </Typography>
+                    </TableCell>
                     <TableCell>{userLabel(att.uploadedBy)}</TableCell>
-                    <TableCell sx={{ whiteSpace: 'nowrap' }}>{fmtDate(att.uploadedAt)}</TableCell>
+                    <TableCell sx={{ whiteSpace: 'nowrap' }}>{fmtDate(att.createdAt)}</TableCell>
                     <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
                       <Tooltip title={isImage(att.mimeType) ? 'Preview' : 'Open in new tab'}>
                         <span>
@@ -337,6 +355,81 @@ export default function AttachmentsSection({
           </TableContainer>
         </Paper>
       )}
+
+      {/* Upload Modal */}
+      <Dialog open={modalOpen} onClose={closeUploadModal} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          Upload Attachments
+          <IconButton size="small" onClick={closeUploadModal}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          <Button
+            component="label"
+            variant="outlined"
+            startIcon={<CloudUploadIcon />}
+            size="small"
+            sx={{ mb: 2 }}
+          >
+            Select Files
+            <input
+              ref={modalFileInputRef}
+              type="file"
+              hidden
+              multiple
+              accept={ALLOWED_EXT}
+              onChange={handleModalFilesSelected}
+            />
+          </Button>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+            JPG, PNG, PDF · Max 5 MB per file
+          </Typography>
+
+          {pendingFiles.length === 0 && (
+            <Typography variant="body2" color="text.secondary">
+              No files selected yet.
+            </Typography>
+          )}
+
+          {pendingFiles.map((file) => (
+            <Box key={file.name} sx={{ mb: 2 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
+                {ALLOWED_TYPES.includes(file.type) && file.type !== 'application/pdf' ? (
+                  <ImageIcon fontSize="small" sx={{ color: 'primary.main' }} />
+                ) : (
+                  <AttachFileIcon fontSize="small" sx={{ color: 'text.secondary' }} />
+                )}
+                <Typography variant="body2" fontWeight={500}>{file.name}</Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>
+                  ({fmtSize(file.size)})
+                </Typography>
+              </Box>
+              <TextField
+                placeholder="Add description (optional)"
+                helperText="Describe the file to provide context (e.g. signed invoice, damaged item photo)"
+                fullWidth
+                size="small"
+                value={descriptionMap[file.name] || ''}
+                onChange={(e) => handleDescriptionChange(file.name, e.target.value)}
+              />
+            </Box>
+          ))}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeUploadModal} disabled={uploading}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleModalUpload}
+            disabled={pendingFiles.length === 0 || uploading}
+            startIcon={uploading ? <CircularProgress size={14} /> : <CloudUploadIcon />}
+          >
+            {uploading ? 'Uploading...' : 'Upload'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Image Preview Dialog */}
       <Dialog open={!!previewUrl} onClose={closePreview} maxWidth="lg" fullWidth>
