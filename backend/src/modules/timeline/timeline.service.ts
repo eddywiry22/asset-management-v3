@@ -89,28 +89,28 @@ export class TimelineService {
             };
           }
 
-          // STATUS_CHANGE: decode afterValue.status into a semantic action.
+          // STATUS_CHANGE: decode afterSnapshot.status into a semantic action.
           if (log.action === 'STATUS_CHANGE') {
-            let afterValue = log.afterValue;
+            let afterSnapshot = log.afterSnapshot;
 
-            if (typeof afterValue === 'string') {
+            if (typeof afterSnapshot === 'string') {
               try {
-                afterValue = JSON.parse(afterValue);
+                afterSnapshot = JSON.parse(afterSnapshot);
               } catch {
-                afterValue = null;
+                afterSnapshot = null;
               }
             }
 
             // Support both possible keys used across services
-            const status = (afterValue?.status || afterValue?.newStatus || null) as string | null;
+            const status = ((afterSnapshot as any)?.status || (afterSnapshot as any)?.newStatus || null) as string | null;
 
             if (!status) {
-              console.log('Missing status in audit log:', log);
+              console.log('No status found in afterSnapshot:', log);
               return null;
             }
 
             const mappedAction = STATUS_TO_ACTION[status] || 'UPDATE';
-            console.log('Mapped status → action:', status, mappedAction);
+            console.log('Timeline STATUS_CHANGE:', status, '→', mappedAction);
 
             return {
               id: `audit-${log.id}`,
