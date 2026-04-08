@@ -105,6 +105,19 @@ export class AuditRepository {
 
     return { data: data as unknown as AuditLogRow[], total };
   }
+
+  async findByEntity(entityType: string, entityId: string): Promise<AuditLogRow[]> {
+    const data = await prisma.auditLog.findMany({
+      where: { entityType, entityId },
+      orderBy: { timestamp: 'asc' },
+      include: {
+        user: {
+          select: { id: true, email: true, phone: true },
+        },
+      },
+    });
+    return data as unknown as AuditLogRow[];
+  }
 }
 
 export const auditRepository = new AuditRepository();
