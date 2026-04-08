@@ -15,6 +15,11 @@ router.post('/:entityType/:entityId', adminMiddleware, (req, res, next) => {
   });
 });
 
+// GET /v1/attachments/:id/download — download file (must be before /:entityType/:entityId)
+router.get('/:id/download', (req, res, next) =>
+  attachmentsController.download(req as unknown as AuthenticatedRequest, res, next),
+);
+
 // GET /v1/attachments/:entityType/:entityId — list attachments
 router.get('/:entityType/:entityId', (req, res, next) =>
   attachmentsController.list(req as unknown as AuthenticatedRequest, res, next),
@@ -23,11 +28,6 @@ router.get('/:entityType/:entityId', (req, res, next) =>
 // DELETE /v1/attachments/:id — delete attachment (admin only, DRAFT requests only)
 router.delete('/:id', adminMiddleware, (req, res, next) =>
   attachmentsController.delete(req as unknown as AuthenticatedRequest, res, next),
-);
-
-// GET /v1/attachments/:id/download — download file
-router.get('/:id/download', (req, res, next) =>
-  attachmentsController.download(req as unknown as AuthenticatedRequest, res, next),
 );
 
 export default router;
