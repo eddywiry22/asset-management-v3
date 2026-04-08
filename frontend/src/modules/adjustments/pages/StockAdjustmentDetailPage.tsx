@@ -25,6 +25,7 @@ import ActionReasonModal from '../../../components/ActionReasonModal';
 import { WorkflowWarningBanner } from '../../../components/WorkflowWarningBanner';
 import { WORKFLOW_WARNINGS } from '../../../utils/workflowWarnings';
 import AttachmentsSection from '../../../components/AttachmentsSection';
+import TimelineSection from '../../../components/TimelineSection';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -594,6 +595,8 @@ export default function StockAdjustmentDetailPage() {
           </Box>
         </>
       )}
+
+      <TimelineSection entityType="ADJUSTMENT" entityId={id!} />
 
       {/* Add/Edit Item Dialog */}
       <ItemDialog
