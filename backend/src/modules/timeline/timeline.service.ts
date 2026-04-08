@@ -30,6 +30,9 @@ const STATUS_TO_ACTION: Record<string, string> = {
   REJECTED:                'REJECT',
   CANCELLED:               'CANCEL',
   FINALIZED:               'FINALIZE',
+  // fallback coverage
+  DRAFT:                   'DRAFT',
+  PENDING:                 'SUBMIT',
 };
 
 const FALLBACK_USER: TimelineUser = { id: 'unknown', username: 'System' };
@@ -98,11 +101,16 @@ export class TimelineService {
               }
             }
 
-            const status = afterValue?.status as string | undefined;
-            if (!status) return null;
+            // Support both possible keys used across services
+            const status = (afterValue?.status || afterValue?.newStatus || null) as string | null;
 
-            const mappedAction = STATUS_TO_ACTION[status];
-            if (!mappedAction) return null;
+            if (!status) {
+              console.log('Missing status in audit log:', log);
+              return null;
+            }
+
+            const mappedAction = STATUS_TO_ACTION[status] || 'UPDATE';
+            console.log('Mapped status → action:', status, mappedAction);
 
             return {
               id: `audit-${log.id}`,
