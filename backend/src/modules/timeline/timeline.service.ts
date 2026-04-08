@@ -20,21 +20,6 @@ export interface TimelineResult {
   events: TimelineEvent[];
 }
 
-// Maps the new status value from STATUS_CHANGE audit logs to a semantic action
-// that the frontend can display meaningfully.
-const STATUS_TO_ACTION: Record<string, string> = {
-  SUBMITTED:               'SUBMIT',
-  APPROVED:                'APPROVE',
-  ORIGIN_MANAGER_APPROVED: 'APPROVE',
-  READY_TO_FINALIZE:       'APPROVE',
-  REJECTED:                'REJECT',
-  CANCELLED:               'CANCEL',
-  FINALIZED:               'FINALIZE',
-  // fallback coverage
-  DRAFT:                   'DRAFT',
-  PENDING:                 'SUBMIT',
-};
-
 const FALLBACK_USER: TimelineUser = { id: 'unknown', username: 'System' };
 
 export class TimelineService {
@@ -70,87 +55,54 @@ export class TimelineService {
         try {
           if (!log) return null;
 
-          const user: TimelineUser = log.user || FALLBACK_USER;
-          const timestamp = log.createdAt
-            ? new Date(log.createdAt).toISOString()
-            : log.timestamp
-            ? new Date(log.timestamp).toISOString()
-            : new Date().toISOString();
+          if (log.action !== 'STATUS_CHANGE') return null;
 
-          // Direct lifecycle actions stored with explicit action names
-          if (['SUBMIT', 'APPROVE', 'REJECT', 'CANCEL'].includes(log.action)) {
-            return {
-              id: `audit-${log.id}`,
-              type: 'SYSTEM' as const,
-              action: log.action,
-              user,
-              timestamp,
-              metadata: log.metadata || {},
-            };
+          let beforeSnapshot = log.beforeSnapshot;
+          let afterSnapshot = log.afterSnapshot;
+
+          // Parse if string
+          if (typeof beforeSnapshot === 'string') {
+            try { beforeSnapshot = JSON.parse(beforeSnapshot); } catch { beforeSnapshot = null; }
           }
 
-          // STATUS_CHANGE: decode afterSnapshot.status into a semantic action.
-          if (log.action === 'STATUS_CHANGE') {
-            let afterSnapshot = log.afterSnapshot;
-
-            if (typeof afterSnapshot === 'string') {
-              try {
-                afterSnapshot = JSON.parse(afterSnapshot);
-              } catch {
-                afterSnapshot = null;
-              }
-            }
-
-            // Support both possible keys used across services
-            const status = ((afterSnapshot as any)?.status || (afterSnapshot as any)?.newStatus || null) as string | null;
-
-            if (!status) {
-              console.log('No status found in afterSnapshot:', log);
-              return null;
-            }
-
-            const mappedAction = STATUS_TO_ACTION[status] || 'UPDATE';
-            console.log('Timeline STATUS_CHANGE:', status, '→', mappedAction);
-
-            return {
-              id: `audit-${log.id}`,
-              type: 'SYSTEM' as const,
-              action: mappedAction,
-              user,
-              timestamp,
-              metadata: log.metadata || {},
-            };
+          if (typeof afterSnapshot === 'string') {
+            try { afterSnapshot = JSON.parse(afterSnapshot); } catch { afterSnapshot = null; }
           }
 
-          if (log.action === 'ATTACHMENT_UPLOAD') {
-            return {
-              id: `audit-${log.id}`,
-              type: 'ATTACHMENT' as const,
-              action: 'UPLOADED',
-              user,
-              timestamp,
-              metadata: { beforeSnapshot: log.beforeSnapshot, warnings: log.warnings },
-            };
+          const beforeStatus = (beforeSnapshot as any)?.status as string | undefined;
+          const afterStatus = (afterSnapshot as any)?.status as string | undefined;
+
+          // Only proceed if status actually changed
+          if (!afterStatus || beforeStatus === afterStatus) {
+            return null;
           }
 
-          if (log.action === 'ATTACHMENT_DELETE') {
-            return {
-              id: `audit-${log.id}`,
-              type: 'ATTACHMENT' as const,
-              action: 'DELETED',
-              user,
-              timestamp,
-              metadata: { beforeSnapshot: log.beforeSnapshot, warnings: log.warnings },
-            };
-          }
+          const STATUS_TO_ACTION: Record<string, string> = {
+            SUBMITTED:               'SUBMIT',
+            APPROVED:                'APPROVE',
+            ORIGIN_MANAGER_APPROVED: 'APPROVE',
+            READY_TO_FINALIZE:       'APPROVE',
+            REJECTED:                'REJECT',
+            CANCELLED:               'CANCEL',
+            FINALIZED:               'FINALIZE',
+          };
+
+          const mappedAction = STATUS_TO_ACTION[afterStatus] || 'UPDATE';
+
+          console.log('Timeline status change:', beforeStatus, '→', afterStatus, '| action:', mappedAction);
 
           return {
             id: `audit-${log.id}`,
             type: 'SYSTEM' as const,
-            action: log.action,
-            user,
-            timestamp,
-            metadata: log.metadata || {},
+            action: mappedAction,
+            user: log.user || FALLBACK_USER,
+            timestamp: log.timestamp
+              ? new Date(log.timestamp).toISOString()
+              : new Date().toISOString(),
+            metadata: {
+              from: beforeStatus,
+              to: afterStatus,
+            },
           };
         } catch (err) {
           console.error('Audit mapping error:', log, err);
