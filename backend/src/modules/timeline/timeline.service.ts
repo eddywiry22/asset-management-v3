@@ -44,7 +44,7 @@ export class TimelineService {
 
     console.log('Timeline audit logs:', JSON.stringify(auditLogs, null, 2));
 
-    const auditEvents: TimelineEvent[] = auditLogs.map((log) => {
+    const auditEvents: (TimelineEvent | null)[] = auditLogs.map((log) => {
       const user: TimelineUser = log.user;
       const timestamp = new Date(log.timestamp).toISOString();
       const metadata = {
@@ -66,17 +66,21 @@ export class TimelineService {
       }
 
       // STATUS_CHANGE: workflow services log all transitions this way.
-      // Derive semantic action from afterSnapshot.status so they appear
-      // as readable SYSTEM events (SUBMIT / APPROVE / REJECT / CANCEL / FINALIZE).
+      // Derive semantic action from afterValue.status (or afterSnapshot.status as fallback)
+      // so they appear as readable SYSTEM events (SUBMIT / APPROVE / REJECT / CANCEL / FINALIZE).
       if (log.action === 'STATUS_CHANGE') {
-        const newStatus = (log.afterSnapshot as any)?.status as string | undefined;
-        const semanticAction = newStatus
-          ? (STATUS_TO_ACTION[newStatus] ?? log.action)
-          : log.action;
+        const status = (log as any).afterValue?.status ?? (log.afterSnapshot as any)?.status as string | undefined;
+
+        if (!status) return null;
+
+        const mappedAction = STATUS_TO_ACTION[status];
+
+        if (!mappedAction) return null;
+
         return {
           id: `audit-${log.id}`,
           type: 'SYSTEM' as const,
-          action: semanticAction,
+          action: mappedAction,
           user,
           timestamp,
           metadata,
@@ -113,7 +117,7 @@ export class TimelineService {
         timestamp,
         metadata,
       };
-    });
+    }).filter(Boolean) as TimelineEvent[];
 
     const attachmentEvents: TimelineEvent[] = attachments.map((a) => ({
       id: `attachment-${a.id}`,
