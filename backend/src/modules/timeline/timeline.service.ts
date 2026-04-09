@@ -45,19 +45,29 @@ export class TimelineService {
         after:  l.afterSnapshot,
       })));
 
+      const parse = (data: any) => {
+        if (!data) return null;
+        if (typeof data === 'string') {
+          try { return JSON.parse(data); } catch { return null; }
+        }
+        return data;
+      };
+
       const systemEvents = (auditLogs as any[])
         .map((log: any) => {
           try {
-            const before = typeof log.beforeSnapshot === 'string'
-              ? JSON.parse(log.beforeSnapshot)
-              : log.beforeSnapshot;
+            const before =
+              parse(log.beforeSnapshot) ||
+              parse(log.beforeValue);
 
-            const after = typeof log.afterSnapshot === 'string'
-              ? JSON.parse(log.afterSnapshot)
-              : log.afterSnapshot;
+            const after =
+              parse(log.afterSnapshot) ||
+              parse(log.afterValue);
 
             const beforeStatus = before?.status;
             const afterStatus  = after?.status;
+
+            console.log('STATUS CHECK:', { action: log.action, beforeStatus, afterStatus });
 
             if (!afterStatus || beforeStatus === afterStatus) return null;
 
