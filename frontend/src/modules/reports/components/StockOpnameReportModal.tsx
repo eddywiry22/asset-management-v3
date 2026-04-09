@@ -14,6 +14,7 @@ import { useQuery } from '@tanstack/react-query';
 import stockService from '../../../services/stock.service';
 import { categoriesService } from '../../../services/categories.service';
 import useStockOpnameReport from '../hooks/useStockOpnameReport';
+import { reportService } from '../services/report.service';
 import StockOpnameFilters, {
   StockOpnameFilterState,
   FilterOption,
@@ -40,6 +41,7 @@ function defaultFilterState(): StockOpnameFilterState {
 
 export default function StockOpnameReportModal({ open, onClose }: Props) {
   const [filters, setFilters] = useState<StockOpnameFilterState>(defaultFilterState);
+  const [downloading, setDownloading] = useState(false);
   const { data, loading, error, fetchReport, reset } = useStockOpnameReport();
 
   // Reset state whenever the modal closes, so next open starts fresh.
@@ -88,8 +90,25 @@ export default function StockOpnameReportModal({ open, onClose }: Props) {
     });
   };
 
-  const handleDownload = () => {
-    // Phase 3 — intentionally disabled
+  const handleDownload = async () => {
+    if (!data) return;
+    setDownloading(true);
+    try {
+      const blob = await reportService.exportStockOpnameReport({
+        startDate: filters.startDate,
+        endDate: filters.endDate,
+        locationIds: filters.locationIds.length ? filters.locationIds : undefined,
+        categoryIds: filters.categoryIds.length ? filters.categoryIds : undefined,
+      });
+      const url = window.URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'stock-opname-report.pdf';
+      link.click();
+      window.URL.revokeObjectURL(url);
+    } finally {
+      setDownloading(false);
+    }
   };
 
   return (
@@ -143,7 +162,7 @@ export default function StockOpnameReportModal({ open, onClose }: Props) {
             onPreview={handlePreview}
             onDownload={handleDownload}
             previewDisabled={loading}
-            downloadDisabled
+            downloadDisabled={!data || loading || downloading}
           />
         </Box>
 
