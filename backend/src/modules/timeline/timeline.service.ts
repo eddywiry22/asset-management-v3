@@ -11,28 +11,35 @@ const STATUS_TO_ACTION: Record<string, string> = {
   FINALIZED: 'FINALIZE',
 };
 
+const ENTITY_TYPE_MAP: Record<string, string[]> = {
+  ADJUSTMENT: ['STOCK_ADJUSTMENT_REQUEST'],
+  TRANSFER:   ['STOCK_TRANSFER_REQUEST'],
+};
+
 export class TimelineService {
   async getTimeline(entityType: string, entityId: string): Promise<{ events: any[] }> {
     try {
+      const mappedTypes = ENTITY_TYPE_MAP[entityType.toUpperCase()] || [entityType];
+
       const auditLogs = await prisma.auditLog.findMany({
         where: {
-          entityType: { equals: entityType, mode: 'insensitive' },
+          entityType: { in: mappedTypes },
           entityId,
         },
-        select: {
-          id:             true,
-          action:         true,
-          entityType:     true,
-          entityId:       true,
-          beforeSnapshot: true,
-          afterSnapshot:  true,
-          timestamp:      true,
+        include: {
           user: {
             select: { id: true, username: true },
           },
         },
         orderBy: { timestamp: 'asc' },
       }) as any[];
+
+      console.log('TIMELINE QUERY:', {
+        requestedType: entityType,
+        mappedTypes,
+        entityId,
+        count: auditLogs.length,
+      });
 
       const [comments, attachments] = await Promise.all([
         commentRepository.findByEntity(entityType, entityId),
