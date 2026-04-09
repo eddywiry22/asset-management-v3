@@ -6,6 +6,7 @@ import { AttachmentRepository, AttachmentWithUploader, attachmentRepository } fr
 import { auditService } from '../../services/audit.service';
 import { NotFoundError, ValidationError } from '../../utils/errors';
 import prisma from '../../config/database';
+import { emitTimelineEvent } from '../timeline/timeline.sse';
 
 export type EntityType = 'ADJUSTMENT' | 'TRANSFER';
 
@@ -58,6 +59,14 @@ export class AttachmentsService {
       entityType: 'ATTACHMENT',
       entityId: attachment.id,
       afterSnapshot: { entityType, entityId, fileName: file.originalname, description },
+    });
+
+    emitTimelineEvent(entityType, entityId, {
+      id:        `attachment-${attachment.id}`,
+      type:      'ATTACHMENT',
+      action:    'UPLOAD',
+      timestamp: attachment.createdAt,
+      metadata:  { fileName: attachment.fileName },
     });
 
     return attachment;

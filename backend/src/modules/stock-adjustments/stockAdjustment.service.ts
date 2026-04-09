@@ -19,6 +19,7 @@ import {
   getProductLocationStatus,
 } from '../../utils/validationHelpers';
 import { getAdjustmentEligibleUsers } from '../stock/utils/workflowResponsibility';
+import { emitTimelineEvent } from '../timeline/timeline.sse';
 
 type UserCtx = { id: string; isAdmin: boolean };
 
@@ -288,6 +289,7 @@ export class StockAdjustmentService {
     }
 
     void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', beforeValue: { status: 'DRAFT' }, afterValue: { status: 'SUBMITTED' }, performedBy: userId });
+    emitTimelineEvent('ADJUSTMENT', requestId, { type: 'SYSTEM', action: 'SUBMIT', timestamp: new Date().toISOString(), metadata: { from: 'DRAFT', to: 'SUBMITTED' } });
     return updated;
   }
 
@@ -379,6 +381,7 @@ export class StockAdjustmentService {
     const plStatuses = await Promise.all(req.items.map((i) => getProductLocationStatus(i.productId, i.locationId)));
     const itemSnapshot = req.items.map((i, idx) => ({ productId: i.productId, locationId: i.locationId, ...plStatuses[idx] }));
     void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', beforeValue: { status: 'SUBMITTED' }, afterValue: { status: 'APPROVED', itemSnapshot, inactiveItemCount: inactiveItems.length }, performedBy: userId });
+    emitTimelineEvent('ADJUSTMENT', requestId, { type: 'SYSTEM', action: 'APPROVE', timestamp: new Date().toISOString(), metadata: { from: 'SUBMITTED', to: 'APPROVED' } });
     return updated;
   }
 
@@ -416,6 +419,7 @@ export class StockAdjustmentService {
       throw new ValidationError(`Cannot reject a request with status ${req.status}`);
     }
     void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', beforeValue: { status: 'SUBMITTED' }, afterValue: { status: 'REJECTED' }, performedBy: userId });
+    emitTimelineEvent('ADJUSTMENT', requestId, { type: 'SYSTEM', action: 'REJECT', timestamp: new Date().toISOString(), metadata: { from: 'SUBMITTED', to: 'REJECTED' } });
     return (await stockAdjustmentRepository.findById(requestId))!;
   }
 
@@ -533,6 +537,7 @@ export class StockAdjustmentService {
     const finalizePlStatuses = await Promise.all(req.items.map((i) => getProductLocationStatus(i.productId, i.locationId)));
     const finalizeItemSnapshot = req.items.map((i, idx) => ({ productId: i.productId, locationId: i.locationId, ...finalizePlStatuses[idx] }));
     void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', beforeValue: { status: 'APPROVED' }, afterValue: { status: 'FINALIZED', itemSnapshot: finalizeItemSnapshot }, performedBy: userId });
+    emitTimelineEvent('ADJUSTMENT', requestId, { type: 'SYSTEM', action: 'FINALIZE', timestamp: new Date().toISOString(), metadata: { from: 'APPROVED', to: 'FINALIZED' } });
     return (await stockAdjustmentRepository.findById(requestId))!;
   }
   // -------------------------------------------------------------------------
@@ -576,6 +581,7 @@ export class StockAdjustmentService {
     }
 
     void auditService.log({ entityType: 'STOCK_ADJUSTMENT_REQUEST', entityId: requestId, action: 'STATUS_CHANGE', beforeValue: { status: req.status }, afterValue: { status: 'CANCELLED' }, performedBy: user.id });
+    emitTimelineEvent('ADJUSTMENT', requestId, { type: 'SYSTEM', action: 'CANCEL', timestamp: new Date().toISOString(), metadata: { from: req.status, to: 'CANCELLED' } });
     return (await stockAdjustmentRepository.findById(requestId))!;
   }
 }

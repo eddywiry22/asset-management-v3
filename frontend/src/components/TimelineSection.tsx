@@ -73,6 +73,31 @@ export default function TimelineSection({ entityType, entityId }: Props) {
     fetchTimeline();
   }, [entityType, entityId]);
 
+  useEffect(() => {
+    const es = new EventSource(
+      `/api/v1/timeline/stream/${entityType}/${entityId}`
+    );
+
+    es.onmessage = (event) => {
+      try {
+        const newEvent = JSON.parse(event.data);
+        setEvents(prev => {
+          if (newEvent.id && prev.find(e => e.id === newEvent.id)) return prev;
+          return [newEvent, ...prev];
+        });
+      } catch {
+        console.error('SSE parse error', event.data);
+      }
+    };
+
+    es.onerror = () => {
+      console.error('SSE connection error');
+      es.close();
+    };
+
+    return () => es.close();
+  }, [entityType, entityId]);
+
   const handleCreate = async () => {
     if (!comment.trim()) return;
 

@@ -19,6 +19,7 @@ import {
   getProductLocationStatus,
 } from '../../utils/validationHelpers';
 import { getTransferEligibleUsers } from '../stock/utils/workflowResponsibility';
+import { emitTimelineEvent } from '../timeline/timeline.sse';
 
 type UserCtx = { id: string; isAdmin: boolean };
 
@@ -365,6 +366,7 @@ export class TransferService {
       afterValue:  { status: 'SUBMITTED' },
       performedBy: user.id,
     });
+    emitTimelineEvent('TRANSFER', requestId, { type: 'SYSTEM', action: 'SUBMIT', timestamp: new Date().toISOString(), metadata: { from: 'DRAFT', to: 'SUBMITTED' } });
 
     return (await transferRepository.findById(requestId))!;
   }
@@ -464,6 +466,7 @@ export class TransferService {
       afterValue:  { status: 'ORIGIN_MANAGER_APPROVED', itemSnapshot: originItemSnapshot, inactiveItemCount: inactiveAtOrigin.length },
       performedBy: user.id,
     });
+    emitTimelineEvent('TRANSFER', requestId, { type: 'SYSTEM', action: 'APPROVE', timestamp: new Date().toISOString(), metadata: { from: 'SUBMITTED', to: 'ORIGIN_MANAGER_APPROVED' } });
 
     return (await transferRepository.findById(requestId))!;
   }
@@ -508,6 +511,7 @@ export class TransferService {
       afterValue:  { status: 'READY_TO_FINALIZE' },
       performedBy: user.id,
     });
+    emitTimelineEvent('TRANSFER', requestId, { type: 'SYSTEM', action: 'APPROVE', timestamp: new Date().toISOString(), metadata: { from: 'ORIGIN_MANAGER_APPROVED', to: 'READY_TO_FINALIZE' } });
 
     return (await transferRepository.findById(requestId))!;
   }
@@ -575,6 +579,7 @@ export class TransferService {
       afterValue:  { status: 'REJECTED' },
       performedBy: user.id,
     });
+    emitTimelineEvent('TRANSFER', requestId, { type: 'SYSTEM', action: 'REJECT', timestamp: new Date().toISOString(), metadata: { from: req.status, to: 'REJECTED' } });
 
     return (await transferRepository.findById(requestId))!;
   }
@@ -726,6 +731,7 @@ export class TransferService {
       afterValue:  { status: 'FINALIZED', itemSnapshot: finalizeItemSnapshot, inactiveItemCount: inactiveAtFinalize.length },
       performedBy: user.id,
     });
+    emitTimelineEvent('TRANSFER', requestId, { type: 'SYSTEM', action: 'FINALIZE', timestamp: new Date().toISOString(), metadata: { from: 'READY_TO_FINALIZE', to: 'FINALIZED' } });
 
     return (await transferRepository.findById(requestId))!;
   }
@@ -791,6 +797,7 @@ export class TransferService {
       afterValue:  { status: 'CANCELLED' },
       performedBy: user.id,
     });
+    emitTimelineEvent('TRANSFER', requestId, { type: 'SYSTEM', action: 'CANCEL', timestamp: new Date().toISOString(), metadata: { from: req.status, to: 'CANCELLED' } });
 
     return (await transferRepository.findById(requestId))!;
   }
