@@ -39,11 +39,15 @@ export class TimelineService {
         attachmentRepository.findByEntity(entityType, entityId),
       ]);
 
+      console.log('AUDIT LOGS RAW:', auditLogs.map((l: any) => ({
+        action: l.action,
+        before: l.beforeSnapshot,
+        after:  l.afterSnapshot,
+      })));
+
       const systemEvents = (auditLogs as any[])
         .map((log: any) => {
           try {
-            if (log.action !== 'STATUS_CHANGE') return null;
-
             const before = typeof log.beforeSnapshot === 'string'
               ? JSON.parse(log.beforeSnapshot)
               : log.beforeSnapshot;
@@ -60,10 +64,10 @@ export class TimelineService {
             return {
               id:        `audit-${log.id}`,
               type:      'SYSTEM',
-              action:    STATUS_TO_ACTION[afterStatus] || 'UPDATE',
+              action:    STATUS_TO_ACTION[afterStatus] || log.action || 'UPDATE',
               timestamp: log.timestamp,
               user:      log.user || { id: 'system', username: 'System' },
-              metadata:  { from: beforeStatus, to: afterStatus },
+              metadata:  { from: beforeStatus, to: afterStatus, rawAction: log.action },
             };
           } catch (e) {
             console.error('SYSTEM mapping error:', e, log);
