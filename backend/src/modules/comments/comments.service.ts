@@ -1,6 +1,7 @@
 import { Comment } from '@prisma/client';
 import { CommentRepository, CommentWithAuthor, commentRepository } from './repositories/comment.repository';
 import { NotFoundError, ValidationError, ForbiddenError } from '../../utils/errors';
+import { emitTimelineEvent } from '../timeline/timeline.sse';
 
 export class CommentsService {
   constructor(private readonly repo: CommentRepository) {}
@@ -16,12 +17,22 @@ export class CommentsService {
       throw new ValidationError('Comment message cannot be empty');
     }
 
-    return this.repo.create({
+    const comment = await this.repo.create({
       entityType,
       entityId,
       message: trimmed,
       createdById: userId,
     });
+
+    emitTimelineEvent(entityType, entityId, {
+      id:        `comment-${comment.id}`,
+      type:      'COMMENT',
+      action:    'COMMENT',
+      timestamp: comment.createdAt,
+      metadata:  { content: comment.message },
+    });
+
+    return comment;
   }
 
   async getComments(entityType: string, entityId: string): Promise<CommentWithAuthor[]> {

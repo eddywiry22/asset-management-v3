@@ -73,6 +73,38 @@ export default function TimelineSection({ entityType, entityId }: Props) {
     fetchTimeline();
   }, [entityType, entityId]);
 
+  useEffect(() => {
+    const token = localStorage.getItem('access_token');
+    const url = `/api/v1/timeline/stream/${entityType}/${entityId}?token=${token}`;
+    console.log('Connecting SSE:', entityType, entityId);
+
+    const es = new EventSource(url);
+
+    es.onopen = () => {
+      console.log('SSE connected');
+    };
+
+    es.onmessage = (event) => {
+      console.log('SSE event received:', event.data);
+      try {
+        const newEvent = JSON.parse(event.data);
+        setEvents(prev => {
+          if (newEvent.id && prev.find(e => e.id === newEvent.id)) return prev;
+          return [newEvent, ...prev];
+        });
+      } catch {
+        console.error('SSE parse error', event.data);
+      }
+    };
+
+    es.onerror = (err) => {
+      console.error('SSE error:', err);
+      es.close();
+    };
+
+    return () => es.close();
+  }, [entityType, entityId]);
+
   const handleCreate = async () => {
     if (!comment.trim()) return;
 
