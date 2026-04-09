@@ -92,7 +92,11 @@ export default function TimelineSection({ entityType, entityId }: Props) {
       try {
         const newEvent = JSON.parse(event.data);
         if (newEvent.action === 'DELETE') {
-          setEvents(prev => prev.filter(e => e.id !== newEvent.id));
+          setEvents(prev => {
+            const exists = prev.find(e => e.id === newEvent.id);
+            if (exists) return prev.map(e => e.id === newEvent.id ? { ...e, ...newEvent } : e);
+            return [newEvent, ...prev];
+          });
           return;
         }
         setEvents(prev => {
@@ -178,7 +182,10 @@ export default function TimelineSection({ entityType, entityId }: Props) {
 
     const id = event.id.replace('attachment-', '');
     await attachmentsService.delete(id);
-    await refreshTimeline();
+    // Update state locally; SSE propagates DELETE to other clients
+    setEvents(prev => prev.map(e =>
+      e.id === event.id ? { ...e, action: 'DELETE' } : e
+    ));
   };
 
   const formatHHMM = (ts: string) =>
@@ -198,7 +205,10 @@ export default function TimelineSection({ entityType, entityId }: Props) {
     }
   };
 
-  const eventStyle = (type: string) => {
+  const eventStyle = (type: string, action?: string) => {
+    if (type === 'ATTACHMENT' && action === 'DELETE') {
+      return { background: '#fff5f5', borderColor: '#ffcdd2' };
+    }
     switch (type) {
       case 'SYSTEM':     return { background: '#f5f5f5', borderColor: '#e0e0e0' };
       case 'ATTACHMENT': return { background: '#f0f7ff', borderColor: '#bbdefb' };
@@ -260,7 +270,7 @@ export default function TimelineSection({ entityType, entityId }: Props) {
 
       {/* Events */}
       {events.map((event, index) => {
-        const style        = eventStyle(event.type);
+        const style        = eventStyle(event.type, event.action);
         const commentId    = event.type === 'COMMENT'    ? event.id.replace(/^comment-/, '')    : null;
         const attachmentId = event.type === 'ATTACHMENT' ? event.id.replace(/^attachment-/, '') : null;
 
@@ -337,8 +347,15 @@ export default function TimelineSection({ entityType, entityId }: Props) {
                 </>
               )}
 
-              {/* ATTACHMENT */}
-              {event.type === 'ATTACHMENT' && (
+              {/* ATTACHMENT — deleted */}
+              {event.type === 'ATTACHMENT' && event.action === 'DELETE' && (
+                <Typography mt={0.5} sx={{ color: '#c62828' }}>
+                  🗑️ Attachment deleted: {event.metadata?.fileName || 'Unknown file'}
+                </Typography>
+              )}
+
+              {/* ATTACHMENT — uploaded */}
+              {event.type === 'ATTACHMENT' && event.action !== 'DELETE' && (
                 <Box mt={0.5}>
                   <Typography>
                     📎 Uploaded file:{' '}

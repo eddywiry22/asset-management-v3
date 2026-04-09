@@ -115,6 +115,7 @@ export class AttachmentsService {
       type:      'ATTACHMENT',
       action:    'DELETE',
       timestamp: new Date().toISOString(),
+      user:      { id: userId },
       metadata:  { fileName: attachment.fileName },
     });
   }
