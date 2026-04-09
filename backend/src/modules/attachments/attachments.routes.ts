@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import { adminMiddleware } from '../../middlewares/admin.middleware';
 import { upload } from '../../middlewares/upload.middleware';
 import { attachmentsController } from './attachments.controller';
 import { AuthenticatedRequest } from '../../types/request.types';
@@ -25,8 +24,8 @@ router.get('/:entityType/:entityId', (req, res, next) =>
   attachmentsController.list(req as unknown as AuthenticatedRequest, res, next),
 );
 
-// DELETE /v1/attachments/:id — delete attachment (admin only, DRAFT requests only)
-router.delete('/:id', adminMiddleware, (req, res, next) =>
+// DELETE /v1/attachments/:id — delete attachment (admin or uploader)
+router.delete('/:id', (req, res, next) =>
   attachmentsController.delete(req as unknown as AuthenticatedRequest, res, next),
 );
 

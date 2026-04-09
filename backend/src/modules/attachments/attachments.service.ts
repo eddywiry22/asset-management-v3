@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import { Attachment } from '@prisma/client';
 import { AttachmentRepository, AttachmentWithUploader, attachmentRepository } from './repositories/attachment.repository';
 import { auditService } from '../../services/audit.service';
-import { NotFoundError, ValidationError } from '../../utils/errors';
+import { NotFoundError, ValidationError, ForbiddenError } from '../../utils/errors';
 import prisma from '../../config/database';
 import { emitTimelineEvent } from '../timeline/timeline.sse';
 
@@ -77,19 +77,15 @@ export class AttachmentsService {
     return this.repo.findByEntity(entityType, entityId);
   }
 
-  async deleteAttachment(id: string, userId: string): Promise<void> {
+  async deleteAttachment(id: string, userId: string, isAdmin: boolean): Promise<void> {
     const attachment = await this.repo.findById(id);
     if (!attachment) {
       throw new NotFoundError('Attachment not found');
     }
 
-    const status = await this.getEntityStatus(
-      attachment.entityType as EntityType,
-      attachment.entityId,
-    );
-
-    if (status !== 'DRAFT') {
-      throw new ValidationError('Cannot delete attachment after submission');
+    const isOwner = attachment.uploadedById === userId;
+    if (!isAdmin && !isOwner) {
+      throw new ForbiddenError('Not allowed to delete this attachment');
     }
 
     if (fs.existsSync(attachment.filePath)) {

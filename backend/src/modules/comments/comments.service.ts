@@ -54,6 +54,10 @@ export class CommentsService {
       throw new ForbiddenError('You can only edit your own comments');
     }
 
+    if (comment.editCount >= 3) {
+      throw new ValidationError('Edit limit reached (max 3)');
+    }
+
     const trimmed = message.trim();
     if (!trimmed) {
       throw new ValidationError('Comment message cannot be empty');
@@ -62,6 +66,7 @@ export class CommentsService {
     return this.repo.update(commentId, {
       message: trimmed,
       isEdited: true,
+      editCount: { increment: 1 },
     });
   }
 
@@ -82,6 +87,7 @@ export class CommentsService {
 
     return this.repo.update(commentId, {
       isDeleted: true,
+      isEdited: false,
       message: 'This comment has been deleted',
     });
   }
