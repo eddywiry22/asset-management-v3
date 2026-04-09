@@ -17,7 +17,6 @@ import {
   editComment,
   deleteComment,
 } from '../services/comments.service';
-import attachmentsService from '../services/attachments.service';
 import { formatRelativeTime } from '../utils/time';
 
 type Props = {
@@ -91,16 +90,9 @@ export default function TimelineSection({ entityType, entityId }: Props) {
       console.log('SSE event received:', event.data);
       try {
         const newEvent = JSON.parse(event.data);
-        if (newEvent.action === 'DELETE') {
-          setEvents(prev => {
-            const exists = prev.find(e => e.id === newEvent.id);
-            if (exists) return prev.map(e => e.id === newEvent.id ? { ...e, ...newEvent } : e);
-            return [newEvent, ...prev];
-          });
-          return;
-        }
         setEvents(prev => {
-          if (newEvent.id && prev.find(e => e.id === newEvent.id)) return prev;
+          const exists = prev.some(e => e.id === newEvent.id);
+          if (exists) return prev.map(e => e.id === newEvent.id ? newEvent : e);
           return [newEvent, ...prev];
         });
       } catch {
@@ -174,18 +166,6 @@ export default function TimelineSection({ entityType, entityId }: Props) {
     } finally {
       setDeleting(false);
     }
-  };
-
-  const handleDeleteAttachment = async (event: any) => {
-    const confirmed = window.confirm('Delete this attachment?');
-    if (!confirmed) return;
-
-    const id = event.id.replace('attachment-', '');
-    await attachmentsService.delete(id);
-    // Update state locally; SSE propagates DELETE to other clients
-    setEvents(prev => prev.map(e =>
-      e.id === event.id ? { ...e, action: 'DELETE' } : e
-    ));
   };
 
   const formatHHMM = (ts: string) =>
@@ -356,26 +336,16 @@ export default function TimelineSection({ entityType, entityId }: Props) {
 
               {/* ATTACHMENT — uploaded */}
               {event.type === 'ATTACHMENT' && event.action !== 'DELETE' && (
-                <Box mt={0.5}>
-                  <Typography>
-                    📎 Uploaded file:{' '}
-                    <a
-                      href={`/api/v1/attachments/${attachmentId}/download`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      {(event.metadata?.filePath || '').split('/').pop() || event.metadata?.fileName || ''}
-                    </a>
-                  </Typography>
-                  <Button
-                    size="small"
-                    color="error"
-                    sx={{ mt: 0.5 }}
-                    onClick={() => handleDeleteAttachment(event)}
+                <Typography mt={0.5}>
+                  📎 Uploaded file:{' '}
+                  <a
+                    href={`/api/v1/attachments/${attachmentId}/download`}
+                    target="_blank"
+                    rel="noopener noreferrer"
                   >
-                    Delete
-                  </Button>
-                </Box>
+                    {(event.metadata?.filePath || '').split('/').pop() || event.metadata?.fileName || ''}
+                  </a>
+                </Typography>
               )}
 
               <Typography variant="caption" color="text.secondary" display="block" mt={0.5}>
