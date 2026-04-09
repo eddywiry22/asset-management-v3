@@ -36,38 +36,32 @@ interface StockOpnameLocation {
 export async function getStockOpnameReport(params: StockOpnameParams) {
   const { startDate, endDate, locationIds, categoryIds } = params;
 
+  // Normalize dates consistently with the rest of the codebase:
+  //   startDate → 00:00:00.000 (start of day, local time)
+  //   endDate   → 23:59:59.999 (end of day, local time)
   const startDateObj = new Date(startDate);
-  const endDateObj = new Date(endDate);
+  const endDateObj   = new Date(endDate);
   endDateObj.setHours(23, 59, 59, 999);
 
   const hasLocationFilter = locationIds && locationIds.length > 0;
   const hasCategoryFilter = categoryIds && categoryIds.length > 0;
 
-  // -------------------------------------------------------------------------
-  // STEP 1: Bulk fetch all data in parallel — NO N+1 queries
-  // -------------------------------------------------------------------------
-  const [
-    products,
-    locations,
-    productLocations,
-    stockBalances,
-    adjRequests,
-    transferRequests,
-  ] = await Promise.all([
-    // Products with category + uom
+  // ---------------------------------------------------------------------------
+  // STEP 1: Bulk fetch master data (products, locations, product-location links)
+  // ---------------------------------------------------------------------------
+  const [products, locations, productLocations] = await Promise.all([
     prisma.product.findMany({
       where: hasCategoryFilter ? { categoryId: { in: categoryIds } } : undefined,
       select: {
-        id: true,
-        sku: true,
-        name: true,
+        id:         true,
+        sku:        true,
+        name:       true,
         categoryId: true,
-        category: { select: { id: true, name: true } },
-        uom: { select: { code: true } },
+        category:   { select: { id: true, name: true } },
+        uom:        { select: { code: true } },
       },
     }),
 
-    // Active locations (optionally filtered)
     prisma.location.findMany({
       where: {
         isActive: true,
@@ -76,7 +70,6 @@ export async function getStockOpnameReport(params: StockOpnameParams) {
       select: { id: true, code: true, name: true },
     }),
 
-    // Active product-location assignments
     prisma.productLocation.findMany({
       where: {
         isActive: true,
@@ -87,209 +80,139 @@ export async function getStockOpnameReport(params: StockOpnameParams) {
       },
       select: { productId: true, locationId: true },
     }),
-
-    // Current stock balances
-    prisma.stockBalance.findMany({
-      where: hasLocationFilter ? { locationId: { in: locationIds } } : undefined,
-      select: { productId: true, locationId: true, onHandQty: true },
-    }),
-
-    // FINALIZED adjustment requests — only those finalized AFTER startDate
-    // (we need movements after startDate to reconstruct startingQty)
-    prisma.stockAdjustmentRequest.findMany({
-      where: {
-        status: 'FINALIZED',
-        finalizedAt: { gt: startDateObj },
-      },
-      select: {
-        finalizedAt: true,
-        items: {
-          select: { productId: true, locationId: true, qtyChange: true },
-        },
-      },
-    }),
-
-    // FINALIZED transfer requests — only those finalized AFTER startDate
-    prisma.stockTransferRequest.findMany({
-      where: {
-        status: 'FINALIZED',
-        finalizedAt: { gt: startDateObj },
-      },
-      select: {
-        sourceLocationId: true,
-        destinationLocationId: true,
-        finalizedAt: true,
-        items: {
-          select: { productId: true, qty: true },
-        },
-      },
-    }),
   ]);
 
-  // -------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
   // STEP 2: Build lookup maps
-  // -------------------------------------------------------------------------
-  const productMap = new Map(products.map((p) => [p.id, p]));
-  const locationMap = new Map(locations.map((l) => [l.id, l]));
+  // ---------------------------------------------------------------------------
+  const productMap     = new Map(products.map((p) => [p.id, p]));
+  const locationMap    = new Map(locations.map((l) => [l.id, l]));
   const categoryNameMap = new Map(products.map((p) => [p.categoryId, p.category.name]));
 
-  // StockBalance: key = "productId:locationId" → number
-  const balanceMap = new Map<string, number>();
-  for (const sb of stockBalances) {
-    balanceMap.set(`${sb.productId}:${sb.locationId}`, Number(sb.onHandQty));
+  const effectiveLocationIds = locations.map((l) => l.id);
+  const effectiveProductIds  = products.map((p) => p.id);
+
+  // Guard: nothing to report when filters yield no results
+  if (effectiveLocationIds.length === 0 || effectiveProductIds.length === 0) {
+    return {
+      generatedAt: new Date().toISOString(),
+      filters: {
+        startDate,
+        endDate,
+        locationIds: hasLocationFilter ? locationIds : null,
+        categoryIds: hasCategoryFilter ? categoryIds : null,
+      },
+      locations: [],
+    };
   }
 
-  // -------------------------------------------------------------------------
-  // STEP 3: Build per-(product, location) movement accumulators
+  // ---------------------------------------------------------------------------
+  // STEP 3: Query stockLedger — the single source of truth for ALL movement
+  //         types: SEED, ADJUSTMENT, MOVEMENT_IN, MOVEMENT_OUT, TRANSFER_IN,
+  //         TRANSFER_OUT.
   //
-  // We track:
-  //   adjInboundAfterStart    — positive adjustments with finalizedAt > startDate
-  //   adjOutboundAfterStart   — negative adjustments with finalizedAt > startDate (abs)
-  //   adjInboundPeriod        — positive adjustments with startDate <= finalizedAt <= endDate
-  //   adjOutboundPeriod       — negative adjustments (abs) within period
+  //  (a) Entries with createdAt < startDate
+  //        → last balanceAfter per (product, location) = startingQty
+  //        Correct: stock at the very start of the period, before any
+  //        transactions on startDate itself.
   //
-  //   transferInboundAfterStart  / transferOutboundAfterStart
-  //   transferInboundPeriod      / transferOutboundPeriod
-  // -------------------------------------------------------------------------
-  type MovAccum = {
-    adjInboundAfterStart: number;
-    adjOutboundAfterStart: number;
-    adjInboundPeriod: number;
-    adjOutboundPeriod: number;
-    transferInboundAfterStart: number;
-    transferOutboundAfterStart: number;
-    transferInboundPeriod: number;
-    transferOutboundPeriod: number;
+  //  (b) Entries with startDate <= createdAt <= endDate
+  //        → sum changeQty per (product, location) split into inbound / outbound
+  // ---------------------------------------------------------------------------
+  const ledgerScope = {
+    locationId: { in: effectiveLocationIds },
+    productId:  { in: effectiveProductIds },
   };
 
-  const accumulators = new Map<string, MovAccum>();
+  const [ledgerBeforeStart, ledgerInPeriod] = await Promise.all([
+    // (a) All entries strictly before the period start.
+    //     Ordered desc so the first occurrence per key is the most-recent balance.
+    (prisma as any).stockLedger.findMany({
+      where: {
+        ...ledgerScope,
+        createdAt: { lt: startDateObj },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { productId: true, locationId: true, balanceAfter: true },
+    }) as Promise<Array<{ productId: string; locationId: string; balanceAfter: unknown }>>,
 
-  function getOrCreate(key: string): MovAccum {
-    if (!accumulators.has(key)) {
-      accumulators.set(key, {
-        adjInboundAfterStart: 0,
-        adjOutboundAfterStart: 0,
-        adjInboundPeriod: 0,
-        adjOutboundPeriod: 0,
-        transferInboundAfterStart: 0,
-        transferOutboundAfterStart: 0,
-        transferInboundPeriod: 0,
-        transferOutboundPeriod: 0,
-      });
-    }
-    return accumulators.get(key)!;
-  }
+    // (b) All entries within the period (inclusive on both ends).
+    (prisma as any).stockLedger.findMany({
+      where: {
+        ...ledgerScope,
+        createdAt: { gte: startDateObj, lte: endDateObj },
+      },
+      select: { productId: true, locationId: true, changeQty: true },
+    }) as Promise<Array<{ productId: string; locationId: string; changeQty: unknown }>>,
+  ]);
 
-  // Process adjustment items
-  for (const req of adjRequests) {
-    const finalizedAt = req.finalizedAt!;
-    // isAfterStart is always true because query filters finalizedAt > startDateObj
-    const isAfterStart = true;
-    const isInPeriod = finalizedAt >= startDateObj && finalizedAt <= endDateObj;
-
-    for (const item of req.items) {
-      const key = `${item.productId}:${item.locationId}`;
-      const acc = getOrCreate(key);
-      const qty = Number(item.qtyChange);
-
-      if (isAfterStart) {
-        if (qty > 0) acc.adjInboundAfterStart += qty;
-        else acc.adjOutboundAfterStart += Math.abs(qty);
-      }
-      if (isInPeriod) {
-        if (qty > 0) acc.adjInboundPeriod += qty;
-        else acc.adjOutboundPeriod += Math.abs(qty);
-      }
+  // startingQty map — take the first (most recent before startDate) per key.
+  // If no entry exists before startDate, stock was 0 at that time.
+  const startingQtyMap = new Map<string, number>();
+  for (const entry of ledgerBeforeStart) {
+    const key = `${entry.productId}:${entry.locationId}`;
+    if (!startingQtyMap.has(key)) {
+      startingQtyMap.set(key, Number(entry.balanceAfter));
     }
   }
 
-  // Process transfer items
-  for (const req of transferRequests) {
-    const finalizedAt = req.finalizedAt!;
-    const isAfterStart = true;
-    const isInPeriod = finalizedAt >= startDateObj && finalizedAt <= endDateObj;
-
-    for (const item of req.items) {
-      const qty = Number(item.qty);
-
-      // Outbound from source location
-      const sourceKey = `${item.productId}:${req.sourceLocationId}`;
-      const sourceAcc = getOrCreate(sourceKey);
-      if (isAfterStart) sourceAcc.transferOutboundAfterStart += qty;
-      if (isInPeriod) sourceAcc.transferOutboundPeriod += qty;
-
-      // Inbound to destination location
-      const destKey = `${item.productId}:${req.destinationLocationId}`;
-      const destAcc = getOrCreate(destKey);
-      if (isAfterStart) destAcc.transferInboundAfterStart += qty;
-      if (isInPeriod) destAcc.transferInboundPeriod += qty;
+  // Period inbound / outbound accumulators
+  const periodAccMap = new Map<string, { inbound: number; outbound: number }>();
+  for (const entry of ledgerInPeriod) {
+    const key = `${entry.productId}:${entry.locationId}`;
+    if (!periodAccMap.has(key)) {
+      periodAccMap.set(key, { inbound: 0, outbound: 0 });
     }
+    const acc = periodAccMap.get(key)!;
+    const qty = Number(entry.changeQty);
+    if (qty > 0) acc.inbound  += qty;
+    else         acc.outbound += Math.abs(qty);
   }
 
-  // -------------------------------------------------------------------------
-  // STEP 4: Build the grouped report: locations → categories → items
-  // -------------------------------------------------------------------------
-  // Map<locationId, Map<categoryId, StockOpnameItem[]>>
+  // ---------------------------------------------------------------------------
+  // STEP 4: Build grouped report: locations → categories → items
+  // ---------------------------------------------------------------------------
   const reportMap = new Map<string, Map<string, StockOpnameItem[]>>();
 
   for (const pl of productLocations) {
-    const product = productMap.get(pl.productId);
+    const product  = productMap.get(pl.productId);
     const location = locationMap.get(pl.locationId);
 
-    // Skip if product/location not in our filtered sets
     if (!product || !location) continue;
-
-    // Apply category filter (may be redundant due to DB filter, but defensive)
     if (hasCategoryFilter && !categoryIds!.includes(product.categoryId)) continue;
 
-    const key = `${pl.productId}:${pl.locationId}`;
-    const currentQty = balanceMap.get(key) ?? 0;
+    const key     = `${pl.productId}:${pl.locationId}`;
+    const round   = (n: number) => Math.round(n * 10000) / 10000;
 
-    const acc = accumulators.get(key) ?? {
-      adjInboundAfterStart: 0,
-      adjOutboundAfterStart: 0,
-      adjInboundPeriod: 0,
-      adjOutboundPeriod: 0,
-      transferInboundAfterStart: 0,
-      transferOutboundAfterStart: 0,
-      transferInboundPeriod: 0,
-      transferOutboundPeriod: 0,
-    };
+    const startingQty = round(startingQtyMap.get(key) ?? 0);
+    const periodAcc   = periodAccMap.get(key) ?? { inbound: 0, outbound: 0 };
+    const inboundQty  = round(periodAcc.inbound);
+    const outboundQty = round(periodAcc.outbound);
+    const systemQty   = round(startingQty + inboundQty - outboundQty);
 
-    // --- CORE CALCULATION ---
-    const inboundAfterStart = acc.adjInboundAfterStart + acc.transferInboundAfterStart;
-    const outboundAfterStart = acc.adjOutboundAfterStart + acc.transferOutboundAfterStart;
-
-    // startingQty = stock before any movements after startDate
-    const startingQty = currentQty - inboundAfterStart + outboundAfterStart;
-
-    const inboundPeriod = acc.adjInboundPeriod + acc.transferInboundPeriod;
-    const outboundPeriod = acc.adjOutboundPeriod + acc.transferOutboundPeriod;
-
-    // systemQty = expected stock at end of endDate
-    const systemQty = startingQty + inboundPeriod - outboundPeriod;
-
-    // Sanity check
-    if (startingQty < 0) {
-      console.warn(`[StockOpname] Negative startingQty — sku=${product.sku} location=${location.code} startingQty=${startingQty} currentQty=${currentQty}`);
-    }
-
-    const round = (n: number) => Math.round(n * 10000) / 10000;
+    // Temporary debug log — remove after verification
+    console.log('CALC DEBUG:', {
+      sku:          product.sku,
+      locationCode: location.code,
+      startingQty,
+      inboundQty,
+      outboundQty,
+      systemQty,
+    });
 
     const item: StockOpnameItem = {
-      productId: pl.productId,
-      sku: product.sku,
+      productId:   pl.productId,
+      sku:         product.sku,
       productName: product.name,
-      uomCode: product.uom.code,
-      startingQty: round(startingQty),
-      inboundQty: round(inboundPeriod),
-      outboundQty: round(outboundPeriod),
-      systemQty: round(systemQty),
+      uomCode:     product.uom.code,
+      startingQty,
+      inboundQty,
+      outboundQty,
+      systemQty,
       physicalQty: null,
-      variance: null,
+      variance:    null,
     };
 
-    // Group by location → category
     if (!reportMap.has(pl.locationId)) {
       reportMap.set(pl.locationId, new Map());
     }
@@ -300,14 +223,13 @@ export async function getStockOpnameReport(params: StockOpnameParams) {
     catMap.get(product.categoryId)!.push(item);
   }
 
-  // -------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
   // STEP 5: Assemble final response structure
-  // -------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
   const reportLocations: StockOpnameLocation[] = [];
 
   for (const [locationId, catMap] of reportMap) {
-    const location = locationMap.get(locationId)!;
-
+    const location   = locationMap.get(locationId)!;
     const categories: StockOpnameCategory[] = [];
     for (const [categoryId, items] of catMap) {
       categories.push({
@@ -316,7 +238,6 @@ export async function getStockOpnameReport(params: StockOpnameParams) {
         items,
       });
     }
-
     reportLocations.push({
       locationId,
       locationCode: location.code,
@@ -325,19 +246,18 @@ export async function getStockOpnameReport(params: StockOpnameParams) {
     });
   }
 
-  // -------------------------------------------------------------------------
-  // STEP 6: Debug log (mandatory)
-  // -------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // STEP 6: Summary log (mandatory)
+  // ---------------------------------------------------------------------------
   const totalItems = reportLocations.reduce(
     (sum, loc) => sum + loc.categories.reduce((s, cat) => s + cat.items.length, 0),
     0,
   );
-  const firstItem = reportLocations[0]?.categories[0]?.items[0] ?? null;
 
   console.log('STOCK OPNAME REPORT:', {
-    locations: reportLocations.length,
+    locations:  reportLocations.length,
     totalItems,
-    sample: firstItem,
+    sample:     reportLocations[0]?.categories[0]?.items[0] ?? null,
   });
 
   return {
