@@ -11,6 +11,7 @@ import FilterListIcon from '@mui/icons-material/FilterList';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
 import DeleteIcon from '@mui/icons-material/Delete';
+import DescriptionIcon from '@mui/icons-material/Description';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import stockService, { StockOverviewItem, StockLedgerEntry } from '../../../services/stock.service';
 import { useAuth } from '../../../context/AuthContext';
@@ -20,6 +21,7 @@ import SaveFilterModal from '../../../components/SaveFilterModal';
 import { useAdvancedFilters } from '../../../hooks/useAdvancedFilters';
 import { savedFiltersService } from '../../../services/savedFilters.service';
 import { categoriesService } from '../../../services/categories.service';
+import StockOpnameReportModal from '../../reports/components/StockOpnameReportModal';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -168,6 +170,9 @@ export default function StockDashboardPage() {
 
   // Snackbar
   const [snackMsg, setSnackMsg] = useState('');
+
+  // Stock Opname report modal
+  const [reportModalOpen, setReportModalOpen] = useState(false);
 
   // Fetch categories for filter dropdown
   const { data: categories = [] } = useQuery({
@@ -344,9 +349,18 @@ export default function StockDashboardPage() {
       {/* Header */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
         <Typography variant="h5">Stock Dashboard</Typography>
-        <Button startIcon={<RefreshIcon />} onClick={() => { refetch(); setSnackMsg('Refreshed'); }}>
-          Refresh
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button
+            variant="outlined"
+            startIcon={<DescriptionIcon />}
+            onClick={() => setReportModalOpen(true)}
+          >
+            Export / Stock Opname Report
+          </Button>
+          <Button startIcon={<RefreshIcon />} onClick={() => { refetch(); setSnackMsg('Refreshed'); }}>
+            Refresh
+          </Button>
+        </Box>
       </Box>
 
       {/* Simple Filters */}
@@ -656,6 +670,12 @@ export default function StockDashboardPage() {
           />
         </>
       )}
+
+      {/* Stock Opname Report Modal */}
+      <StockOpnameReportModal
+        open={reportModalOpen}
+        onClose={() => setReportModalOpen(false)}
+      />
 
       {/* Ledger Modal */}
       {ledgerTarget && (
