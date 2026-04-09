@@ -329,24 +329,22 @@ export default function AttachmentsSection({
                           <DownloadIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
-                      {isAdmin && isDraft && (
-                        <Tooltip title="Delete">
-                          <span>
-                            <IconButton
-                              size="small"
-                              color="error"
-                              onClick={() => handleDelete(att)}
-                              disabled={deleting === att.id}
-                            >
-                              {deleting === att.id ? (
-                                <CircularProgress size={14} />
-                              ) : (
-                                <DeleteIcon fontSize="small" />
-                              )}
-                            </IconButton>
-                          </span>
-                        </Tooltip>
-                      )}
+                      <Tooltip title="Delete">
+                        <span>
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => handleDelete(att)}
+                            disabled={deleting === att.id}
+                          >
+                            {deleting === att.id ? (
+                              <CircularProgress size={14} />
+                            ) : (
+                              <DeleteIcon fontSize="small" />
+                            )}
+                          </IconButton>
+                        </span>
+                      </Tooltip>
                     </TableCell>
                   </TableRow>
                 ))}

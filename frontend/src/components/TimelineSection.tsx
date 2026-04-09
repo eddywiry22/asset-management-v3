@@ -17,6 +17,7 @@ import {
   editComment,
   deleteComment,
 } from '../services/comments.service';
+import { formatRelativeTime } from '../utils/time';
 
 type Props = {
   entityType: string;
@@ -36,6 +37,7 @@ export default function TimelineSection({ entityType, entityId }: Props) {
   const [lastCommentTime, setLastCommentTime] = useState<number | null>(null);
   const [spamWarning, setSpamWarning]     = useState(false);
   const [refreshing, setRefreshing]       = useState(false);
+  const [toast, setToast]                 = useState<string | null>(null);
 
   const currentUser = (() => {
     try {
@@ -89,7 +91,8 @@ export default function TimelineSection({ entityType, entityId }: Props) {
       try {
         const newEvent = JSON.parse(event.data);
         setEvents(prev => {
-          if (newEvent.id && prev.find(e => e.id === newEvent.id)) return prev;
+          const exists = prev.some(e => e.id === newEvent.id);
+          if (exists) return prev.map(e => e.id === newEvent.id ? newEvent : e);
           return [newEvent, ...prev];
         });
       } catch {
@@ -105,6 +108,22 @@ export default function TimelineSection({ entityType, entityId }: Props) {
     return () => es.close();
   }, [entityType, entityId]);
 
+  // Auto-refresh relative timestamps every minute
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setEvents(prev => [...prev]);
+    }, 60000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Auto-dismiss toast after 3 seconds
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
   const handleCreate = async () => {
     if (!comment.trim()) return;
 
@@ -119,6 +138,7 @@ export default function TimelineSection({ entityType, entityId }: Props) {
       setComment('');
       setLastCommentTime(Date.now());
       await refreshTimeline();
+      setToast('Comment added');
     } catch (err) {
       console.error(err);
     }
@@ -129,6 +149,7 @@ export default function TimelineSection({ entityType, entityId }: Props) {
       await editComment(id, editingText);
       setEditingId(null);
       await refreshTimeline();
+      setToast('Comment updated');
     } catch (err) {
       console.error(err);
     }
@@ -139,14 +160,13 @@ export default function TimelineSection({ entityType, entityId }: Props) {
       setDeleting(true);
       await deleteComment(id);
       await refreshTimeline();
+      setToast('Comment deleted');
     } catch (err) {
       console.error(err);
     } finally {
       setDeleting(false);
     }
   };
-
-  const formatTime = (ts: string) => new Date(ts).toLocaleString();
 
   const formatHHMM = (ts: string) =>
     new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -165,7 +185,10 @@ export default function TimelineSection({ entityType, entityId }: Props) {
     }
   };
 
-  const eventStyle = (type: string) => {
+  const eventStyle = (type: string, action?: string) => {
+    if (type === 'ATTACHMENT' && action === 'DELETE') {
+      return { background: '#fff5f5', borderColor: '#ffcdd2' };
+    }
     switch (type) {
       case 'SYSTEM':     return { background: '#f5f5f5', borderColor: '#e0e0e0' };
       case 'ATTACHMENT': return { background: '#f0f7ff', borderColor: '#bbdefb' };
@@ -227,8 +250,8 @@ export default function TimelineSection({ entityType, entityId }: Props) {
 
       {/* Events */}
       {events.map((event, index) => {
-        const style       = eventStyle(event.type);
-        const commentId   = event.type === 'COMMENT'    ? event.id.replace(/^comment-/, '')    : null;
+        const style        = eventStyle(event.type, event.action);
+        const commentId    = event.type === 'COMMENT'    ? event.id.replace(/^comment-/, '')    : null;
         const attachmentId = event.type === 'ATTACHMENT' ? event.id.replace(/^attachment-/, '') : null;
 
         return (
@@ -304,8 +327,15 @@ export default function TimelineSection({ entityType, entityId }: Props) {
                 </>
               )}
 
-              {/* ATTACHMENT */}
-              {event.type === 'ATTACHMENT' && (
+              {/* ATTACHMENT — deleted */}
+              {event.type === 'ATTACHMENT' && event.action === 'DELETE' && (
+                <Typography mt={0.5} sx={{ color: '#c62828' }}>
+                  🗑️ Attachment deleted: {event.metadata?.fileName || 'Unknown file'}
+                </Typography>
+              )}
+
+              {/* ATTACHMENT — uploaded */}
+              {event.type === 'ATTACHMENT' && event.action !== 'DELETE' && (
                 <Typography mt={0.5}>
                   📎 Uploaded file:{' '}
                   <a
@@ -319,7 +349,7 @@ export default function TimelineSection({ entityType, entityId }: Props) {
               )}
 
               <Typography variant="caption" color="text.secondary" display="block" mt={0.5}>
-                {formatTime(event.timestamp)}
+                {formatRelativeTime(event.timestamp)}
               </Typography>
             </Box>
 
@@ -328,7 +358,7 @@ export default function TimelineSection({ entityType, entityId }: Props) {
         );
       })}
 
-      {/* Delete confirmation dialog */}
+      {/* Delete comment confirmation dialog */}
       <Dialog open={!!deleteId} onClose={() => setDeleteId(null)}>
         <DialogTitle>Delete Comment</DialogTitle>
         <DialogContent>
@@ -350,6 +380,24 @@ export default function TimelineSection({ entityType, entityId }: Props) {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Toast notification */}
+      {toast && (
+        <Box
+          sx={{
+            position: 'fixed',
+            bottom: 20,
+            right: 20,
+            background: '#333',
+            color: 'white',
+            padding: '10px 16px',
+            borderRadius: '6px',
+            zIndex: 999,
+          }}
+        >
+          {toast}
+        </Box>
+      )}
     </Box>
   );
 }
