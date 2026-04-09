@@ -83,8 +83,9 @@ v1Router.use('/attachments', authMiddleware, attachmentsRoutes);
 // /v1/comments — requires auth, accessible by all roles
 v1Router.use('/comments', authMiddleware, commentsRoutes);
 
-// /v1/timeline — requires auth, returns unified activity timeline for any entity
-v1Router.use('/timeline', authMiddleware, timelineRoutes);
+// /v1/timeline — stream route uses manual JWT auth (query param); REST route
+// uses the standard authMiddleware. Auth is controlled inside timeline.routes.ts.
+v1Router.use('/timeline', timelineRoutes);
 
 app.use('/v1', v1Router);
 

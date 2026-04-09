@@ -74,8 +74,9 @@ export default function TimelineSection({ entityType, entityId }: Props) {
   }, [entityType, entityId]);
 
   useEffect(() => {
-    const url = `/api/v1/timeline/stream/${entityType}/${entityId}`;
-    console.log('Connecting SSE:', url);
+    const token = localStorage.getItem('access_token');
+    const url = `/api/v1/timeline/stream/${entityType}/${entityId}?token=${token}`;
+    console.log('Connecting SSE:', entityType, entityId);
 
     const es = new EventSource(url);
 

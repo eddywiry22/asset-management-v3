@@ -1,7 +1,8 @@
-import { Response, NextFunction } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { AuthenticatedRequest } from '../../types/request.types';
 import { TimelineService, timelineService } from './timeline.service';
 import { registerSSEClient, unregisterSSEClient } from './timeline.sse';
+import { authService } from '../auth/auth.service';
 
 export class TimelineController {
   constructor(private readonly service: TimelineService) {}
@@ -16,16 +17,45 @@ export class TimelineController {
     }
   }
 
-  streamTimeline(req: AuthenticatedRequest, res: Response): void {
+  streamTimeline(req: Request, res: Response): void {
+    // --- Manual JWT auth (EventSource cannot send Authorization headers) ---
+    const token = req.query.token as string;
+
+    if (!token) {
+      res.status(401).end();
+      return;
+    }
+
+    let user: ReturnType<typeof authService.verifyAccessToken>;
+    try {
+      user = authService.verifyAccessToken(token);
+    } catch (err) {
+      console.error('SSE auth failed:', err);
+      res.status(401).end();
+      return;
+    }
+
+    // Attach user so downstream code can access it if needed
+    (req as any).user = {
+      id:      user.sub,
+      email:   user.email,
+      phone:   user.phone,
+      isAdmin: user.isAdmin ?? false,
+    };
+    // --- End auth ---
+
     const { entityType, entityId } = req.params;
-    const key = `${entityType}:${entityId}`;
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
 
-    console.log('SSE CLIENT CONNECTED:', key);
+    console.log('SSE CLIENT CONNECTED:', {
+      entityType,
+      entityId,
+      userId: user.sub,
+    });
 
     registerSSEClient(entityType, entityId, res);
 
