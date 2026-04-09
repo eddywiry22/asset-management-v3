@@ -17,6 +17,8 @@ import {
   editComment,
   deleteComment,
 } from '../services/comments.service';
+import attachmentsService from '../services/attachments.service';
+import { formatRelativeTime } from '../utils/time';
 
 type Props = {
   entityType: string;
@@ -36,6 +38,7 @@ export default function TimelineSection({ entityType, entityId }: Props) {
   const [lastCommentTime, setLastCommentTime] = useState<number | null>(null);
   const [spamWarning, setSpamWarning]     = useState(false);
   const [refreshing, setRefreshing]       = useState(false);
+  const [toast, setToast]                 = useState<string | null>(null);
 
   const currentUser = (() => {
     try {
@@ -88,6 +91,10 @@ export default function TimelineSection({ entityType, entityId }: Props) {
       console.log('SSE event received:', event.data);
       try {
         const newEvent = JSON.parse(event.data);
+        if (newEvent.action === 'DELETE') {
+          setEvents(prev => prev.filter(e => e.id !== newEvent.id));
+          return;
+        }
         setEvents(prev => {
           if (newEvent.id && prev.find(e => e.id === newEvent.id)) return prev;
           return [newEvent, ...prev];
@@ -105,6 +112,22 @@ export default function TimelineSection({ entityType, entityId }: Props) {
     return () => es.close();
   }, [entityType, entityId]);
 
+  // Auto-refresh relative timestamps every minute
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setEvents(prev => [...prev]);
+    }, 60000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Auto-dismiss toast after 3 seconds
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
   const handleCreate = async () => {
     if (!comment.trim()) return;
 
@@ -119,6 +142,7 @@ export default function TimelineSection({ entityType, entityId }: Props) {
       setComment('');
       setLastCommentTime(Date.now());
       await refreshTimeline();
+      setToast('Comment added');
     } catch (err) {
       console.error(err);
     }
@@ -129,6 +153,7 @@ export default function TimelineSection({ entityType, entityId }: Props) {
       await editComment(id, editingText);
       setEditingId(null);
       await refreshTimeline();
+      setToast('Comment updated');
     } catch (err) {
       console.error(err);
     }
@@ -139,6 +164,7 @@ export default function TimelineSection({ entityType, entityId }: Props) {
       setDeleting(true);
       await deleteComment(id);
       await refreshTimeline();
+      setToast('Comment deleted');
     } catch (err) {
       console.error(err);
     } finally {
@@ -146,7 +172,14 @@ export default function TimelineSection({ entityType, entityId }: Props) {
     }
   };
 
-  const formatTime = (ts: string) => new Date(ts).toLocaleString();
+  const handleDeleteAttachment = async (event: any) => {
+    const confirmed = window.confirm('Delete this attachment?');
+    if (!confirmed) return;
+
+    const id = event.id.replace('attachment-', '');
+    await attachmentsService.delete(id);
+    await refreshTimeline();
+  };
 
   const formatHHMM = (ts: string) =>
     new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -227,8 +260,8 @@ export default function TimelineSection({ entityType, entityId }: Props) {
 
       {/* Events */}
       {events.map((event, index) => {
-        const style       = eventStyle(event.type);
-        const commentId   = event.type === 'COMMENT'    ? event.id.replace(/^comment-/, '')    : null;
+        const style        = eventStyle(event.type);
+        const commentId    = event.type === 'COMMENT'    ? event.id.replace(/^comment-/, '')    : null;
         const attachmentId = event.type === 'ATTACHMENT' ? event.id.replace(/^attachment-/, '') : null;
 
         return (
@@ -306,20 +339,30 @@ export default function TimelineSection({ entityType, entityId }: Props) {
 
               {/* ATTACHMENT */}
               {event.type === 'ATTACHMENT' && (
-                <Typography mt={0.5}>
-                  📎 Uploaded file:{' '}
-                  <a
-                    href={`/api/v1/attachments/${attachmentId}/download`}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                <Box mt={0.5}>
+                  <Typography>
+                    📎 Uploaded file:{' '}
+                    <a
+                      href={`/api/v1/attachments/${attachmentId}/download`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {(event.metadata?.filePath || '').split('/').pop() || event.metadata?.fileName || ''}
+                    </a>
+                  </Typography>
+                  <Button
+                    size="small"
+                    color="error"
+                    sx={{ mt: 0.5 }}
+                    onClick={() => handleDeleteAttachment(event)}
                   >
-                    {(event.metadata?.filePath || '').split('/').pop() || event.metadata?.fileName || ''}
-                  </a>
-                </Typography>
+                    Delete
+                  </Button>
+                </Box>
               )}
 
               <Typography variant="caption" color="text.secondary" display="block" mt={0.5}>
-                {formatTime(event.timestamp)}
+                {formatRelativeTime(event.timestamp)}
               </Typography>
             </Box>
 
@@ -328,7 +371,7 @@ export default function TimelineSection({ entityType, entityId }: Props) {
         );
       })}
 
-      {/* Delete confirmation dialog */}
+      {/* Delete comment confirmation dialog */}
       <Dialog open={!!deleteId} onClose={() => setDeleteId(null)}>
         <DialogTitle>Delete Comment</DialogTitle>
         <DialogContent>
@@ -350,6 +393,24 @@ export default function TimelineSection({ entityType, entityId }: Props) {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Toast notification */}
+      {toast && (
+        <Box
+          sx={{
+            position: 'fixed',
+            bottom: 20,
+            right: 20,
+            background: '#333',
+            color: 'white',
+            padding: '10px 16px',
+            borderRadius: '6px',
+            zIndex: 999,
+          }}
+        >
+          {toast}
+        </Box>
+      )}
     </Box>
   );
 }

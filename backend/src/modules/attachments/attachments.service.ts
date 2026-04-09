@@ -109,6 +109,14 @@ export class AttachmentsService {
         fileName: attachment.fileName,
       },
     });
+
+    emitTimelineEvent(attachment.entityType as EntityType, attachment.entityId, {
+      id:        `attachment-${id}`,
+      type:      'ATTACHMENT',
+      action:    'DELETE',
+      timestamp: new Date().toISOString(),
+      metadata:  { fileName: attachment.fileName },
+    });
   }
 
   async getAttachmentFile(id: string): Promise<Attachment> {
