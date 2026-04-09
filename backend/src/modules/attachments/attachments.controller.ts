@@ -52,7 +52,7 @@ export class AttachmentsController {
     try {
       const { id } = req.params;
 
-      await this.service.deleteAttachment(id, req.user.id);
+      await this.service.deleteAttachment(id, req.user.id, req.user.isAdmin);
 
       res.json({ success: true });
     } catch (err) {

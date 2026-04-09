@@ -408,6 +408,7 @@ model Comment {
 
   isEdited    Boolean  @default(false)
   isDeleted   Boolean  @default(false)
+  editCount   Int      @default(0)
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

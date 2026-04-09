@@ -96,7 +96,9 @@ export class TimelineService {
       const commentEvents = (comments as any[])
         .map((c: any) => {
           try {
-            if (!c?.id || !c?.message) return null;
+            if (!c?.id) return null;
+
+            const isDeleted = c.isDeleted;
 
             return {
               id:        `comment-${c.id}`,
@@ -105,8 +107,10 @@ export class TimelineService {
               timestamp: c.createdAt,
               user:      c.createdBy || { id: 'system', username: 'System' },
               metadata:  {
-                content:  c.message,
-                editedAt: c.isEdited ? c.updatedAt : null,
+                content:   isDeleted ? null : c.message,
+                editedAt:  isDeleted ? null : (c.isEdited ? c.updatedAt : null),
+                isDeleted: c.isDeleted,
+                editCount: c.editCount ?? 0,
               },
             };
           } catch (e) {
@@ -128,8 +132,9 @@ export class TimelineService {
               timestamp: a.createdAt,
               user:      a.uploadedBy || { id: 'system', username: 'System' },
               metadata:  {
-                fileName: a.fileName,
-                filePath: a.filePath,
+                fileName:    a.fileName,
+                filePath:    a.filePath,
+                description: a.description || null,
               },
             };
           } catch (e) {

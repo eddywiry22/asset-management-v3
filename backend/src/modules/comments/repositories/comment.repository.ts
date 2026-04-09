@@ -31,7 +31,7 @@ export class CommentRepository {
     return prisma.comment.findUnique({ where: { id } });
   }
 
-  async update(id: string, data: Partial<Pick<Comment, 'message' | 'isEdited' | 'isDeleted'>>): Promise<Comment> {
+  async update(id: string, data: Partial<Pick<Comment, 'message' | 'isEdited' | 'isDeleted'>> & { editCount?: { increment: number } }): Promise<Comment> {
     return prisma.comment.update({ where: { id }, data });
   }
 }

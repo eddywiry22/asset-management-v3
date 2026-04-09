@@ -91,8 +91,10 @@ export default function TimelineSection({ entityType, entityId }: Props) {
       try {
         const newEvent = JSON.parse(event.data);
         setEvents(prev => {
-          const exists = prev.some(e => e.id === newEvent.id);
-          if (exists) return prev.map(e => e.id === newEvent.id ? newEvent : e);
+          // Dedup on (id + action): UPLOAD and DELETE share the same attachment id
+          // but must coexist as separate timeline entries.
+          const exists = prev.some(e => e.id === newEvent.id && e.action === newEvent.action);
+          if (exists) return prev;
           return [newEvent, ...prev];
         });
       } catch {
@@ -280,19 +282,34 @@ export default function TimelineSection({ entityType, entityId }: Props) {
               {event.type === 'COMMENT' && (
                 <>
                   {editingId === commentId ? (
-                    <Box display="flex" gap={1} mt={1}>
-                      <TextField
-                        fullWidth
-                        value={editingText}
-                        onChange={(e) => setEditingText(e.target.value)}
-                      />
-                      <Button variant="contained" onClick={() => handleEdit(commentId!)}>
-                        Save
-                      </Button>
-                      <Button onClick={() => { setEditingId(null); setEditingText(''); }}>
-                        Cancel
-                      </Button>
+                    <Box mt={1}>
+                      <Box display="flex" gap={1}>
+                        <TextField
+                          fullWidth
+                          value={editingText}
+                          onChange={(e) => setEditingText(e.target.value)}
+                        />
+                        <Button variant="contained" onClick={() => handleEdit(commentId!)}>
+                          Save
+                        </Button>
+                        <Button onClick={() => { setEditingId(null); setEditingText(''); }}>
+                          Cancel
+                        </Button>
+                      </Box>
+                      {(event.metadata?.editCount ?? 0) >= 3 ? (
+                        <Typography variant="caption" color="warning.main" display="block" mt={0.5}>
+                          Edit limit reached (max 3 times)
+                        </Typography>
+                      ) : (
+                        <Typography variant="caption" color="text.secondary" display="block" mt={0.5}>
+                          {3 - (event.metadata?.editCount ?? 0)} edit{3 - (event.metadata?.editCount ?? 0) !== 1 ? 's' : ''} remaining
+                        </Typography>
+                      )}
                     </Box>
+                  ) : event.metadata?.isDeleted ? (
+                    <Typography mt={0.5} color="text.disabled" fontStyle="italic">
+                      💬 This comment has been deleted
+                    </Typography>
                   ) : (
                     <Typography mt={0.5}>
                       💬 {event.metadata?.content || ''}
@@ -304,17 +321,19 @@ export default function TimelineSection({ entityType, entityId }: Props) {
                     </Typography>
                   )}
 
-                  {editingId !== commentId && isOwner(event) && (
+                  {editingId !== commentId && isOwner(event) && !event.metadata?.isDeleted && (
                     <Box mt={1}>
-                      <Button
-                        size="small"
-                        onClick={() => {
-                          setEditingId(commentId!);
-                          setEditingText(event.metadata?.content || '');
-                        }}
-                      >
-                        Edit
-                      </Button>
+                      {(event.metadata?.editCount ?? 0) < 3 && (
+                        <Button
+                          size="small"
+                          onClick={() => {
+                            setEditingId(commentId!);
+                            setEditingText(event.metadata?.content || '');
+                          }}
+                        >
+                          Edit
+                        </Button>
+                      )}
                       <Button
                         size="small"
                         color="error"
@@ -336,16 +355,23 @@ export default function TimelineSection({ entityType, entityId }: Props) {
 
               {/* ATTACHMENT — uploaded */}
               {event.type === 'ATTACHMENT' && event.action !== 'DELETE' && (
-                <Typography mt={0.5}>
-                  📎 Uploaded file:{' '}
-                  <a
-                    href={`/api/v1/attachments/${attachmentId}/download`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    {(event.metadata?.filePath || '').split('/').pop() || event.metadata?.fileName || ''}
-                  </a>
-                </Typography>
+                <>
+                  <Typography mt={0.5}>
+                    📎 Uploaded file:{' '}
+                    <a
+                      href={`/api/v1/attachments/${attachmentId}/download`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {(event.metadata?.filePath || '').split('/').pop() || event.metadata?.fileName || ''}
+                    </a>
+                  </Typography>
+                  {event.metadata?.description && (
+                    <Typography variant="caption" color="text.secondary" display="block" mt={0.25}>
+                      {event.metadata.description}
+                    </Typography>
+                  )}
+                </>
               )}
 
               <Typography variant="caption" color="text.secondary" display="block" mt={0.5}>
