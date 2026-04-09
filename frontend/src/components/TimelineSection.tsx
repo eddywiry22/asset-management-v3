@@ -74,11 +74,17 @@ export default function TimelineSection({ entityType, entityId }: Props) {
   }, [entityType, entityId]);
 
   useEffect(() => {
-    const es = new EventSource(
-      `/api/v1/timeline/stream/${entityType}/${entityId}`
-    );
+    const url = `/api/v1/timeline/stream/${entityType}/${entityId}`;
+    console.log('Connecting SSE:', url);
+
+    const es = new EventSource(url);
+
+    es.onopen = () => {
+      console.log('SSE connected');
+    };
 
     es.onmessage = (event) => {
+      console.log('SSE event received:', event.data);
       try {
         const newEvent = JSON.parse(event.data);
         setEvents(prev => {
@@ -90,8 +96,8 @@ export default function TimelineSection({ entityType, entityId }: Props) {
       }
     };
 
-    es.onerror = () => {
-      console.error('SSE connection error');
+    es.onerror = (err) => {
+      console.error('SSE error:', err);
       es.close();
     };
 

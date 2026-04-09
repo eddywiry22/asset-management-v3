@@ -18,15 +18,31 @@ export class TimelineController {
 
   streamTimeline(req: AuthenticatedRequest, res: Response): void {
     const { entityType, entityId } = req.params;
+    const key = `${entityType}:${entityId}`;
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
 
+    console.log('SSE CLIENT CONNECTED:', key);
+
     registerSSEClient(entityType, entityId, res);
 
+    // Heartbeat every 15 s to keep the connection alive through proxies
+    const heartbeat = setInterval(() => {
+      try {
+        res.write(': keep-alive\n\n');
+        if (typeof (res as any).flush === 'function') {
+          (res as any).flush();
+        }
+      } catch {
+        clearInterval(heartbeat);
+      }
+    }, 15_000);
+
     req.on('close', () => {
+      clearInterval(heartbeat);
       unregisterSSEClient(entityType, entityId, res);
     });
   }
