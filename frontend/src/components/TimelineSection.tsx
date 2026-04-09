@@ -91,8 +91,10 @@ export default function TimelineSection({ entityType, entityId }: Props) {
       try {
         const newEvent = JSON.parse(event.data);
         setEvents(prev => {
-          const exists = prev.some(e => e.id === newEvent.id);
-          if (exists) return prev.map(e => e.id === newEvent.id ? newEvent : e);
+          // Dedup on (id + action): UPLOAD and DELETE share the same attachment id
+          // but must coexist as separate timeline entries.
+          const exists = prev.some(e => e.id === newEvent.id && e.action === newEvent.action);
+          if (exists) return prev;
           return [newEvent, ...prev];
         });
       } catch {

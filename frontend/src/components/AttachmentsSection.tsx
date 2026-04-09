@@ -75,6 +75,15 @@ export default function AttachmentsSection({
   const queryClient = useQueryClient();
   const modalFileInputRef = useRef<HTMLInputElement>(null);
 
+  const currentUser = (() => {
+    try {
+      const raw = localStorage.getItem('auth_user');
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  })();
+
   const [uploading, setUploading]         = useState(false);
   const [deleting, setDeleting]           = useState<string | null>(null);
   const [previewUrl, setPreviewUrl]       = useState<string | null>(null);
@@ -329,22 +338,24 @@ export default function AttachmentsSection({
                           <DownloadIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
-                      <Tooltip title="Delete">
-                        <span>
-                          <IconButton
-                            size="small"
-                            color="error"
-                            onClick={() => handleDelete(att)}
-                            disabled={deleting === att.id}
-                          >
-                            {deleting === att.id ? (
-                              <CircularProgress size={14} />
-                            ) : (
-                              <DeleteIcon fontSize="small" />
-                            )}
-                          </IconButton>
-                        </span>
-                      </Tooltip>
+                      {(isAdmin || currentUser?.id === att.uploadedBy?.id) && (
+                        <Tooltip title="Delete">
+                          <span>
+                            <IconButton
+                              size="small"
+                              color="error"
+                              onClick={() => handleDelete(att)}
+                              disabled={deleting === att.id}
+                            >
+                              {deleting === att.id ? (
+                                <CircularProgress size={14} />
+                              ) : (
+                                <DeleteIcon fontSize="small" />
+                              )}
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}
