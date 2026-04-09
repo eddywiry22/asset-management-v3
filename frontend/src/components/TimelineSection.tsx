@@ -35,6 +35,7 @@ export default function TimelineSection({ entityType, entityId }: Props) {
   const [error, setError]                 = useState<string | null>(null);
   const [lastCommentTime, setLastCommentTime] = useState<number | null>(null);
   const [spamWarning, setSpamWarning]     = useState(false);
+  const [refreshing, setRefreshing]       = useState(false);
 
   const currentUser = (() => {
     try {
@@ -49,10 +50,22 @@ export default function TimelineSection({ entityType, entityId }: Props) {
     try {
       setError(null);
       const data = await getTimeline(entityType, entityId);
-      setEvents(data);
+      const sorted = [...data].sort(
+        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      );
+      setEvents(sorted);
     } catch (err) {
       console.error(err);
       setError('Failed to load timeline');
+    }
+  };
+
+  const refreshTimeline = async () => {
+    setRefreshing(true);
+    try {
+      await fetchTimeline();
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -73,7 +86,7 @@ export default function TimelineSection({ entityType, entityId }: Props) {
       await createComment({ entityType, entityId, message: comment });
       setComment('');
       setLastCommentTime(Date.now());
-      fetchTimeline();
+      await refreshTimeline();
     } catch (err) {
       console.error(err);
     }
@@ -83,7 +96,7 @@ export default function TimelineSection({ entityType, entityId }: Props) {
     try {
       await editComment(id, editingText);
       setEditingId(null);
-      fetchTimeline();
+      await refreshTimeline();
     } catch (err) {
       console.error(err);
     }
@@ -93,7 +106,7 @@ export default function TimelineSection({ entityType, entityId }: Props) {
     try {
       setDeleting(true);
       await deleteComment(id);
-      fetchTimeline();
+      await refreshTimeline();
     } catch (err) {
       console.error(err);
     } finally {
@@ -164,6 +177,12 @@ export default function TimelineSection({ entityType, entityId }: Props) {
       {error && (
         <Typography color="error.main" mb={2}>
           {error}
+        </Typography>
+      )}
+
+      {refreshing && (
+        <Typography variant="caption" color="text.secondary" mb={1} display="block">
+          Updating...
         </Typography>
       )}
 
