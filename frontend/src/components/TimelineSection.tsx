@@ -170,7 +170,7 @@ export default function TimelineSection({ entityType, entityId }: Props) {
       {/* Empty state */}
       {!error && events.length === 0 && (
         <Typography color="text.secondary" mb={2}>
-          No activities yet.
+          No activities yet
         </Typography>
       )}
 
@@ -192,7 +192,7 @@ export default function TimelineSection({ entityType, entityId }: Props) {
               }}
             >
               <Typography variant="subtitle2" fontWeight={600}>
-                {event.user?.username || '-'}
+                {event.user?.username || 'System'}
               </Typography>
 
               {/* SYSTEM */}
@@ -215,13 +215,13 @@ export default function TimelineSection({ entityType, entityId }: Props) {
                       <Button variant="contained" onClick={() => handleEdit(commentId!)}>
                         Save
                       </Button>
-                      <Button onClick={() => setEditingId(null)}>
+                      <Button onClick={() => { setEditingId(null); setEditingText(''); }}>
                         Cancel
                       </Button>
                     </Box>
                   ) : (
                     <Typography mt={0.5}>
-                      💬 {event.metadata?.content}
+                      💬 {event.metadata?.content || ''}
                       {event.metadata?.editedAt && (
                         <Typography component="span" variant="caption" color="text.secondary" ml={1}>
                           (edited at {formatHHMM(event.metadata.editedAt)})
@@ -262,7 +262,7 @@ export default function TimelineSection({ entityType, entityId }: Props) {
                     target="_blank"
                     rel="noopener noreferrer"
                   >
-                    {event.metadata?.fileName}
+                    {(event.metadata?.filePath || '').split('/').pop() || event.metadata?.fileName || ''}
                   </a>
                 </Typography>
               )}
