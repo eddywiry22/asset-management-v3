@@ -1,32 +1,9 @@
 import prisma from '../../config/database';
-import { commentRepository, CommentWithAuthor } from '../comments/repositories/comment.repository';
-import { attachmentRepository, AttachmentWithUploader } from '../attachments/repositories/attachment.repository';
-
-interface RawAuditLog {
-  id: string;
-  action: string;
-  entityType: string;
-  entityId: string;
-  beforeSnapshot: object | null;
-  afterSnapshot: object | null;
-  timestamp: Date;
-  user: { id: string; username: string };
-}
-
-export interface TimelineEvent {
-  id: string;
-  type: 'SYSTEM' | 'COMMENT' | 'ATTACHMENT';
-  action: string;
-  user: { id: string; username: string };
-  timestamp: Date;
-  metadata: object;
-}
-
-export interface TimelineResult {
-  events: TimelineEvent[];
-}
+import { commentRepository } from '../comments/repositories/comment.repository';
+import { attachmentRepository } from '../attachments/repositories/attachment.repository';
 
 const STATUS_TO_ACTION: Record<string, string> = {
+  DRAFT:     'DRAFT',
   SUBMITTED: 'SUBMIT',
   APPROVED:  'APPROVE',
   REJECTED:  'REJECT',
@@ -35,105 +12,134 @@ const STATUS_TO_ACTION: Record<string, string> = {
 };
 
 export class TimelineService {
-  async getTimeline(entityType: string, entityId: string): Promise<TimelineResult> {
-    const logs = await prisma.auditLog.findMany({
-      where: {
-        entityType: { equals: entityType, mode: 'insensitive' },
-        entityId,
-      },
-      select: {
-        id: true,
-        action: true,
-        entityType: true,
-        entityId: true,
-        beforeSnapshot: true,
-        afterSnapshot: true,
-        timestamp: true,
-        user: {
-          select: {
-            id: true,
-            username: true,
+  async getTimeline(entityType: string, entityId: string): Promise<{ events: any[] }> {
+    try {
+      const auditLogs = await prisma.auditLog.findMany({
+        where: {
+          entityType: { equals: entityType, mode: 'insensitive' },
+          entityId,
+        },
+        select: {
+          id:             true,
+          action:         true,
+          entityType:     true,
+          entityId:       true,
+          beforeSnapshot: true,
+          afterSnapshot:  true,
+          timestamp:      true,
+          user: {
+            select: { id: true, username: true },
           },
         },
-      },
-      orderBy: { timestamp: 'asc' },
-    }) as unknown as RawAuditLog[];
+        orderBy: { timestamp: 'asc' },
+      }) as any[];
 
-    const [comments, attachments] = await Promise.all([
-      commentRepository.findByEntity(entityType, entityId),
-      attachmentRepository.findByEntity(entityType, entityId),
-    ]);
+      const [comments, attachments] = await Promise.all([
+        commentRepository.findByEntity(entityType, entityId),
+        attachmentRepository.findByEntity(entityType, entityId),
+      ]);
 
-    const systemEvents = logs.map((log) => {
-      if (log.action !== 'STATUS_CHANGE') return null;
+      const systemEvents = (auditLogs as any[])
+        .map((log: any) => {
+          try {
+            if (log.action !== 'STATUS_CHANGE') return null;
 
-      const beforeStatus = (log.beforeSnapshot as any)?.status;
-      const afterStatus  = (log.afterSnapshot as any)?.status;
+            const before = typeof log.beforeSnapshot === 'string'
+              ? JSON.parse(log.beforeSnapshot)
+              : log.beforeSnapshot;
 
-      if (!afterStatus || beforeStatus === afterStatus) return null;
+            const after = typeof log.afterSnapshot === 'string'
+              ? JSON.parse(log.afterSnapshot)
+              : log.afterSnapshot;
 
-      const action = STATUS_TO_ACTION[afterStatus] || 'UPDATE';
+            const beforeStatus = before?.status;
+            const afterStatus  = after?.status;
 
-      return {
-        id: `audit-${log.id}`,
-        type: 'SYSTEM' as const,
-        action,
-        user: log.user,
-        timestamp: log.timestamp,
-        metadata: {
-          from: beforeStatus,
-          to: afterStatus,
-        },
-      };
-    }).filter(Boolean) as TimelineEvent[];
+            if (!afterStatus || beforeStatus === afterStatus) return null;
 
-    const commentEvents = comments.map((c: CommentWithAuthor) => {
-      try {
-        return {
-          id: `comment-${c.id}`,
-          type: 'COMMENT' as const,
-          action: 'COMMENT',
-          user: c.createdBy,
-          timestamp: c.createdAt,
-          metadata: {
-            content: c.message,
-            editedAt: c.isEdited ? c.updatedAt : null,
-          },
-        };
-      } catch {
-        return null;
-      }
-    }).filter(Boolean) as TimelineEvent[];
+            return {
+              id:        `audit-${log.id}`,
+              type:      'SYSTEM',
+              action:    STATUS_TO_ACTION[afterStatus] || 'UPDATE',
+              timestamp: log.timestamp,
+              user:      log.user || { id: 'system', username: 'System' },
+              metadata:  { from: beforeStatus, to: afterStatus },
+            };
+          } catch (e) {
+            console.error('SYSTEM mapping error:', e, log);
+            return null;
+          }
+        })
+        .filter(Boolean);
 
-    const attachmentEvents = attachments.map((a: AttachmentWithUploader) => {
-      try {
-        return {
-          id: `attachment-${a.id}`,
-          type: 'ATTACHMENT' as const,
-          action: 'UPLOAD',
-          user: a.uploadedBy,
-          timestamp: a.createdAt,
-          metadata: {
-            fileName: a.fileName,
-            filePath: a.filePath,
-          },
-        };
-      } catch {
-        return null;
-      }
-    }).filter(Boolean) as TimelineEvent[];
+      const commentEvents = (comments as any[])
+        .map((c: any) => {
+          try {
+            if (!c?.id || !c?.message) return null;
 
-    const events = [
-      ...systemEvents,
-      ...commentEvents,
-      ...attachmentEvents,
-    ];
+            return {
+              id:        `comment-${c.id}`,
+              type:      'COMMENT',
+              action:    'COMMENT',
+              timestamp: c.createdAt,
+              user:      c.createdBy || { id: 'system', username: 'System' },
+              metadata:  {
+                content:  c.message,
+                editedAt: c.isEdited ? c.updatedAt : null,
+              },
+            };
+          } catch (e) {
+            console.error('COMMENT mapping error:', e, c);
+            return null;
+          }
+        })
+        .filter(Boolean);
 
-    events.sort((a, b) =>
-      new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-    );
+      const attachmentEvents = (attachments as any[])
+        .map((a: any) => {
+          try {
+            if (!a?.id) return null;
 
-    return { events };
+            return {
+              id:        `attachment-${a.id}`,
+              type:      'ATTACHMENT',
+              action:    'UPLOAD',
+              timestamp: a.createdAt,
+              user:      a.uploadedBy || { id: 'system', username: 'System' },
+              metadata:  {
+                fileName: a.fileName,
+                filePath: a.filePath,
+              },
+            };
+          } catch (e) {
+            console.error('ATTACHMENT mapping error:', e, a);
+            return null;
+          }
+        })
+        .filter(Boolean);
+
+      console.log('Timeline result:', {
+        audit:       auditLogs.length,
+        system:      systemEvents.length,
+        comments:    commentEvents.length,
+        attachments: attachmentEvents.length,
+      });
+
+      const events = [
+        ...systemEvents,
+        ...commentEvents,
+        ...attachmentEvents,
+      ]
+        .filter((e: any) => e && e.timestamp)
+        .sort((a: any, b: any) =>
+          new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+        );
+
+      return { events };
+    } catch (err) {
+      console.error('Timeline fatal error:', err);
+      return { events: [] };
+    }
   }
 }
 
