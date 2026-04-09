@@ -21,6 +21,7 @@ import dashboardRoutes from './modules/dashboard/dashboard.routes';
 import attachmentsRoutes from './modules/attachments/attachments.routes';
 import commentsRoutes from './modules/comments/comments.routes';
 import timelineRoutes from './modules/timeline/timeline.routes';
+import reportsRoutes from './modules/reports/report.routes';
 import { productsController } from './modules/products/products.controller';
 import { AuthenticatedRequest } from './types/request.types';
 
@@ -86,6 +87,9 @@ v1Router.use('/comments', authMiddleware, commentsRoutes);
 // /v1/timeline — stream route uses manual JWT auth (query param); REST route
 // uses the standard authMiddleware. Auth is controlled inside timeline.routes.ts.
 v1Router.use('/timeline', timelineRoutes);
+
+// /v1/reports — requires auth, accessible by all roles
+v1Router.use('/reports', authMiddleware, reportsRoutes);
 
 app.use('/v1', v1Router);
 
