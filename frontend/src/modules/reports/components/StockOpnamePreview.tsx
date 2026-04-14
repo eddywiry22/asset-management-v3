@@ -122,6 +122,10 @@ export default function StockOpnamePreview({ report }: Props) {
           </section>
         );
       })}
+
+      <div className="print-footer">
+        Printed at: {formatTimestamp(new Date().toISOString())}
+      </div>
     </div>
   );
 }
