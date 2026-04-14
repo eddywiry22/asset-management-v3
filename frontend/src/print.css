@@ -1,10 +1,19 @@
-/* A4 page setup — must be top-level, not inside @media print */
+/* ── Page setup ──────────────────────────────────────────────────────────
+   Landscape: 8-column table (SKU, Name, + 6 qty cols) needs the extra width
+   ──────────────────────────────────────────────────────────────────────── */
 @page {
-  size: A4 portrait;
-  margin: 20mm 12mm;
+  size: A4 landscape;
+  margin: 15mm;
 }
 
 @media print {
+  /* ── Base reset ──────────────────────────────────────────────────── */
+  html,
+  body {
+    width: 100%;
+    background: white !important;
+  }
+
   /* ── Isolation: show only the print area ─────────────────────────── */
   body * {
     visibility: hidden;
@@ -15,36 +24,46 @@
     visibility: visible;
   }
 
+  /* ── Break MUI Dialog width constraints ──────────────────────────── */
+  .MuiDialog-paper {
+    width: 100% !important;
+    max-width: 100% !important;
+    box-shadow: none !important;
+  }
+
+  /* ── Print area: full page, no container bleed ───────────────────── */
   #print-area {
     position: absolute;
     left: 0;
     top: 0;
-    width: 100%;
+    width: 100% !important;
+    max-width: 100% !important;
     font-family: Arial, Helvetica, sans-serif;
-    font-size: 12px;
+    font-size: 13px !important;
+    line-height: 1.4;
     color: #000;
   }
 
   /* ── Typography ──────────────────────────────────────────────────── */
   #print-area h1 {
-    font-size: 20px;
+    font-size: 22px !important;
     margin-bottom: 6px;
   }
 
   #print-area p {
-    font-size: 11px;
+    font-size: 12px;
     margin: 2px 0;
   }
 
   #print-area h2 {
-    font-size: 14px !important;
+    font-size: 16px !important;
     margin: 16px 0 0 0 !important;
     padding-bottom: 4px !important;
     border-bottom: 1px solid #000 !important;
   }
 
   #print-area h3 {
-    font-size: 12px !important;
+    font-size: 14px !important;
     margin: 12px 0 4px 0 !important;
   }
 
@@ -61,22 +80,23 @@
   /* ── Tables ──────────────────────────────────────────────────────── */
   #print-area table {
     width: 100% !important;
+    table-layout: fixed !important;
     border-collapse: collapse !important;
     margin-top: 6px !important;
-    font-size: 11px !important;
-    table-layout: auto !important;
+    font-size: 12px !important;
   }
 
   #print-area th,
   #print-area td {
     border: 1px solid #000 !important;
-    padding: 6px 8px !important;
+    padding: 8px 10px !important;
+    word-break: break-word;
   }
 
   #print-area th {
     background-color: #f2f2f2 !important;
     text-align: left !important;
-    white-space: nowrap !important;
+    font-weight: 700 !important;
   }
 
   #print-area td {
@@ -98,7 +118,7 @@
     display: table-header-group;
   }
 
-  /* ── Hide UI chrome (never use display:none on ancestors of #print-area) */
+  /* ── Hide UI chrome (never display:none on any ancestor of #print-area) */
   button {
     display: none !important;
   }
