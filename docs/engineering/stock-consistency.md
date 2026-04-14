@@ -16,6 +16,7 @@ This document defines the integrity rules that govern stock state in the invento
 6. [Transaction Requirements](#6-transaction-requirements)
 7. [Common Failure Scenarios](#7-common-failure-scenarios)
 8. [Why These Rules Exist](#8-why-these-rules-exist)
+9. [Time-Based Stock Model (Report Calculations)](#9-time-based-stock-model-report-calculations)
 
 ---
 
@@ -90,8 +91,8 @@ Attempting to allocate 80 units here would succeed the raw `onHandQty` check but
 | Value | When Created |
 |-------|-------------|
 | `ADJUSTMENT` | Adjustment request finalized |
-| `TRANSFER_OUT` | Movement finalized — units leaving origin |
-| `TRANSFER_IN` | Movement finalized — units arriving at destination |
+| `TRANSFER_OUT` | Transfer finalized — units leaving origin |
+| `TRANSFER_IN` | Transfer finalized — units arriving at destination |
 | `MOVEMENT_OUT` | Direct movement out (future use) |
 | `MOVEMENT_IN` | Direct movement in (future use) |
 | `SEED` | Initial stock seeding |
@@ -134,7 +135,7 @@ This applies to both request types:
 | Request Type | `onHandQty` changes when |
 |-------------|--------------------------|
 | Adjustment | `APPROVED → FINALIZED` |
-| Movement | `DESTINATION_OPERATOR_APPROVED → FINALIZED` |
+| Transfer | `READY_TO_FINALIZE → FINALIZED` |
 
 Any code that mutates `onHandQty` outside of finalization is a bug.
 
@@ -209,13 +210,13 @@ If a movement request is cancelled or rejected while reservations are `ACTIVE`, 
 |----------|--------------------|-|
 | Cancelled from `SUBMITTED` | No | No |
 | Cancelled from `ORIGIN_MANAGER_APPROVED` | Yes | **Yes** |
-| Cancelled from `DESTINATION_OPERATOR_APPROVED` | Yes | **Yes** |
+| Cancelled from `READY_TO_FINALIZE` | Yes | **Yes** |
 | Rejected from `SUBMITTED` | No | No |
 | Rejected from `ORIGIN_MANAGER_APPROVED` | Yes | **Yes** |
 
 ### Rule 10 — Consuming a reservation requires verifying it exists first
 
-Before finalization can proceed, the system must confirm that `ACTIVE` reservations exist for the request. If none are found, finalization throws a `ValidationError`. This guards against the edge case where a request somehow reaches the `DESTINATION_OPERATOR_APPROVED` status without reservations having been created — a state that should be impossible, but must be caught if it ever occurs.
+Before finalization can proceed, the system must confirm that `ACTIVE` reservations exist for the request. If none are found, finalization throws a `ValidationError`. This guards against the edge case where a request somehow reaches the `READY_TO_FINALIZE` status without reservations having been created — a state that should be impossible, but must be caught if it ever occurs.
 
 ---
 
@@ -255,7 +256,7 @@ A workflow status change and its associated stock side effects must be committed
 |-----------|---------------------|
 | `SUBMITTED → ORIGIN_MANAGER_APPROVED` | Reservation creation |
 | `APPROVED → FINALIZED` (adjustment) | All `onHandQty` mutations + ledger entries |
-| `DESTINATION_OPERATOR_APPROVED → FINALIZED` (movement) | Reservation consumption + all `onHandQty` mutations + ledger entries |
+| `READY_TO_FINALIZE → FINALIZED` (transfer) | Reservation consumption + all `onHandQty` mutations + ledger entries |
 | Any → `CANCELLED` or `REJECTED` (if reserved) | Reservation release |
 
 If status and side effects land in separate transactions, a crash between them produces an inconsistent state: a request may show `FINALIZED` with no ledger entries, or `ACTIVE` reservations may exist for a `CANCELLED` request.
@@ -330,7 +331,7 @@ These are the most likely ways stock consistency can be broken, and why the rule
 
 ### Scenario 5 — Finalizing a movement with no reservations
 
-**What happens:** Due to a bug, a movement somehow reaches `DESTINATION_OPERATOR_APPROVED` without having gone through origin approval (or reservations were silently skipped). Finalization is attempted.
+**What happens:** Due to a bug, a transfer somehow reaches `READY_TO_FINALIZE` without having gone through origin approval (or reservations were silently skipped). Finalization is attempted.
 
 **Without protection:** Stock is decremented at source with no prior reservation, potentially driving `onHandQty` negative and bypassing availability checks.
 
