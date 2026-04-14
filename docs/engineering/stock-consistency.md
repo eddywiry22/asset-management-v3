@@ -383,3 +383,80 @@ Optimistic validation ("check then act") without locks is insufficient under con
 ### Strict status gating prevents out-of-order effects
 
 The availability check at adjustment approval time (`SUBMITTED → APPROVED`) is a soft, non-locking check. It gives the approving Manager a real-time view of stock, but does not commit any claim. The hard, locked check happens at finalization. This two-phase design balances UX (early feedback) against correctness (committed check at the moment of actual stock change).
+
+---
+
+## 9. Time-Based Stock Model (Report Calculations)
+
+This section describes how historical stock quantities are derived for reporting purposes (e.g., the Stock Opname report). This is distinct from the live stock model described above.
+
+### 9.1 Stock is Not Static
+
+`StockBalance.onHandQty` reflects the current live state. For historical reporting, the system reconstructs what the stock was at a given point in time using `StockLedger` as the single source of truth.
+
+### 9.2 Definitions
+
+| Term | Definition |
+|------|-----------|
+| `startingQty` | The stock quantity for a product-location at the **start** of the reporting period (i.e., at `startDate 00:00:00`). Derived from the ledger. |
+| `inboundQty` | The sum of all positive `changeQty` ledger entries within the period (`startDate` to `endDate` inclusive). |
+| `outboundQty` | The absolute sum of all negative `changeQty` ledger entries within the period. |
+| `systemQty` | The calculated stock quantity at the **end** of the reporting period: `startingQty + inboundQty - outboundQty`. |
+
+### 9.3 Calculation Source of Truth: StockLedger
+
+All movements are read from `StockLedger`, not `StockBalance`. Every finalized transaction writes one or more ledger entries. The ledger includes entries from all source types:
+
+| `sourceType` | Produced by |
+|-------------|-------------|
+| `ADJUSTMENT` | Finalized stock adjustment request |
+| `TRANSFER_OUT` | Finalized stock transfer (origin location) |
+| `TRANSFER_IN` | Finalized stock transfer (destination location) |
+| `SEED` | Initial stock seeding |
+| `MOVEMENT_OUT` | Direct movement out (reserved for future use) |
+| `MOVEMENT_IN` | Direct movement in (reserved for future use) |
+
+All source types are included in report calculations — there is no filtering by type.
+
+### 9.4 Date Logic
+
+The report service uses `createdAt` on the `StockLedger` entry — not `finalizedAt` on the request record — to determine whether a ledger entry falls before or within the reporting period. These timestamps are normally identical (ledger entries are written within the finalization transaction), but `createdAt` is the authoritative field for ledger queries.
+
+Date boundary normalization:
+- `startDate` → `00:00:00.000` (start of day)
+- `endDate` → `23:59:59.999` (end of day)
+
+### 9.5 How startingQty Is Derived
+
+The system queries all ledger entries for the product-location where `createdAt < startDate`, ordered by `createdAt DESC`. The `balanceAfter` value from the **most recent** such entry is used as `startingQty`.
+
+If no ledger entry exists before `startDate` for a given product-location, `startingQty` defaults to `0` (the product had no recorded stock history at that location before the period).
+
+```
+startingQty = balanceAfter of the most recent StockLedger entry
+              where createdAt < startDate
+              for (productId, locationId)
+              — or 0 if no such entry exists
+```
+
+### 9.6 How systemQty Is Derived
+
+`systemQty` is computed, not read from any table:
+
+```
+systemQty = startingQty + inboundQty - outboundQty
+```
+
+Where `inboundQty` and `outboundQty` are accumulated from ledger entries where `startDate <= createdAt <= endDate`:
+- `changeQty > 0` → accumulated into `inboundQty`
+- `changeQty < 0` → absolute value accumulated into `outboundQty`
+
+### 9.7 Edge Cases and Warnings
+
+**Negative `startingQty` is possible.** If the ledger contains a negative `balanceAfter` at the boundary (e.g., due to historical data correction or a seeding error), `startingQty` will be negative. The report reflects this faithfully — it does not clamp to zero.
+
+**Missing historical data impacts accuracy.** If ledger entries were never written for a product-location (e.g., stock was managed outside this system), `startingQty` will be `0` regardless of the actual physical count. Reports covering such gaps will understate historical stock.
+
+**Only active product-location registrations are included.** The report iterates `ProductLocation` rows with `isActive: true`. Products or locations deactivated after stock moved will not appear in new reports, even if they have ledger history.
+
+**`physicalQty` and `variance` are always `null`.** These fields are reserved for physical count entry during a stock opname event and are not populated by this service.
