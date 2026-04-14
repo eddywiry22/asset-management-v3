@@ -50,12 +50,14 @@ One row per stock-changing event. **Append-only and immutable** — rows are nev
 
 **Source types:**
 
-| Value         | When created                                      |
-|---------------|---------------------------------------------------|
-| `ADJUSTMENT`  | Stock adjustment request finalized                |
-| `TRANSFER_OUT`| Transfer finalized — source location deducted     |
-| `TRANSFER_IN` | Transfer finalized — destination location credited|
-| `SEED`        | Historical opening balance (data migration only)  |
+| Value          | When created                                      |
+|----------------|---------------------------------------------------|
+| `ADJUSTMENT`   | Stock adjustment request finalized                |
+| `TRANSFER_OUT` | Transfer finalized — source location deducted     |
+| `TRANSFER_IN`  | Transfer finalized — destination location credited|
+| `SEED`         | Historical opening balance (data migration only)  |
+| `MOVEMENT_OUT` | Movement finalized — source location deducted (reserved for future use; not currently produced) |
+| `MOVEMENT_IN`  | Movement finalized — destination location credited (reserved for future use; not currently produced) |
 
 ### StockReservation
 
@@ -95,9 +97,9 @@ When a date range (`startDate` / `endDate`) is supplied to the stock overview, t
 ```
 startingQty  = balanceAfter of the last ledger entry before startDate
 inboundQty   = SUM of positive changeQty entries within the period
-               (sourceType: ADJUSTMENT, TRANSFER_IN, SEED)
+               (sourceType: ADJUSTMENT, TRANSFER_IN, SEED, MOVEMENT_IN)
 outboundQty  = SUM of ABS(negative changeQty) entries within the period
-               (sourceType: TRANSFER_OUT)
+               (sourceType: TRANSFER_OUT, MOVEMENT_OUT)
 finalQty     = startingQty + inboundQty − outboundQty
 ```
 
