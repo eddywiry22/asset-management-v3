@@ -1,0 +1,33 @@
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  #print-area,
+  #print-area * {
+    visibility: visible;
+  }
+
+  #print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+
+  .location-section {
+    page-break-before: always;
+  }
+
+  .location-section:first-child {
+    page-break-before: auto;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  button {
+    display: none;
+  }
+}
