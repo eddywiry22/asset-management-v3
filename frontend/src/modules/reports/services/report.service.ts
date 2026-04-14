@@ -63,20 +63,6 @@ export const reportService = {
     );
     return res.data.data;
   },
-
-  async exportStockOpnameReport(filters: StockOpnameFilters): Promise<Blob> {
-    const res = await apiClient.post(
-      'reports/stock-opname/export',
-      {
-        startDate: filters.startDate,
-        endDate: filters.endDate,
-        ...(filters.locationIds?.length ? { locationIds: filters.locationIds } : {}),
-        ...(filters.categoryIds?.length ? { categoryIds: filters.categoryIds } : {}),
-      },
-      { responseType: 'blob' },
-    );
-    return res.data as Blob;
-  },
 };
 
 export default reportService;

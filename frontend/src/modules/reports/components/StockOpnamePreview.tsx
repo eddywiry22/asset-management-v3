@@ -85,7 +85,7 @@ export default function StockOpnamePreview({ report }: Props) {
         if (!locHasItems) return null;
 
         return (
-          <section key={loc.locationId} style={{ marginBottom: 28 }}>
+          <section key={loc.locationId} className="location-section" style={{ marginBottom: 28 }}>
             <h2
               style={{
                 fontSize: 15,
@@ -122,6 +122,10 @@ export default function StockOpnamePreview({ report }: Props) {
           </section>
         );
       })}
+
+      <div className="print-footer">
+        Printed at: {formatTimestamp(new Date().toISOString())}
+      </div>
     </div>
   );
 }

@@ -31,9 +31,9 @@ interface Props {
   locationOptions: FilterOption[];
   categoryOptions: FilterOption[];
   onPreview: () => void;
-  onDownload: () => void;
+  onPrint: () => void;
   previewDisabled?: boolean;
-  downloadDisabled?: boolean;
+  printDisabled?: boolean;
 }
 
 const SELECT_WIDTH = 220;
@@ -44,9 +44,9 @@ export default function StockOpnameFilters({
   locationOptions,
   categoryOptions,
   onPreview,
-  onDownload,
+  onPrint,
   previewDisabled,
-  downloadDisabled,
+  printDisabled,
 }: Props) {
   const isDateInvalid =
     !!value.startDate && !!value.endDate && value.startDate > value.endDate;
@@ -154,8 +154,8 @@ export default function StockOpnameFilters({
         >
           Preview
         </Button>
-        <Button variant="outlined" onClick={onDownload} disabled={downloadDisabled}>
-          Download
+        <Button variant="outlined" onClick={onPrint} disabled={printDisabled}>
+          Print / Export PDF
         </Button>
       </Box>
     </Box>
