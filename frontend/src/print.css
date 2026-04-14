@@ -98,9 +98,12 @@
     display: table-header-group;
   }
 
-  /* ── Hide all UI chrome ──────────────────────────────────────────── */
-  button,
-  .MuiDialog-root {
+  /* ── Hide UI chrome (never use display:none on ancestors of #print-area) */
+  button {
+    display: none !important;
+  }
+
+  .MuiBackdrop-root {
     display: none !important;
   }
 
