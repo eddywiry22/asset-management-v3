@@ -9,8 +9,10 @@ An internal inventory management system for tracking products, stock levels, and
 - **Multi-location inventory** — stock is tracked independently per location
 - **Product-location activation** — products must be registered at a location before stock operations can reference them there
 - **Immutable stock ledger** — every stock change is recorded as a permanent ledger entry; balances are never edited directly
-- **Adjustment workflows** — stock corrections go through a multi-step approval lifecycle (Draft → Pending → Approved → Finalized)
+- **Adjustment workflows** — stock corrections go through a multi-step approval lifecycle (Draft → Submitted → Approved → Finalized)
 - **Transfer workflows** — inter-location transfers with hard reservations to prevent over-commitment
+- **Real-time activity timeline** — every request has a live-updating feed of status changes, comments, and attachments via Server-Sent Events (SSE)
+- **Stock Opname reporting** — point-in-time inventory report with browser-based print output (no server-side PDF)
 - **Advanced filtering + saved presets** — combinable multi-value filters with per-user saved presets across modules
 - **Dashboard with My Actions** — personal action queue surfacing items awaiting your attention
 
@@ -26,6 +28,8 @@ An internal inventory management system for tracking products, stock levels, and
 | **Adjustment** | A request to correct stock (add or remove quantity), requiring approval before it affects balances |
 | **Transfer** | A movement of stock between locations; outbound quantity is reserved on origin-manager approval |
 | **Reserved Quantity** | Quantity set aside for an approved transfer; reduces available stock without yet removing it |
+| **Timeline** | A unified activity feed per request — status events (from AuditLog), comments, and attachments aggregated at read time |
+| **Stock Opname** | A historical inventory report derived entirely from the ledger; printed via the browser using `window.print()` |
 
 > For deeper explanations see [`docs/system-overview.md`](docs/system-overview.md) and the module docs in [`docs/modules/`](docs/modules/).
 
@@ -69,104 +73,67 @@ asset-management-v3/
 
 ---
 
-## Setup
+## Getting Started
 
-### Prerequisites
+For full instructions see **[docs/setup.md](docs/setup.md)**.
 
-- [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/)
-
-### Start all services
+### Quick start (Docker)
 
 ```bash
+# Start all services (MySQL, backend, frontend)
 docker compose up --build
-```
 
-This starts MySQL on `3306`, the backend on `3000`, and the frontend on `5173`. Database migrations run automatically on backend startup.
-
-### Seed demo data
-
-```bash
+# In a second terminal, seed demo data
 docker compose exec backend npm run prisma:seed
 ```
 
-The seed is idempotent — safe to run multiple times.
+| Service | URL |
+|---|---|
+| Frontend | `http://localhost:5173` |
+| Backend health | `http://localhost:3000/health` |
 
-### Verify
+### Test credentials (password: `password123`)
 
-```bash
-curl http://localhost:3000/health
-# → { "status": "OK", "timestamp": "..." }
-```
+| Role | Email |
+|---|---|
+| Admin | `admin@example.com` |
+| Manager (WH-001) | `manager1@example.com` |
+| Operator (WH-001) | `operator1@example.com` |
 
-Frontend: [http://localhost:5173](http://localhost:5173)
-
----
-
-## Running in Development
-
-All services run with live reload via Docker volumes. No local Node.js installation is required.
-
-To run a service outside Docker:
-
-```bash
-# Backend
-cd backend
-npm install
-npm run dev        # ts-node-dev, restarts on file changes
-
-# Frontend
-cd frontend
-npm install
-npm run dev        # Vite HMR
-```
+See [docs/setup.md — First Login](docs/setup.md#5-first-login) for all accounts.
 
 ### Useful backend scripts
 
 | Script | Description |
 |---|---|
-| `npm run dev` | Start dev server with live reload |
-| `npm run build` | Compile TypeScript |
+| `npm run dev` | Start dev server with live reload (ts-node-dev) |
+| `npm run build` | Compile TypeScript to `dist/` |
 | `npm test` | Run Jest tests |
-| `npm run prisma:migrate` | Apply pending migrations |
-| `npm run prisma:seed` | Seed the database |
+| `npm run prisma:migrate` | Create and apply a migration (dev only) |
+| `npm run prisma:seed` | Seed demo data (idempotent) |
 
 ---
 
-## Test Credentials
+## Deployment
 
-All demo accounts use the password **`password123`**.
-
-| Role | Email | Location |
-|---|---|---|
-| Admin | `admin@example.com` | All locations |
-| Manager | `manager1@example.com` | WH-001 — Main Warehouse (Jakarta) |
-| Manager | `manager2@example.com` | WH-002 — Secondary Warehouse (Surabaya) |
-| Manager | `manager3@example.com` | WH-003 — Northern Warehouse (Medan) |
-| Operator | `operator1@example.com` | WH-001 |
-| Operator | `operator2@example.com` | WH-002 |
-| Operator | `operator3@example.com` | WH-003 |
-
----
-
-## Environment Variables
-
-Defaults are set in `docker-compose.yml` and are suitable for local development.
-
-| Variable | Description | Default |
-|---|---|---|
-| `DATABASE_URL` | MySQL connection string | `mysql://asset_user:asset_password@mysql:3306/asset_db` |
-| `JWT_SECRET` | Access token signing secret | `dev_secret_change_in_production` |
-| `JWT_REFRESH_SECRET` | Refresh token signing secret | `dev_refresh_secret_change_in_production` |
-| `JWT_EXPIRES_IN` | Access token TTL | `15m` |
-| `JWT_REFRESH_EXPIRES_IN` | Refresh token TTL | `7d` |
-| `PORT` | Backend port | `3000` |
-| `NODE_ENV` | Environment mode | `development` |
-
-> Change `JWT_SECRET` and `JWT_REFRESH_SECRET` before deploying to any shared environment.
+See **[docs/deployment.md](docs/deployment.md)** for:
+- Production build steps (backend + frontend)
+- Reverse proxy configuration (Nginx example)
+- SSE requirements (`proxy_buffering off`)
+- File upload persistence
+- Environment variable reference
 
 ---
 
 ## Documentation
+
+### Operational
+
+| Document | Description |
+|---|---|
+| [`docs/setup.md`](docs/setup.md) | Local development setup — Docker and non-Docker paths, environment variables, seeding |
+| [`docs/deployment.md`](docs/deployment.md) | Production build, reverse proxy (Nginx), SSE requirements, file upload persistence |
+| [`docs/troubleshooting.md`](docs/troubleshooting.md) | Common problems — timeline, SSE, reports, Docker, print, auth |
 
 ### System
 
@@ -183,6 +150,10 @@ Defaults are set in `docker-compose.yml` and are suitable for local development.
 | [`docs/modules/stock.md`](docs/modules/stock.md) | Stock balance and ledger module |
 | [`docs/modules/adjustments.md`](docs/modules/adjustments.md) | Stock adjustment workflow |
 | [`docs/modules/movements.md`](docs/modules/movements.md) | Stock movement and transfer workflow |
+| [`docs/modules/timeline.md`](docs/modules/timeline.md) | Real-time activity timeline — SSE, REST, event structure |
+| [`docs/modules/comments.md`](docs/modules/comments.md) | Comment threading and edit/delete rules |
+| [`docs/modules/attachments.md`](docs/modules/attachments.md) | File upload, download, and authorization |
+| [`docs/modules/reports.md`](docs/modules/reports.md) | Stock Opname report — quantities, filters, print |
 | [`docs/modules/product.md`](docs/modules/product.md) | Product master data |
 | [`docs/modules/product-registration.md`](docs/modules/product-registration.md) | Product-location activation |
 | [`docs/modules/dashboard.md`](docs/modules/dashboard.md) | Dashboard and My Actions |
