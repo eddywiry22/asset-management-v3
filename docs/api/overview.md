@@ -388,13 +388,17 @@ Returns the full event history for a request.
 
 **SYSTEM event `action` values** (mapped from `afterSnapshot.status`):
 
-| Status reached | `action` |
-|----------------|----------|
-| `SUBMITTED` | `SUBMIT` |
-| `APPROVED` | `APPROVE` |
-| `REJECTED` | `REJECT` |
-| `CANCELLED` | `CANCEL` |
-| `FINALIZED` | `FINALIZE` |
+| Status reached | `action` (REST timeline) | Notes |
+|----------------|--------------------------|-------|
+| `SUBMITTED` | `SUBMIT` | |
+| `APPROVED` | `APPROVE` | Adjustment approval only |
+| `ORIGIN_MANAGER_APPROVED` | `STATUS_CHANGE` | Not in the status→action map; falls back to the AuditLog `action` field |
+| `READY_TO_FINALIZE` | `STATUS_CHANGE` | Not in the status→action map; falls back to the AuditLog `action` field |
+| `REJECTED` | `REJECT` | |
+| `CANCELLED` | `CANCEL` | |
+| `FINALIZED` | `FINALIZE` | |
+
+> **SSE vs REST difference:** SSE events for transfer approval transitions (`ORIGIN_MANAGER_APPROVED`, `READY_TO_FINALIZE`) are emitted directly with `action: 'APPROVE'` by the service layer. The REST timeline derives `action` from the AuditLog snapshot, which produces `STATUS_CHANGE` for these same transitions. Use `metadata.to` (the `afterStatus` value) as the reliable indicator of what occurred, regardless of which transport you are using.
 
 Events are returned in ascending `timestamp` order.
 
