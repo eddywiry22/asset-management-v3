@@ -22,6 +22,7 @@
 12. [Important Rules & Limitations](#12-important-rules--limitations)
 13. [Tips & Best Practices](#13-tips--best-practices)
 14. [Activity Timeline & Collaboration](#14-activity-timeline--collaboration)
+15. [Stock Opname Report](#15-stock-opname-report)
 
 ---
 
@@ -1056,6 +1057,139 @@ The timeline page stays live while you have it open. You do not need to refresh 
 Updates from other users appear in the timeline automatically within a few seconds.
 
 > **Note:** Real-time updates require an active connection to the server. If your connection drops, the page will stop receiving live updates until you reload. You can always reload the page to see the current state of the request.
+
+---
+
+---
+
+## 15. Stock Opname Report
+
+The Stock Opname Report is a tool for physically verifying and reconciling your stock. It shows you what the system says you have, so you can compare it against what you actually count on the warehouse floor. This process is commonly called a **stock opname** or **stock count**.
+
+Use this report to:
+- Detect discrepancies between system records and physical stock
+- Support internal audits and compliance checks
+- Maintain confidence in your stock accuracy over time
+
+---
+
+### 15.1 What the Stock Opname Report Is
+
+The report covers a period you choose and shows, for each product at each location:
+
+- How much stock the system recorded at the **start** of the period
+- How much came **in** and went **out** during the period
+- What the system **calculates** as the closing balance
+- A blank **Physical Qty** column for you to fill in during counting
+- A **Variance** column to record the difference
+
+The report can be filtered by date range, location, and product category, so you can scope the count to a single warehouse or a specific product group rather than running the whole inventory at once.
+
+---
+
+### 15.2 Opening the Report
+
+1. Go to the **Stock Dashboard**.
+2. Click **Export / Stock Opname Report**.
+3. A report window will appear over the page.
+
+> **Note:** Opening this window does not change your Stock Dashboard filters. The report tool is completely separate from the dashboard view.
+
+---
+
+### 15.3 Setting Filters
+
+Before generating the report, set your filters in the report window.
+
+**Start Date and End Date** *(required)*
+- Defines the period the report will cover.
+- The start date must be on or before the end date.
+
+**Locations** *(optional)*
+- Select one or more warehouse locations to include.
+- If you leave this blank, the report covers **all locations**.
+
+**Categories** *(optional)*
+- Filter by one or more product categories.
+- If you leave this blank, the report covers **all categories**.
+
+> **Tip:** For large warehouses, apply a location or category filter to keep the report focused and easier to work with during counting.
+
+---
+
+### 15.4 Generating the Preview
+
+1. Set your filters.
+2. Click **Preview**.
+
+The system will generate the report and display it directly in the window. Results are grouped by location, then by category, then by individual product.
+
+If no transactions match your selected filters, the report will show **"No data available"** instead of an empty table.
+
+---
+
+### 15.5 Understanding the Report Structure
+
+The report is organized in three levels:
+
+1. **Report Header** — shows the report title, the date and time it was generated, and the selected period.
+2. **Location Section** — each warehouse location appears as its own block.
+3. **Category Section** — within each location, products are grouped by category.
+
+Each product row contains the following columns:
+
+| Column | What it shows |
+|---|---|
+| **SKU / Name** | The product's unique code and name |
+| **Starting Qty** | The stock on hand at the very beginning of the selected period |
+| **Inbound Qty** | Total stock received during the period (adjustments in, transfers in) |
+| **Outbound Qty** | Total stock dispatched during the period (adjustments out, transfers out) |
+| **System Qty** | What the system calculates as the closing balance: Starting + Inbound − Outbound |
+| **Physical Qty** | Blank — fill this in yourself when counting on the warehouse floor |
+| **Variance** | Blank — fill this in after counting: Physical Qty minus System Qty |
+
+> **Note:** Only **finalized** transactions are included. Requests that are still in Draft, Submitted, or Approved status are not reflected in these figures.
+
+---
+
+### 15.6 Performing a Stock Opname
+
+1. Generate and print the report (see Section 15.7).
+2. Take the printed report to the warehouse.
+3. Count the actual quantity of each product on the shelves.
+4. Write the counted quantity in the **Physical Qty** column.
+5. Calculate the difference and write it in the **Variance** column (Physical Qty minus System Qty).
+   - A positive variance means you have **more** stock than the system shows.
+   - A negative variance means you have **less** stock than the system shows.
+6. Investigate any variance before making corrections. Common causes include unrecorded deliveries, miscounts, damage write-offs, or data entry errors.
+
+> **Note:** The Variance column is filled in by hand after printing. The system does not calculate it automatically.
+
+---
+
+### 15.7 Printing or Exporting the Report
+
+1. Click **Print / Export PDF** in the report window.
+2. Your browser's print dialog will open.
+3. Choose an option:
+   - Select a **printer** to print on paper.
+   - Select **Save as PDF** to download a digital copy.
+
+The report layout is designed for **A4 paper**:
+- Each location starts on a new page, so sections do not split across location boundaries.
+- Column headers repeat at the top of every page, making multi-page reports easy to follow.
+
+> **Tip:** If you are saving a PDF for audit purposes, include the date in the filename so it is easy to find later.
+
+---
+
+### 15.8 Notes and Tips
+
+- **Only finalized data is shown.** Any request still in progress (Draft, Submitted, Approved) will not appear in the report. Run the report after all pending requests for the period have been resolved for the most accurate figures.
+- **Filter before you print.** If you only need to count one location or one product category, apply those filters first. A smaller, focused report is easier to work with on the warehouse floor.
+- **Large date ranges may take longer.** If your selected period spans many months or covers many locations, the preview may take a moment to generate.
+- **System Qty vs. Physical Qty.** System Qty is calculated from transaction records. Physical Qty is what you count. A zero variance means the two agree. Any variance requires investigation.
+- **Use the report regularly.** Periodic stock counts catch small discrepancies before they grow. Many operations run a full stock opname monthly and spot-checks on high-value items weekly.
 
 ---
 
