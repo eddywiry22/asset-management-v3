@@ -331,6 +331,57 @@ This means the product exists in the system, but it is not yet trackable at any 
 
 ---
 
+### 5.6 Bulk Updating Products
+
+> **Note:** Only Admins can perform bulk updates.
+
+When you need to change the same field across several products at once, use the **Bulk Update** feature instead of editing each product individually.
+
+Common uses:
+- Reassigning a group of products to a different category
+- Updating the unit of measure (UOM) for a product range
+- Changing the vendor for a set of products
+
+**To bulk update products:**
+
+1. Go to the **Products** page.
+2. Select the products you want to update by ticking the checkbox on each row.
+3. Click **Bulk Update** (appears in the toolbar once at least one product is selected).
+4. Choose the field or fields you want to change and enter the new values.
+5. Review your selections, then click **Apply**.
+
+> **Warning:** Bulk updates apply to every selected product simultaneously. Only the fields you explicitly choose to update will be changed — all other product data remains untouched. Double-check your selection before applying, as bulk changes cannot be easily undone.
+
+---
+
+### 5.7 Product Lifecycle and Deactivation
+
+Products in the system are never permanently deleted. Instead, they are **deactivated** when they are no longer in use. This preserves all historical data — past transactions, stock records, and reports — without disruption.
+
+**Active products:**
+- Available for use in new stock adjustments and movements
+- Visible in product selection dropdowns
+
+**Inactive products:**
+- Cannot be used in new transactions
+- Still appear in historical records and reports
+- Visually distinguished in the product list (e.g. shown as greyed out or marked as Inactive) so you can tell at a glance which products are still in use
+
+**Why deactivation instead of deletion:**
+
+Deleting a product would break the historical records that reference it — past stock adjustments, ledger entries, and transfer requests would lose their product data. Deactivation retires the product from active use while keeping all records intact and auditable.
+
+**To deactivate a product:**
+- An Admin can change the product's lifecycle status from the product detail page.
+- Deactivation does not affect any existing transactions or stock balances that already reference the product.
+
+**Reactivation:**
+- A deactivated product can be reactivated at any time by an Admin if it is needed again.
+
+> **Note:** Deactivating a product is different from deactivating a product-location registration (see Section 6.4). A product can be globally deactivated here, or it can be kept active globally but inactive at specific locations — these are two separate controls.
+
+---
+
 ## 6. Product Registration
 
 ### 6.1 What Product Registration Is
