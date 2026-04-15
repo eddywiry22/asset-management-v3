@@ -66,6 +66,7 @@ One user can have at most one role per location. The `Role` enum has two values:
 |---|---|
 | `sku` | unique identifier across all locations |
 | `categoryId`, `vendorId`, `uomId` | required FK references |
+| `lifecycleStatus` | string, default `"ACTIVE"` — used for product retirement; not an enum in the schema |
 
 Product has **no `isActive` field**. Availability is entirely controlled by `ProductLocation`.
 
@@ -88,11 +89,13 @@ ProductLocation
   id         UUID
   productId  → Product
   locationId → Location
-  isActive   Boolean  (default true)
+  isActive   Boolean  (schema default: true; application always creates as false)
   @@unique([productId, locationId])
 ```
 
 `isActive` on `ProductLocation` is **the only field in the entire schema that controls product availability**. `Product` itself has no such flag.
+
+> The Prisma schema defines `isActive @default(true)`, but all application code that creates `ProductLocation` rows explicitly sets `isActive: false`. The schema default is effectively never used — new product-location pairs always start as inactive and must be explicitly activated via the Product Registration module.
 
 ### The Complete Matrix
 
@@ -157,12 +160,12 @@ StockLedger
 
 | Value | Source |
 |---|---|
-| `ADJUSTMENT` | Stock adjustment request |
-| `TRANSFER_IN` | Transfer received at destination |
-| `TRANSFER_OUT` | Transfer dispatched from origin |
-| `MOVEMENT_IN` | Legacy movement in |
-| `MOVEMENT_OUT` | Legacy movement out |
-| `SEED` | Initial data seeding |
+| `ADJUSTMENT` | Stock adjustment request finalized |
+| `TRANSFER_IN` | Transfer finalized — destination location credited |
+| `TRANSFER_OUT` | Transfer finalized — source location deducted |
+| `MOVEMENT_IN` | Movement in — defined in schema and used by seed data; not produced by standard request finalization |
+| `MOVEMENT_OUT` | Movement out — defined in schema and used by seed data; not produced by standard request finalization |
+| `SEED` | Initial data seeding only |
 
 `sourceId` references the request ID that generated the entry, enabling full traceability.
 
@@ -254,12 +257,12 @@ Two location references — `sourceLocationId` and `destinationLocationId` — r
 Status workflow:
 
 ```
-DRAFT → SUBMITTED → ORIGIN_MANAGER_APPROVED → DESTINATION_OPERATOR_APPROVED
-                                                        ↓
-                                              READY_TO_FINALIZE → FINALIZED
-SUBMITTED or ORIGIN_MANAGER_APPROVED → REJECTED
-Any pre-final state → CANCELLED
+DRAFT → SUBMITTED → ORIGIN_MANAGER_APPROVED → READY_TO_FINALIZE → FINALIZED
+                 ↘ REJECTED
+SUBMITTED, ORIGIN_MANAGER_APPROVED, or READY_TO_FINALIZE → CANCELLED
 ```
+
+> `DESTINATION_OPERATOR_APPROVED` is defined in the `TransferRequestStatus` enum but is **not set by the current approval workflow**. The `approveDestination()` service method transitions directly from `ORIGIN_MANAGER_APPROVED` to `READY_TO_FINALIZE`, bypassing that intermediate state.
 
 A `StockReservation` is created when `ORIGIN_MANAGER_APPROVED` is set, and is consumed or released when the request reaches a terminal state.
 
@@ -291,7 +294,83 @@ All four quantity snapshot fields are nullable and populated at finalization. Th
 
 ---
 
-## 6. Data Integrity Rules
+## 6. Supporting Tables
+
+### AuditLog
+
+Every significant state change writes an `AuditLog` row via `auditService.log()`. This is how the timeline derives `SYSTEM` events.
+
+```
+AuditLog
+  userId         → User
+  action         String          (CREATE, UPDATE, APPROVE, FINALIZE, …)
+  entityType     String          (PRODUCT, STOCK_ADJUSTMENT_REQUEST, ATTACHMENT, …)
+  entityId       String
+  timestamp      DateTime
+  beforeSnapshot Json?
+  afterSnapshot  Json?
+  warnings       Json?
+  @@index([userId])
+  @@index([entityType])
+  @@index([timestamp])
+```
+
+`AuditLog` rows are append-only. The absence of `updatedAt` is intentional. Writes are wrapped in a `try/catch` — a failed audit write is logged but never propagates to the caller.
+
+### Comment
+
+Comments are soft-deleted — the record is never removed. `isDeleted: true` replaces the content with a placeholder.
+
+```
+Comment
+  entityType  String     ('ADJUSTMENT' | 'TRANSFER')
+  entityId    String
+  message     String (Text)
+  createdById → User
+  isEdited    Boolean   (default false)
+  isDeleted   Boolean   (default false)
+  editCount   Int       (default 0; max 3 before editing is blocked)
+  createdAt   DateTime
+  updatedAt   DateTime
+  @@index([entityType, entityId])
+```
+
+### Attachment
+
+Attachments are hard-deleted — both the database record and the file on disk are removed.
+
+```
+Attachment
+  entityType   String     ('ADJUSTMENT' | 'TRANSFER')
+  entityId     String
+  fileName     String     (original filename)
+  filePath     String     (absolute server path — use download endpoint, not this)
+  mimeType     String
+  fileSize     Int
+  description  String?
+  uploadedById → User
+  createdAt    DateTime
+  @@index([entityType, entityId])
+```
+
+### SavedFilter
+
+Per-user, per-module saved filter presets.
+
+```
+SavedFilter
+  name       String
+  module     String     (e.g. 'PRODUCT_REGISTRATION', 'STOCK_ADJUSTMENT')
+  filterJson Json
+  createdBy  String     (userId — not a FK relation)
+  createdAt  DateTime
+  updatedAt  DateTime
+  @@index([createdBy, module])
+```
+
+---
+
+## 7. Data Integrity Rules
 
 ### Enforced by the Schema
 
@@ -317,7 +396,7 @@ All four quantity snapshot fields are nullable and populated at finalization. Th
 
 ---
 
-## 7. Indexing
+## 8. Indexing
 
 All primary keys are UUID `@id` fields, automatically indexed. Beyond that:
 
@@ -339,4 +418,6 @@ All primary keys are UUID `@id` fields, automatically indexed. Beyond that:
 | `AuditLog` | `userId` | Audit trail per user |
 | `AuditLog` | `entityType` | Audit trail per entity type |
 | `AuditLog` | `timestamp` | Time-range queries on audit history |
+| `Comment` | `(entityType, entityId)` | Fetch all comments for a request |
+| `Attachment` | `(entityType, entityId)` | Fetch all attachments for a request |
 | `SavedFilter` | `(createdBy, module)` | Fetch a user's saved filters for a specific module |
