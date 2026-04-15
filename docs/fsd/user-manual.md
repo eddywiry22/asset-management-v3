@@ -23,6 +23,7 @@
 13. [Tips & Best Practices](#13-tips--best-practices)
 14. [Activity Timeline & Collaboration](#14-activity-timeline--collaboration)
 15. [Stock Opname Report](#15-stock-opname-report)
+16. [System Rules, Permissions, and Real-Time Behavior](#16-system-rules-permissions-and-real-time-behavior)
 
 ---
 
@@ -1190,6 +1191,154 @@ The report layout is designed for **A4 paper**:
 - **Large date ranges may take longer.** If your selected period spans many months or covers many locations, the preview may take a moment to generate.
 - **System Qty vs. Physical Qty.** System Qty is calculated from transaction records. Physical Qty is what you count. A zero variance means the two agree. Any variance requires investigation.
 - **Use the report regularly.** Periodic stock counts catch small discrepancies before they grow. Many operations run a full stock opname monthly and spot-checks on high-value items weekly.
+
+---
+
+---
+
+## 16. System Rules, Permissions, and Real-Time Behavior
+
+This section explains the rules the system enforces automatically, what each role can and cannot do, and how the real-time features work. Understanding these rules will help you know what to expect and avoid confusion when certain actions are unavailable.
+
+---
+
+### 16.1 Timeline Behavior
+
+The Activity Timeline on each request updates automatically. You do not need to refresh the page to see what other users are doing.
+
+Events appear in **newest-first** order. The timeline records:
+
+- Workflow actions — creating, submitting, approving, rejecting, cancelling, and finalizing a request
+- Comments — added, edited, or deleted
+- File activity — uploads and deletions
+
+All users viewing the same request see the same updates as they happen. The timeline always reflects real system activity — nothing is shown that did not actually occur.
+
+---
+
+### 16.2 Comment Rules
+
+**Adding comments**
+Any user with access to a request can add a comment while the request is still active (not yet finalized, rejected, or cancelled).
+
+**Editing comments**
+- Only the person who wrote the comment can edit it.
+- A comment can be edited a maximum of **3 times**.
+- Once the limit is reached, the edit option disappears permanently for that comment.
+- Edited comments show an **(edited)** indicator so other users know the message was changed.
+
+**Deleting comments**
+- Only the original author can delete their own comment.
+- Deleting a comment does not remove the entry from the timeline. The entry remains, but the message content is replaced with a placeholder. The **(edited)** indicator is also removed.
+
+---
+
+### 16.3 Attachment Rules
+
+**Uploading**
+Any user with access to the request can upload an attachment. An optional description can be added to explain what the file is.
+
+**Deleting**
+- Only the person who uploaded a file can delete it. Other users will not see a delete option for files they did not upload.
+- Administrators can delete any attachment regardless of who uploaded it.
+- The system will block deletion attempts by anyone who does not have permission.
+
+**What happens after deletion**
+- The file is permanently removed and cannot be recovered.
+- Users who are currently viewing the request will see a **"Attachment deleted"** event appear in the timeline in real time.
+- The file can no longer be downloaded.
+- If another user reloads the page after the deletion, the event will not appear in the timeline — the attachment will simply no longer be listed.
+
+---
+
+### 16.4 Workflow Status Rules
+
+Every request follows a fixed sequence of states. The system only allows transitions that are valid from the current state — you cannot skip steps or go backwards.
+
+**Adjustment workflow:**
+```
+Draft → Submitted → Approved → Finalized
+                 ↘ Rejected
+Draft or Approved → Cancelled
+```
+
+**Transfer workflow:**
+```
+Draft → Submitted → Origin Approved → Ready to Finalize → Finalized
+                 ↘ Rejected
+Submitted, Origin Approved, or Ready to Finalize → Cancelled
+```
+
+Key rules:
+
+- Approval actions (approve, reject) require a **Manager** role at the relevant location — or Admin access.
+- Finalization requires an **Operator** or **Manager** role at the relevant location — or Admin access.
+- Once a request is **Finalized**, the stock figures are locked and cannot be changed. There is no edit or undo for finalized requests.
+- Once a request is **Rejected** or **Cancelled**, it is closed. No further actions can be taken on it.
+
+---
+
+### 16.5 Real-Time Updates
+
+The system delivers updates automatically while you have a request page open. The following events appear without a manual refresh:
+
+- Status changes (submitted, approved, finalized, etc.)
+- New comments
+- File uploads
+
+You do not need to do anything — updates appear within a few seconds of the action occurring.
+
+**If updates are not appearing:**
+1. Check your network connection.
+2. Reload the page. This will show the current state of the request, even if live updates stopped arriving.
+
+> **Note:** Real-time updates are delivered per browser tab. If you have the same request open in two tabs, each tab receives updates independently.
+
+---
+
+### 16.6 Permissions Overview
+
+What you can do in the system depends on your role. The table below summarizes the main permission boundaries.
+
+| Action | Operator | Manager | Admin |
+|---|---|---|---|
+| Create a request | Yes | Yes | Yes |
+| Submit a request | Yes | Yes | Yes |
+| Approve or reject a request | No | Yes (own locations) | Yes |
+| Finalize a request | Yes (own locations) | Yes (own locations) | Yes |
+| Cancel a request | Yes (own, if not finalized) | Yes (own locations) | Yes |
+| Add a comment | Yes | Yes | Yes |
+| Edit or delete own comment | Yes | Yes | Yes |
+| Upload an attachment | Yes | Yes | Yes |
+| Delete own attachment | Yes | Yes | Yes |
+| Delete any attachment | No | No | Yes |
+| Access admin settings | No | No | Yes |
+
+> **Note:** "Own locations" means locations where you have been assigned a role. Users without a role at a location cannot view or act on requests for that location. Admins have access to all locations.
+
+---
+
+### 16.7 System Limitations and Practical Notes
+
+**Performance**
+- Reports or lists covering long date ranges or many locations may take a moment to load. Apply filters to narrow the scope if results are slow.
+
+**Irreversible actions**
+The following actions **cannot be undone**:
+- Finalizing a request — stock figures are locked
+- Deleting an attachment — the file is permanently removed
+- Rejecting or cancelling a request — the request is closed
+
+Think carefully before confirming these actions.
+
+**Missing data or actions**
+If something you expect to see is not visible:
+- Check whether an active filter is hiding results.
+- Confirm that you have the correct role at the relevant location.
+- Ask your Administrator if you believe your access is incomplete.
+
+**Connection dependency**
+Real-time updates and report generation both require an active connection to the server. If your connection is interrupted, reload the page to get the latest data.
 
 ---
 
