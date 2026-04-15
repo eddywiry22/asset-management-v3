@@ -1,7 +1,7 @@
 # Asset Management System — User Manual
 
-**Version:** 1.0
-**Date:** March 25, 2026
+**Version:** 2.0
+**Date:** April 15, 2026
 **Audience:** Operators, Managers, Administrators
 
 ---
@@ -1342,5 +1342,5 @@ Real-time updates and report generation both require an active connection to the
 
 ---
 
-*End of User Manual — Asset Management System v1.0*
-*Last updated: March 25, 2026*
+*End of User Manual — Asset Management System v2.0*
+*Last updated: April 15, 2026*
