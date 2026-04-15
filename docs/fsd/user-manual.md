@@ -21,6 +21,7 @@
 11. [Common Scenarios](#11-common-scenarios)
 12. [Important Rules & Limitations](#12-important-rules--limitations)
 13. [Tips & Best Practices](#13-tips--best-practices)
+14. [Activity Timeline & Collaboration](#14-activity-timeline--collaboration)
 
 ---
 
@@ -927,6 +928,134 @@ When submitting adjustments or movements, always write a clear and meaningful re
 ### 13.7 Understand Reserved Stock Before Acting
 
 Before creating a movement, check the **Available** column — not the **On-Hand** column. Available stock accounts for reservations and tells you what you can actually work with right now.
+
+---
+
+---
+
+## 14. Activity Timeline & Collaboration
+
+Every stock adjustment and stock movement request has its own **Activity Timeline** — a running log of everything that has happened on that request, visible to everyone involved. You can use this timeline to leave comments, upload supporting documents, and see exactly how the request has moved through the approval process.
+
+---
+
+### 14.1 What the Timeline Is
+
+The Activity Timeline appears on the detail page of any adjustment or movement request. It shows all activity on that request in chronological order, from the moment it was created to its current state.
+
+The timeline has two parts:
+
+| Part | What it shows |
+|---|---|
+| **Timeline** | Status changes, approvals, rejections, cancellations, comments, and file uploads — in the order they happened |
+| **Attachments** | A separate panel below the timeline listing all files currently attached to the request |
+
+> **Note:** The timeline updates automatically while you have the page open. You do not need to refresh to see new activity from other users.
+
+---
+
+### 14.2 Understanding Timeline Events
+
+Each entry in the timeline represents one thing that happened on the request. The event type is shown alongside the date, time, and the person responsible.
+
+| Event type | What it means |
+|---|---|
+| **Created** | The request was submitted for the first time |
+| **Status change** | The request moved to a new stage (e.g. Submitted, Approved, Finalized) |
+| **Approved / Rejected** | A Manager or Operator completed an approval action |
+| **Cancelled** | The request was cancelled, with the reason shown |
+| **Comment added** | A team member left a message on the request |
+| **File uploaded** | A new attachment was added to the request |
+| **File deleted** | An attachment was removed (visible to users who were online at the time) |
+
+> **Note:** If you reload the page after a file has been deleted, that deletion event will no longer appear in the timeline. File removal is shown in real time but is not stored in the history.
+
+---
+
+### 14.3 Adding a Comment
+
+You can leave a comment on any request that is not yet finalized, cancelled, or rejected. Comments are visible to all users who can view the request.
+
+**To add a comment:**
+
+1. Open the request detail page.
+2. Scroll to the **Timeline** section.
+3. Type your message in the comment box at the bottom.
+4. Click **Submit** (or press **Enter**, depending on your setup).
+
+Your comment will appear in the timeline immediately and will also be visible to other users viewing the request.
+
+> **Tip:** Use comments to explain a decision, flag a question for the approving Manager, or record context that does not fit into the request notes field.
+
+---
+
+### 14.4 Editing and Deleting Comments
+
+Only the person who wrote a comment can edit or delete it.
+
+**To edit a comment:**
+
+1. Find your comment in the timeline.
+2. Click the **Edit** icon next to it.
+3. Make your changes and save.
+
+> **Warning:** You can edit a comment a maximum of **3 times**. After the third edit, the edit option is disabled permanently for that comment. An "(edited)" indicator appears next to any comment that has been changed.
+
+**To delete a comment:**
+
+1. Find your comment in the timeline.
+2. Click the **Delete** icon next to it.
+3. Confirm when prompted.
+
+> **Note:** Deleting a comment does not remove it from the timeline. The entry remains, but the message is replaced with a placeholder indicating the comment was deleted. This preserves the timeline's continuity.
+
+---
+
+### 14.5 Uploading Attachments
+
+You can attach supporting documents to any request — for example, a delivery note, an invoice, or a photo of damaged goods.
+
+**To upload a file:**
+
+1. Open the request detail page.
+2. Scroll to the **Attachments** section below the timeline.
+3. Click **Upload** or drag a file onto the upload area.
+4. Optionally add a short description of the file.
+5. Click **Confirm** to complete the upload.
+
+The file will appear in the **Attachments** panel and an upload event will be added to the timeline.
+
+> **Tip:** Attaching the relevant invoice or delivery document before submitting an adjustment gives the approving Manager all the information they need in one place.
+
+---
+
+### 14.6 Deleting Attachments
+
+Only the person who uploaded a file — or an Administrator — can delete it.
+
+**To delete an attachment:**
+
+1. Find the file in the **Attachments** panel.
+2. Click the **Delete** icon next to it.
+3. Confirm when prompted.
+
+> **Warning:** Attachment deletion is **permanent**. The file and its record are removed immediately. There is no way to recover a deleted attachment.
+
+> **Note:** Users who are currently viewing the request will see the deletion event appear in the timeline in real time. If a user reloads the page later, the deletion will not appear — the attachment will simply no longer be in the list.
+
+---
+
+### 14.7 Real-Time Updates
+
+The timeline page stays live while you have it open. You do not need to refresh to see:
+
+- A new comment from a colleague
+- A status change (e.g. someone approving or rejecting the request)
+- A new file upload
+
+Updates from other users appear in the timeline automatically within a few seconds.
+
+> **Note:** Real-time updates require an active connection to the server. If your connection drops, the page will stop receiving live updates until you reload. You can always reload the page to see the current state of the request.
 
 ---
 
