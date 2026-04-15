@@ -44,7 +44,7 @@ A user who holds both MANAGER and OPERATOR roles (possibly at different location
 | Metric | Calculation |
 |--------|-------------|
 | `pendingActions` | Sum of all role-scoped requiring-action counts across adjustments and transfers |
-| `incomingTransfers` | Transfers in `ORIGIN_MANAGER_APPROVED`, `DESTINATION_OPERATOR_APPROVED`, or `READY_TO_FINALIZE` where the destination is one of the user's locations |
+| `incomingTransfers` | Transfers in `ORIGIN_MANAGER_APPROVED` or `READY_TO_FINALIZE` where the destination is one of the user's locations |
 
 ### Adjustment Metrics
 
@@ -80,7 +80,7 @@ Each metric card maps to a named filter:
 | Card / Filter | Adjustments Query | Transfers Query |
 |---------------|-------------------|-----------------|
 | `REQUIRING_ACTION` | `SUBMITTED` at manager locations | `SUBMITTED` at manager origin **OR** `ORIGIN_MANAGER_APPROVED` at operator destination |
-| `IN_PROGRESS` | `SUBMITTED` or `APPROVED` at any user location | `SUBMITTED`, `ORIGIN_MANAGER_APPROVED`, or `DESTINATION_OPERATOR_APPROVED` at source or destination |
+| `IN_PROGRESS` | `SUBMITTED` or `APPROVED` at any user location | `SUBMITTED` or `ORIGIN_MANAGER_APPROVED` at source or destination |
 | `READY_TO_FINALIZE` | `APPROVED` at operator locations | `READY_TO_FINALIZE` at operator destination locations |
 | `ARRIVING` | N/A | `ORIGIN_MANAGER_APPROVED` at any user destination location |
 

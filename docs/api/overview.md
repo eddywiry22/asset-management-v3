@@ -223,16 +223,24 @@ Controls which products are active at which locations. A product must be registe
 Tracks current stock balances per product per location. Returns quantity snapshots alongside inbound/outbound movement totals. Supports filtering by location, product, category, and date range.
 
 ### `adjustments`
-Workflow for correcting stock counts. Follows a multi-step lifecycle:
+Workflow for correcting stock counts at a single location. Follows a multi-step lifecycle:
 
 ```
-DRAFT → PENDING_APPROVAL → APPROVED → FINALIZED
+DRAFT → SUBMITTED → APPROVED → FINALIZED
+                  ↘ REJECTED
+  (any non-terminal) → CANCELLED
 ```
 
-Users submit adjustments; admins approve or reject. Finalization commits changes to stock.
+The creator submits; a Manager approves or rejects; an Operator or Manager finalizes. Finalization is the only step that changes `onHandQty`.
 
-### `movements`
-Read-only ledger of all stock movements. Useful for auditing inbound and outbound transactions per product/location over time.
+### `transfers`
+Workflow for moving stock between locations. Requires approval from both origin and destination before finalization:
+
+```
+DRAFT → SUBMITTED → ORIGIN_MANAGER_APPROVED → READY_TO_FINALIZE → FINALIZED
+```
+
+Stock reservations are created at origin approval and consumed at finalization.
 
 ### `dashboard`
 Aggregated summary views. Includes a personal action queue (`my-actions`) showing items pending your attention, and a configurable preview widget for high-level stock health.
@@ -305,3 +313,245 @@ Validation errors include a message listing all failing fields and their reasons
   }
 }
 ```
+
+---
+
+## 8. Timeline API
+
+The timeline provides a unified, chronologically ordered view of all activity on a request — status transitions, comments, and attachments.
+
+### GET /api/v1/timeline/:entityType/:entityId
+
+Returns the full event history for a request.
+
+**Path parameters:**
+
+| Param | Values | Description |
+|-------|--------|-------------|
+| `entityType` | `ADJUSTMENT`, `TRANSFER` | The request type |
+| `entityId` | UUID | The request ID |
+
+**Authentication:** Standard `Authorization: Bearer <token>` header required.
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "events": [
+      {
+        "id": "audit-<uuid>",
+        "type": "SYSTEM",
+        "action": "SUBMIT",
+        "timestamp": "2024-03-01T10:00:00.000Z",
+        "user": { "id": "uuid", "username": "jane" },
+        "metadata": { "from": "DRAFT", "to": "SUBMITTED", "rawAction": "STATUS_CHANGE" }
+      },
+      {
+        "id": "comment-<uuid>",
+        "type": "COMMENT",
+        "action": "COMMENT",
+        "timestamp": "2024-03-01T10:05:00.000Z",
+        "user": { "id": "uuid", "username": "john" },
+        "metadata": {
+          "content": "Please review the quantities.",
+          "editedAt": null,
+          "isDeleted": false,
+          "editCount": 0
+        }
+      },
+      {
+        "id": "attachment-<uuid>",
+        "type": "ATTACHMENT",
+        "action": "UPLOAD",
+        "timestamp": "2024-03-01T10:06:00.000Z",
+        "user": { "id": "uuid", "username": "john" },
+        "metadata": {
+          "fileName": "receipt.pdf",
+          "filePath": "/uploads/uuid-receipt.pdf",
+          "description": "Supplier receipt"
+        }
+      }
+    ]
+  }
+}
+```
+
+**Event types:**
+
+| `type` | Source | Description |
+|--------|--------|-------------|
+| `SYSTEM` | `AuditLog` table | Status transitions derived by comparing `beforeSnapshot.status` → `afterSnapshot.status` |
+| `COMMENT` | `Comment` table | User comments; soft-deleted comments appear with `content: null` |
+| `ATTACHMENT` | `Attachment` table | File uploads; always shown with `action: 'UPLOAD'` |
+
+**SYSTEM event `action` values** (mapped from `afterSnapshot.status`):
+
+| Status reached | `action` (REST timeline) | Notes |
+|----------------|--------------------------|-------|
+| `SUBMITTED` | `SUBMIT` | |
+| `APPROVED` | `APPROVE` | Adjustment approval only |
+| `ORIGIN_MANAGER_APPROVED` | `STATUS_CHANGE` | Not in the status→action map; falls back to the AuditLog `action` field |
+| `READY_TO_FINALIZE` | `STATUS_CHANGE` | Not in the status→action map; falls back to the AuditLog `action` field |
+| `REJECTED` | `REJECT` | |
+| `CANCELLED` | `CANCEL` | |
+| `FINALIZED` | `FINALIZE` | |
+
+> **SSE vs REST difference:** SSE events for transfer approval transitions (`ORIGIN_MANAGER_APPROVED`, `READY_TO_FINALIZE`) are emitted directly with `action: 'APPROVE'` by the service layer. The REST timeline derives `action` from the AuditLog snapshot, which produces `STATUS_CHANGE` for these same transitions. Use `metadata.to` (the `afterStatus` value) as the reliable indicator of what occurred, regardless of which transport you are using.
+
+Events are returned in ascending `timestamp` order.
+
+---
+
+## 9. Timeline SSE
+
+For real-time updates, the backend supports Server-Sent Events (SSE). Clients subscribe to a stream and receive pushed events as they occur — no polling required.
+
+### GET /api/v1/timeline/stream/:entityType/:entityId
+
+**Path parameters:** same as REST timeline above (`entityType`, `entityId`).
+
+**Authentication:** Because the browser `EventSource` API does not support custom request headers, the JWT is passed as a query parameter instead of the `Authorization` header:
+
+```
+GET /api/v1/timeline/stream/ADJUSTMENT/<uuid>?token=<access_token>
+```
+
+The server validates the token using the same verification logic as the standard auth middleware. Requests with a missing or invalid token receive `401` and the connection is closed immediately.
+
+**Response headers:**
+
+```
+Content-Type: text/event-stream
+Cache-Control: no-cache
+Connection: keep-alive
+```
+
+**Event format:**
+
+Each pushed event is a standard SSE `data` line containing a JSON payload:
+
+```
+data: {"type":"SYSTEM","action":"APPROVE","timestamp":"2024-03-01T11:00:00.000Z","metadata":{"from":"SUBMITTED","to":"APPROVED"}}
+
+```
+
+**Connection lifecycle:**
+
+| Phase | Behaviour |
+|-------|-----------|
+| Connected | Client is registered in the server's in-memory subscriber list for the entity |
+| Heartbeat | Server writes `: keep-alive` every **15 seconds** to prevent proxy timeouts |
+| Event received | Server pushes `data: <JSON>\n\n` to all active subscribers for the entity |
+| Disconnected | `req.on('close')` fires; client is removed from the subscriber list |
+
+**Client-side example (browser):**
+
+```javascript
+const es = new EventSource(
+  `/api/v1/timeline/stream/ADJUSTMENT/${requestId}?token=${accessToken}`
+);
+
+es.onmessage = (e) => {
+  const event = JSON.parse(e.data);
+  // update UI with new timeline event
+};
+
+es.onerror = () => {
+  // reconnect or show error
+  es.close();
+};
+```
+
+> **Note:** The SSE subscriber registry is in-memory and process-local. In a multi-process deployment, an event emitted by one process will not reach clients connected to a different process. Horizontal scaling requires a shared pub/sub layer (e.g., Redis) — this is not currently implemented.
+
+---
+
+## 10. Reports API
+
+The reports module provides read-only stock data aggregated over a date range. It has no side effects and does not modify any data.
+
+### GET /api/v1/reports/stock-opname
+
+Returns grouped stock data per location, category, and product for a given period. Used for stock opname (physical count) preparation and export.
+
+**Authentication:** Standard `Authorization: Bearer <token>` header required.
+
+**Query parameters:**
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `startDate` | `YYYY-MM-DD` | **Yes** | Start of the reporting period (inclusive, from `00:00:00`) |
+| `endDate` | `YYYY-MM-DD` | **Yes** | End of the reporting period (inclusive, through `23:59:59.999`) |
+| `locationIds` | UUID (repeatable) | No | Filter to specific locations. Omit to include all active locations. |
+| `categoryIds` | UUID (repeatable) | No | Filter to specific product categories. Omit to include all. |
+
+`locationIds` and `categoryIds` accept repeated query parameters or comma-separated values:
+
+```
+GET /api/v1/reports/stock-opname?startDate=2024-01-01&endDate=2024-01-31
+  &locationIds=<uuid-a>&locationIds=<uuid-b>&categoryIds=<uuid-c>
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "generatedAt": "2024-02-01T08:00:00.000Z",
+    "filters": {
+      "startDate": "2024-01-01",
+      "endDate": "2024-01-31",
+      "locationIds": ["<uuid-a>", "<uuid-b>"],
+      "categoryIds": ["<uuid-c>"]
+    },
+    "locations": [
+      {
+        "locationId": "<uuid>",
+        "locationCode": "WH-01",
+        "locationName": "Warehouse 01",
+        "categories": [
+          {
+            "categoryId": "<uuid>",
+            "categoryName": "Electronics",
+            "items": [
+              {
+                "productId": "<uuid>",
+                "sku": "ELEC-001",
+                "productName": "Widget A",
+                "uomCode": "PCS",
+                "startingQty": 100,
+                "inboundQty": 50,
+                "outboundQty": 30,
+                "systemQty": 120,
+                "physicalQty": null,
+                "variance": null
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**Field definitions:**
+
+| Field | Description |
+|-------|-------------|
+| `startingQty` | Stock quantity at the start of the period, derived from the most recent `StockLedger.balanceAfter` before `startDate`. Defaults to `0` if no prior ledger entry exists. |
+| `inboundQty` | Sum of positive `changeQty` ledger entries within the period. |
+| `outboundQty` | Sum of absolute negative `changeQty` ledger entries within the period. |
+| `systemQty` | Calculated end-of-period quantity: `startingQty + inboundQty - outboundQty`. |
+| `physicalQty` | Always `null` — reserved for physical count input, not populated by this endpoint. |
+| `variance` | Always `null` — reserved for `physicalQty - systemQty` comparison, not populated here. |
+
+**Important behaviours:**
+
+- Only **active** locations and **active** product-location registrations are included in the response.
+- All finalized transaction types contribute to the ledger (`ADJUSTMENT`, `TRANSFER_IN`, `TRANSFER_OUT`, `SEED`).
+- `startingQty` can be negative if the ledger history contains a negative balance at the period boundary.
+- The response is read-only. This endpoint does not create, update, or delete any data.

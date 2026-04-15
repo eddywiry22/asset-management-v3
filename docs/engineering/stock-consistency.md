@@ -16,6 +16,7 @@ This document defines the integrity rules that govern stock state in the invento
 6. [Transaction Requirements](#6-transaction-requirements)
 7. [Common Failure Scenarios](#7-common-failure-scenarios)
 8. [Why These Rules Exist](#8-why-these-rules-exist)
+9. [Time-Based Stock Model (Report Calculations)](#9-time-based-stock-model-report-calculations)
 
 ---
 
@@ -90,8 +91,8 @@ Attempting to allocate 80 units here would succeed the raw `onHandQty` check but
 | Value | When Created |
 |-------|-------------|
 | `ADJUSTMENT` | Adjustment request finalized |
-| `TRANSFER_OUT` | Movement finalized — units leaving origin |
-| `TRANSFER_IN` | Movement finalized — units arriving at destination |
+| `TRANSFER_OUT` | Transfer finalized — units leaving origin |
+| `TRANSFER_IN` | Transfer finalized — units arriving at destination |
 | `MOVEMENT_OUT` | Direct movement out (future use) |
 | `MOVEMENT_IN` | Direct movement in (future use) |
 | `SEED` | Initial stock seeding |
@@ -134,7 +135,7 @@ This applies to both request types:
 | Request Type | `onHandQty` changes when |
 |-------------|--------------------------|
 | Adjustment | `APPROVED → FINALIZED` |
-| Movement | `DESTINATION_OPERATOR_APPROVED → FINALIZED` |
+| Transfer | `READY_TO_FINALIZE → FINALIZED` |
 
 Any code that mutates `onHandQty` outside of finalization is a bug.
 
@@ -209,13 +210,13 @@ If a movement request is cancelled or rejected while reservations are `ACTIVE`, 
 |----------|--------------------|-|
 | Cancelled from `SUBMITTED` | No | No |
 | Cancelled from `ORIGIN_MANAGER_APPROVED` | Yes | **Yes** |
-| Cancelled from `DESTINATION_OPERATOR_APPROVED` | Yes | **Yes** |
+| Cancelled from `READY_TO_FINALIZE` | Yes | **Yes** |
 | Rejected from `SUBMITTED` | No | No |
 | Rejected from `ORIGIN_MANAGER_APPROVED` | Yes | **Yes** |
 
 ### Rule 10 — Consuming a reservation requires verifying it exists first
 
-Before finalization can proceed, the system must confirm that `ACTIVE` reservations exist for the request. If none are found, finalization throws a `ValidationError`. This guards against the edge case where a request somehow reaches the `DESTINATION_OPERATOR_APPROVED` status without reservations having been created — a state that should be impossible, but must be caught if it ever occurs.
+Before finalization can proceed, the system must confirm that `ACTIVE` reservations exist for the request. If none are found, finalization throws a `ValidationError`. This guards against the edge case where a request somehow reaches the `READY_TO_FINALIZE` status without reservations having been created — a state that should be impossible, but must be caught if it ever occurs.
 
 ---
 
@@ -255,7 +256,7 @@ A workflow status change and its associated stock side effects must be committed
 |-----------|---------------------|
 | `SUBMITTED → ORIGIN_MANAGER_APPROVED` | Reservation creation |
 | `APPROVED → FINALIZED` (adjustment) | All `onHandQty` mutations + ledger entries |
-| `DESTINATION_OPERATOR_APPROVED → FINALIZED` (movement) | Reservation consumption + all `onHandQty` mutations + ledger entries |
+| `READY_TO_FINALIZE → FINALIZED` (transfer) | Reservation consumption + all `onHandQty` mutations + ledger entries |
 | Any → `CANCELLED` or `REJECTED` (if reserved) | Reservation release |
 
 If status and side effects land in separate transactions, a crash between them produces an inconsistent state: a request may show `FINALIZED` with no ledger entries, or `ACTIVE` reservations may exist for a `CANCELLED` request.
@@ -330,7 +331,7 @@ These are the most likely ways stock consistency can be broken, and why the rule
 
 ### Scenario 5 — Finalizing a movement with no reservations
 
-**What happens:** Due to a bug, a movement somehow reaches `DESTINATION_OPERATOR_APPROVED` without having gone through origin approval (or reservations were silently skipped). Finalization is attempted.
+**What happens:** Due to a bug, a transfer somehow reaches `READY_TO_FINALIZE` without having gone through origin approval (or reservations were silently skipped). Finalization is attempted.
 
 **Without protection:** Stock is decremented at source with no prior reservation, potentially driving `onHandQty` negative and bypassing availability checks.
 
@@ -383,3 +384,80 @@ Optimistic validation ("check then act") without locks is insufficient under con
 ### Strict status gating prevents out-of-order effects
 
 The availability check at adjustment approval time (`SUBMITTED → APPROVED`) is a soft, non-locking check. It gives the approving Manager a real-time view of stock, but does not commit any claim. The hard, locked check happens at finalization. This two-phase design balances UX (early feedback) against correctness (committed check at the moment of actual stock change).
+
+---
+
+## 9. Time-Based Stock Model (Report Calculations)
+
+This section describes how historical stock quantities are derived for reporting purposes (e.g., the Stock Opname report). This is distinct from the live stock model described above.
+
+### 9.1 Stock is Not Static
+
+`StockBalance.onHandQty` reflects the current live state. For historical reporting, the system reconstructs what the stock was at a given point in time using `StockLedger` as the single source of truth.
+
+### 9.2 Definitions
+
+| Term | Definition |
+|------|-----------|
+| `startingQty` | The stock quantity for a product-location at the **start** of the reporting period (i.e., at `startDate 00:00:00`). Derived from the ledger. |
+| `inboundQty` | The sum of all positive `changeQty` ledger entries within the period (`startDate` to `endDate` inclusive). |
+| `outboundQty` | The absolute sum of all negative `changeQty` ledger entries within the period. |
+| `systemQty` | The calculated stock quantity at the **end** of the reporting period: `startingQty + inboundQty - outboundQty`. |
+
+### 9.3 Calculation Source of Truth: StockLedger
+
+All movements are read from `StockLedger`, not `StockBalance`. Every finalized transaction writes one or more ledger entries. The ledger includes entries from all source types:
+
+| `sourceType` | Produced by |
+|-------------|-------------|
+| `ADJUSTMENT` | Finalized stock adjustment request |
+| `TRANSFER_OUT` | Finalized stock transfer (origin location) |
+| `TRANSFER_IN` | Finalized stock transfer (destination location) |
+| `SEED` | Initial stock seeding |
+| `MOVEMENT_OUT` | Direct movement out (reserved for future use) |
+| `MOVEMENT_IN` | Direct movement in (reserved for future use) |
+
+All source types are included in report calculations — there is no filtering by type.
+
+### 9.4 Date Logic
+
+The report service uses `createdAt` on the `StockLedger` entry — not `finalizedAt` on the request record — to determine whether a ledger entry falls before or within the reporting period. These timestamps are normally identical (ledger entries are written within the finalization transaction), but `createdAt` is the authoritative field for ledger queries.
+
+Date boundary normalization:
+- `startDate` → `00:00:00.000` (start of day)
+- `endDate` → `23:59:59.999` (end of day)
+
+### 9.5 How startingQty Is Derived
+
+The system queries all ledger entries for the product-location where `createdAt < startDate`, ordered by `createdAt DESC`. The `balanceAfter` value from the **most recent** such entry is used as `startingQty`.
+
+If no ledger entry exists before `startDate` for a given product-location, `startingQty` defaults to `0` (the product had no recorded stock history at that location before the period).
+
+```
+startingQty = balanceAfter of the most recent StockLedger entry
+              where createdAt < startDate
+              for (productId, locationId)
+              — or 0 if no such entry exists
+```
+
+### 9.6 How systemQty Is Derived
+
+`systemQty` is computed, not read from any table:
+
+```
+systemQty = startingQty + inboundQty - outboundQty
+```
+
+Where `inboundQty` and `outboundQty` are accumulated from ledger entries where `startDate <= createdAt <= endDate`:
+- `changeQty > 0` → accumulated into `inboundQty`
+- `changeQty < 0` → absolute value accumulated into `outboundQty`
+
+### 9.7 Edge Cases and Warnings
+
+**Negative `startingQty` is possible.** If the ledger contains a negative `balanceAfter` at the boundary (e.g., due to historical data correction or a seeding error), `startingQty` will be negative. The report reflects this faithfully — it does not clamp to zero.
+
+**Missing historical data impacts accuracy.** If ledger entries were never written for a product-location (e.g., stock was managed outside this system), `startingQty` will be `0` regardless of the actual physical count. Reports covering such gaps will understate historical stock.
+
+**Only active product-location registrations are included.** The report iterates `ProductLocation` rows with `isActive: true`. Products or locations deactivated after stock moved will not appear in new reports, even if they have ledger history.
+
+**`physicalQty` and `variance` are always `null`.** These fields are reserved for physical count entry during a stock opname event and are not populated by this service.

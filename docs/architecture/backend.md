@@ -49,7 +49,11 @@ src/
 │   ├── stock-transfers/          # Transfer request workflow
 │   ├── dashboard/                # Aggregated metrics for dashboard views
 │   ├── saved-filters/            # User-saved query filter presets
-│   └── audit/                    # Audit log read access
+│   ├── audit/                    # Audit log read access
+│   ├── attachments/              # File upload, download, delete for requests
+│   ├── comments/                 # Comment CRUD for requests
+│   ├── timeline/                 # Unified activity feed (REST + SSE)
+│   └── reports/                  # Stock Opname report generation
 ├── services/
 │   └── audit.service.ts          # Centralized audit log writer (shared)
 ├── types/
@@ -64,7 +68,8 @@ src/
     └── logger.ts                 # Winston logger instance
 ```
 
-> **Note:** `modules/adjustments/` and `modules/movements/` are empty directories. The implemented modules for these concerns are `stock-adjustments/` and `stock-transfers/`.
+> **Note:** `modules/adjustments/` and `modules/movements/` are empty placeholder directories. The implemented modules are `stock-adjustments/` and `stock-transfers/`.
+> `modules/goods/` contains a full implementation (controller, service, repository, routes) but is **not imported or mounted in `app.ts`** and is not reachable via any API route.
 
 ### Module File Conventions
 
@@ -141,7 +146,7 @@ Response: { success: true, data: ... }
 
 ```
 /health                         → public health check
-/v1/auth/*                      → public (login)
+/v1/auth/*                      → public (login, refresh)
 /v1/admin/*                     → authMiddleware + adminMiddleware
   /categories, /vendors, /uoms
   /products, /product-registrations
@@ -151,7 +156,13 @@ Response: { success: true, data: ... }
 /v1/stock-adjustments/*         → authMiddleware
 /v1/stock-transfers/*           → authMiddleware
 /v1/saved-filters/*             → authMiddleware
-/v1/dashboard/*                 → authMiddleware
+/v1/dashboard/*                 → authMiddleware (applied per-route inside dashboard.routes.ts)
+/v1/attachments/*               → authMiddleware
+/v1/comments/*                  → authMiddleware
+/v1/timeline/:entityType/:entityId          → authMiddleware (REST)
+/v1/timeline/stream/:entityType/:entityId   → manual JWT check via ?token= (no authMiddleware;
+                                              EventSource cannot send Authorization headers)
+/v1/reports/*                   → authMiddleware
 ```
 
 ---
@@ -408,9 +419,9 @@ Services call `logger.info(...)` and `logger.error(...)` at meaningful operation
 
 `src/services/audit.service.ts` provides a shared `auditService.log()` function called from service methods after significant state changes.
 
-**Logged actions:** `CREATE`, `UPDATE`, `DELETE`, `APPROVE`, `FINALIZE`, `CANCEL`, `STATUS_CHANGE`, `TRANSFER_CREATE`, `FINALIZE_BLOCKED`, `BLOCKED`, `USER_PASSWORD_RESET`
+**Logged actions:** `CREATE`, `UPDATE`, `DELETE`, `APPROVE`, `FINALIZE`, `CANCEL`, `STATUS_CHANGE`, `TRANSFER_CREATE`, `FINALIZE_BLOCKED`, `BLOCKED`, `USER_PASSWORD_RESET`, `RETIRE`, `SKU_RENAME`, `ATTACHMENT_UPLOAD`, `ATTACHMENT_DELETE`
 
-**Logged entity types:** `PRODUCT`, `LOCATION`, `STOCK_ADJUSTMENT_REQUEST`, `STOCK_TRANSFER_REQUEST`, `PRODUCT_LOCATION`, `USER`, `CATEGORY`, `VENDOR`, `UOM`
+**Logged entity types:** `PRODUCT`, `LOCATION`, `STOCK_ADJUSTMENT`, `STOCK_ADJUSTMENT_REQUEST`, `STOCK_TRANSFER`, `STOCK_TRANSFER_REQUEST`, `PRODUCT_LOCATION`, `USER`, `CATEGORY`, `VENDOR`, `UOM`, `ATTACHMENT`, `GOODS`
 
 Each audit entry records:
 

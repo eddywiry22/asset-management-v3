@@ -1,7 +1,7 @@
 # Asset Management System — User Manual
 
-**Version:** 1.0
-**Date:** March 25, 2026
+**Version:** 2.0
+**Date:** April 15, 2026
 **Audience:** Operators, Managers, Administrators
 
 ---
@@ -21,6 +21,9 @@
 11. [Common Scenarios](#11-common-scenarios)
 12. [Important Rules & Limitations](#12-important-rules--limitations)
 13. [Tips & Best Practices](#13-tips--best-practices)
+14. [Activity Timeline & Collaboration](#14-activity-timeline--collaboration)
+15. [Stock Opname Report](#15-stock-opname-report)
+16. [System Rules, Permissions, and Real-Time Behavior](#16-system-rules-permissions-and-real-time-behavior)
 
 ---
 
@@ -930,5 +933,414 @@ Before creating a movement, check the **Available** column — not the **On-Hand
 
 ---
 
-*End of User Manual — Asset Management System v1.0*
-*Last updated: March 25, 2026*
+---
+
+## 14. Activity Timeline & Collaboration
+
+Every stock adjustment and stock movement request has its own **Activity Timeline** — a running log of everything that has happened on that request, visible to everyone involved. You can use this timeline to leave comments, upload supporting documents, and see exactly how the request has moved through the approval process.
+
+---
+
+### 14.1 What the Timeline Is
+
+The Activity Timeline appears on the detail page of any adjustment or movement request. It shows all activity on that request in chronological order, from the moment it was created to its current state.
+
+The timeline has two parts:
+
+| Part | What it shows |
+|---|---|
+| **Timeline** | Status changes, approvals, rejections, cancellations, comments, and file uploads — in the order they happened |
+| **Attachments** | A separate panel below the timeline listing all files currently attached to the request |
+
+> **Note:** The timeline updates automatically while you have the page open. You do not need to refresh to see new activity from other users.
+
+---
+
+### 14.2 Understanding Timeline Events
+
+Each entry in the timeline represents one thing that happened on the request. The event type is shown alongside the date, time, and the person responsible.
+
+| Event type | What it means |
+|---|---|
+| **Created** | The request was submitted for the first time |
+| **Status change** | The request moved to a new stage (e.g. Submitted, Approved, Finalized) |
+| **Approved / Rejected** | A Manager or Operator completed an approval action |
+| **Cancelled** | The request was cancelled, with the reason shown |
+| **Comment added** | A team member left a message on the request |
+| **File uploaded** | A new attachment was added to the request |
+| **File deleted** | An attachment was removed (visible to users who were online at the time) |
+
+> **Note:** If you reload the page after a file has been deleted, that deletion event will no longer appear in the timeline. File removal is shown in real time but is not stored in the history.
+
+---
+
+### 14.3 Adding a Comment
+
+You can leave a comment on any request that is not yet finalized, cancelled, or rejected. Comments are visible to all users who can view the request.
+
+**To add a comment:**
+
+1. Open the request detail page.
+2. Scroll to the **Timeline** section.
+3. Type your message in the comment box at the bottom.
+4. Click **Submit** (or press **Enter**, depending on your setup).
+
+Your comment will appear in the timeline immediately and will also be visible to other users viewing the request.
+
+> **Tip:** Use comments to explain a decision, flag a question for the approving Manager, or record context that does not fit into the request notes field.
+
+---
+
+### 14.4 Editing and Deleting Comments
+
+Only the person who wrote a comment can edit or delete it.
+
+**To edit a comment:**
+
+1. Find your comment in the timeline.
+2. Click the **Edit** icon next to it.
+3. Make your changes and save.
+
+> **Warning:** You can edit a comment a maximum of **3 times**. After the third edit, the edit option is disabled permanently for that comment. An "(edited)" indicator appears next to any comment that has been changed.
+
+**To delete a comment:**
+
+1. Find your comment in the timeline.
+2. Click the **Delete** icon next to it.
+3. Confirm when prompted.
+
+> **Note:** Deleting a comment does not remove it from the timeline. The entry remains, but the message is replaced with a placeholder indicating the comment was deleted. This preserves the timeline's continuity.
+
+---
+
+### 14.5 Uploading Attachments
+
+You can attach supporting documents to any request — for example, a delivery note, an invoice, or a photo of damaged goods.
+
+**To upload a file:**
+
+1. Open the request detail page.
+2. Scroll to the **Attachments** section below the timeline.
+3. Click **Upload** or drag a file onto the upload area.
+4. Optionally add a short description of the file.
+5. Click **Confirm** to complete the upload.
+
+The file will appear in the **Attachments** panel and an upload event will be added to the timeline.
+
+> **Tip:** Attaching the relevant invoice or delivery document before submitting an adjustment gives the approving Manager all the information they need in one place.
+
+---
+
+### 14.6 Deleting Attachments
+
+Only the person who uploaded a file — or an Administrator — can delete it.
+
+**To delete an attachment:**
+
+1. Find the file in the **Attachments** panel.
+2. Click the **Delete** icon next to it.
+3. Confirm when prompted.
+
+> **Warning:** Attachment deletion is **permanent**. The file and its record are removed immediately. There is no way to recover a deleted attachment.
+
+> **Note:** Users who are currently viewing the request will see the deletion event appear in the timeline in real time. If a user reloads the page later, the deletion will not appear — the attachment will simply no longer be in the list.
+
+---
+
+### 14.7 Real-Time Updates
+
+The timeline page stays live while you have it open. You do not need to refresh to see:
+
+- A new comment from a colleague
+- A status change (e.g. someone approving or rejecting the request)
+- A new file upload
+
+Updates from other users appear in the timeline automatically within a few seconds.
+
+> **Note:** Real-time updates require an active connection to the server. If your connection drops, the page will stop receiving live updates until you reload. You can always reload the page to see the current state of the request.
+
+---
+
+---
+
+## 15. Stock Opname Report
+
+The Stock Opname Report is a tool for physically verifying and reconciling your stock. It shows you what the system says you have, so you can compare it against what you actually count on the warehouse floor. This process is commonly called a **stock opname** or **stock count**.
+
+Use this report to:
+- Detect discrepancies between system records and physical stock
+- Support internal audits and compliance checks
+- Maintain confidence in your stock accuracy over time
+
+---
+
+### 15.1 What the Stock Opname Report Is
+
+The report covers a period you choose and shows, for each product at each location:
+
+- How much stock the system recorded at the **start** of the period
+- How much came **in** and went **out** during the period
+- What the system **calculates** as the closing balance
+- A blank **Physical Qty** column for you to fill in during counting
+- A **Variance** column to record the difference
+
+The report can be filtered by date range, location, and product category, so you can scope the count to a single warehouse or a specific product group rather than running the whole inventory at once.
+
+---
+
+### 15.2 Opening the Report
+
+1. Go to the **Stock Dashboard**.
+2. Click **Export / Stock Opname Report**.
+3. A report window will appear over the page.
+
+> **Note:** Opening this window does not change your Stock Dashboard filters. The report tool is completely separate from the dashboard view.
+
+---
+
+### 15.3 Setting Filters
+
+Before generating the report, set your filters in the report window.
+
+**Start Date and End Date** *(required)*
+- Defines the period the report will cover.
+- The start date must be on or before the end date.
+
+**Locations** *(optional)*
+- Select one or more warehouse locations to include.
+- If you leave this blank, the report covers **all locations**.
+
+**Categories** *(optional)*
+- Filter by one or more product categories.
+- If you leave this blank, the report covers **all categories**.
+
+> **Tip:** For large warehouses, apply a location or category filter to keep the report focused and easier to work with during counting.
+
+---
+
+### 15.4 Generating the Preview
+
+1. Set your filters.
+2. Click **Preview**.
+
+The system will generate the report and display it directly in the window. Results are grouped by location, then by category, then by individual product.
+
+If no transactions match your selected filters, the report will show **"No data available"** instead of an empty table.
+
+---
+
+### 15.5 Understanding the Report Structure
+
+The report is organized in three levels:
+
+1. **Report Header** — shows the report title, the date and time it was generated, and the selected period.
+2. **Location Section** — each warehouse location appears as its own block.
+3. **Category Section** — within each location, products are grouped by category.
+
+Each product row contains the following columns:
+
+| Column | What it shows |
+|---|---|
+| **SKU / Name** | The product's unique code and name |
+| **Starting Qty** | The stock on hand at the very beginning of the selected period |
+| **Inbound Qty** | Total stock received during the period (adjustments in, transfers in) |
+| **Outbound Qty** | Total stock dispatched during the period (adjustments out, transfers out) |
+| **System Qty** | What the system calculates as the closing balance: Starting + Inbound − Outbound |
+| **Physical Qty** | Blank — fill this in yourself when counting on the warehouse floor |
+| **Variance** | Blank — fill this in after counting: Physical Qty minus System Qty |
+
+> **Note:** Only **finalized** transactions are included. Requests that are still in Draft, Submitted, or Approved status are not reflected in these figures.
+
+---
+
+### 15.6 Performing a Stock Opname
+
+1. Generate and print the report (see Section 15.7).
+2. Take the printed report to the warehouse.
+3. Count the actual quantity of each product on the shelves.
+4. Write the counted quantity in the **Physical Qty** column.
+5. Calculate the difference and write it in the **Variance** column (Physical Qty minus System Qty).
+   - A positive variance means you have **more** stock than the system shows.
+   - A negative variance means you have **less** stock than the system shows.
+6. Investigate any variance before making corrections. Common causes include unrecorded deliveries, miscounts, damage write-offs, or data entry errors.
+
+> **Note:** The Variance column is filled in by hand after printing. The system does not calculate it automatically.
+
+---
+
+### 15.7 Printing or Exporting the Report
+
+1. Click **Print / Export PDF** in the report window.
+2. Your browser's print dialog will open.
+3. Choose an option:
+   - Select a **printer** to print on paper.
+   - Select **Save as PDF** to download a digital copy.
+
+The report layout is designed for **A4 paper**:
+- Each location starts on a new page, so sections do not split across location boundaries.
+- Column headers repeat at the top of every page, making multi-page reports easy to follow.
+
+> **Tip:** If you are saving a PDF for audit purposes, include the date in the filename so it is easy to find later.
+
+---
+
+### 15.8 Notes and Tips
+
+- **Only finalized data is shown.** Any request still in progress (Draft, Submitted, Approved) will not appear in the report. Run the report after all pending requests for the period have been resolved for the most accurate figures.
+- **Filter before you print.** If you only need to count one location or one product category, apply those filters first. A smaller, focused report is easier to work with on the warehouse floor.
+- **Large date ranges may take longer.** If your selected period spans many months or covers many locations, the preview may take a moment to generate.
+- **System Qty vs. Physical Qty.** System Qty is calculated from transaction records. Physical Qty is what you count. A zero variance means the two agree. Any variance requires investigation.
+- **Use the report regularly.** Periodic stock counts catch small discrepancies before they grow. Many operations run a full stock opname monthly and spot-checks on high-value items weekly.
+
+---
+
+---
+
+## 16. System Rules, Permissions, and Real-Time Behavior
+
+This section explains the rules the system enforces automatically, what each role can and cannot do, and how the real-time features work. Understanding these rules will help you know what to expect and avoid confusion when certain actions are unavailable.
+
+---
+
+### 16.1 Timeline Behavior
+
+The Activity Timeline on each request updates automatically. You do not need to refresh the page to see what other users are doing.
+
+Events appear in **newest-first** order. The timeline records:
+
+- Workflow actions — creating, submitting, approving, rejecting, cancelling, and finalizing a request
+- Comments — added, edited, or deleted
+- File activity — uploads and deletions
+
+All users viewing the same request see the same updates as they happen. The timeline always reflects real system activity — nothing is shown that did not actually occur.
+
+---
+
+### 16.2 Comment Rules
+
+**Adding comments**
+Any user with access to a request can add a comment while the request is still active (not yet finalized, rejected, or cancelled).
+
+**Editing comments**
+- Only the person who wrote the comment can edit it.
+- A comment can be edited a maximum of **3 times**.
+- Once the limit is reached, the edit option disappears permanently for that comment.
+- Edited comments show an **(edited)** indicator so other users know the message was changed.
+
+**Deleting comments**
+- Only the original author can delete their own comment.
+- Deleting a comment does not remove the entry from the timeline. The entry remains, but the message content is replaced with a placeholder. The **(edited)** indicator is also removed.
+
+---
+
+### 16.3 Attachment Rules
+
+**Uploading**
+Any user with access to the request can upload an attachment. An optional description can be added to explain what the file is.
+
+**Deleting**
+- Only the person who uploaded a file can delete it. Other users will not see a delete option for files they did not upload.
+- Administrators can delete any attachment regardless of who uploaded it.
+- The system will block deletion attempts by anyone who does not have permission.
+
+**What happens after deletion**
+- The file is permanently removed and cannot be recovered.
+- Users who are currently viewing the request will see a **"Attachment deleted"** event appear in the timeline in real time.
+- The file can no longer be downloaded.
+- If another user reloads the page after the deletion, the event will not appear in the timeline — the attachment will simply no longer be listed.
+
+---
+
+### 16.4 Workflow Status Rules
+
+Every request follows a fixed sequence of states. The system only allows transitions that are valid from the current state — you cannot skip steps or go backwards.
+
+**Adjustment workflow:**
+```
+Draft → Submitted → Approved → Finalized
+                 ↘ Rejected
+Draft or Approved → Cancelled
+```
+
+**Transfer workflow:**
+```
+Draft → Submitted → Origin Approved → Ready to Finalize → Finalized
+                 ↘ Rejected
+Submitted, Origin Approved, or Ready to Finalize → Cancelled
+```
+
+Key rules:
+
+- Approval actions (approve, reject) require a **Manager** role at the relevant location — or Admin access.
+- Finalization requires an **Operator** or **Manager** role at the relevant location — or Admin access.
+- Once a request is **Finalized**, the stock figures are locked and cannot be changed. There is no edit or undo for finalized requests.
+- Once a request is **Rejected** or **Cancelled**, it is closed. No further actions can be taken on it.
+
+---
+
+### 16.5 Real-Time Updates
+
+The system delivers updates automatically while you have a request page open. The following events appear without a manual refresh:
+
+- Status changes (submitted, approved, finalized, etc.)
+- New comments
+- File uploads
+
+You do not need to do anything — updates appear within a few seconds of the action occurring.
+
+**If updates are not appearing:**
+1. Check your network connection.
+2. Reload the page. This will show the current state of the request, even if live updates stopped arriving.
+
+> **Note:** Real-time updates are delivered per browser tab. If you have the same request open in two tabs, each tab receives updates independently.
+
+---
+
+### 16.6 Permissions Overview
+
+What you can do in the system depends on your role. The table below summarizes the main permission boundaries.
+
+| Action | Operator | Manager | Admin |
+|---|---|---|---|
+| Create a request | Yes | Yes | Yes |
+| Submit a request | Yes | Yes | Yes |
+| Approve or reject a request | No | Yes (own locations) | Yes |
+| Finalize a request | Yes (own locations) | Yes (own locations) | Yes |
+| Cancel a request | Yes (own, if not finalized) | Yes (own locations) | Yes |
+| Add a comment | Yes | Yes | Yes |
+| Edit or delete own comment | Yes | Yes | Yes |
+| Upload an attachment | Yes | Yes | Yes |
+| Delete own attachment | Yes | Yes | Yes |
+| Delete any attachment | No | No | Yes |
+| Access admin settings | No | No | Yes |
+
+> **Note:** "Own locations" means locations where you have been assigned a role. Users without a role at a location cannot view or act on requests for that location. Admins have access to all locations.
+
+---
+
+### 16.7 System Limitations and Practical Notes
+
+**Performance**
+- Reports or lists covering long date ranges or many locations may take a moment to load. Apply filters to narrow the scope if results are slow.
+
+**Irreversible actions**
+The following actions **cannot be undone**:
+- Finalizing a request — stock figures are locked
+- Deleting an attachment — the file is permanently removed
+- Rejecting or cancelling a request — the request is closed
+
+Think carefully before confirming these actions.
+
+**Missing data or actions**
+If something you expect to see is not visible:
+- Check whether an active filter is hiding results.
+- Confirm that you have the correct role at the relevant location.
+- Ask your Administrator if you believe your access is incomplete.
+
+**Connection dependency**
+Real-time updates and report generation both require an active connection to the server. If your connection is interrupted, reload the page to get the latest data.
+
+---
+
+*End of User Manual — Asset Management System v2.0*
+*Last updated: April 15, 2026*

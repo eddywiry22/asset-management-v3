@@ -164,7 +164,7 @@ with terminal states `REJECTED` and `CANCELLED` reachable from multiple points.
 
 ### 3.4 Stock Transfer Lifecycle
 
-A transfer request moves through: `DRAFT → SUBMITTED → ORIGIN_MANAGER_APPROVED → DESTINATION_OPERATOR_APPROVED (READY_TO_FINALIZE) → FINALIZED`
+A transfer request moves through: `DRAFT → SUBMITTED → ORIGIN_MANAGER_APPROVED → READY_TO_FINALIZE → FINALIZED`
 with terminal states `REJECTED` and `CANCELLED`.
 
 Each approval step is tied to a specific location role.
